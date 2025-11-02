@@ -1238,9 +1238,9 @@ const CompletePRSApp = () => {
             {captureStep === 'mark-shots' && selectedTargets.length > 0 && (
               <div className="space-y-6">
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <h3 className="font-medium text-yellow-900 mb-2">Mark Shot Holes</h3>
+                  <h3 className="font-medium text-yellow-900 mb-2">🎯 Adjust Target & Mark Shot Holes</h3>
                   <p className="text-sm text-yellow-800">
-                    Click on each shot hole. The system will automatically calculate group size and statistics.
+                    <strong>Drag the circle</strong> to reposition • <strong>Drag corner handles</strong> to resize • <strong>Click anywhere</strong> to mark shot holes
                   </p>
                 </div>
 
@@ -1249,41 +1249,24 @@ const CompletePRSApp = () => {
                     const currentX = target.adjustedX ?? target.x;
                     const currentY = target.adjustedY ?? target.y;
                     const currentRadius = target.adjustedRadius || target.radius;
-                    const cropSize = currentRadius * 6;
-                    const cropX = currentX - currentRadius * 3;
-                    const cropY = currentY - currentRadius * 3;
-                    
+                    const cropSize = currentRadius * 10; // Changed from 6x to 10x
+                    const cropX = currentX - currentRadius * 5; // Changed from 3x to 5x for centering
+                    const cropY = currentY - currentRadius * 5;
+
                     return (
                       <div key={target.id} className="bg-white rounded-lg shadow-sm p-4">
                         <div className="flex justify-between items-center mb-3">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-medium">Target {index + 1}</h4>
-                            {/* Confidence badge */}
-                            {target.confidence !== undefined && (
-                              <span
-                                className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                  target.confidence >= 0.8
-                                    ? 'bg-green-100 text-green-800'
-                                    : target.confidence >= 0.5
-                                    ? 'bg-yellow-100 text-yellow-800'
-                                    : 'bg-red-100 text-red-800'
-                                }`}
-                                title="Detection confidence - how accurately the target boundary was detected"
-                              >
-                                {(target.confidence * 100).toFixed(0)}% confidence
-                              </span>
-                            )}
-                          </div>
+                          <h4 className="font-medium text-lg">Target {index + 1}</h4>
                           <div className="flex items-center space-x-2">
                             {(target.adjustedX !== null || target.adjustedY !== null || target.adjustedRadius !== null) && (
-                              <span className="text-xs text-orange-600">Adjusted</span>
+                              <span className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">Adjusted</span>
                             )}
                             <button
                               onClick={() => {
-                                setSelectedTargets(prev => prev.map(t => 
-                                  t.id === target.id 
-                                    ? { 
-                                        ...t, 
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? {
+                                        ...t,
                                         adjustedX: null,
                                         adjustedY: null,
                                         adjustedRadius: null,
@@ -1292,245 +1275,235 @@ const CompletePRSApp = () => {
                                     : t
                                 ));
                               }}
-                              className="text-gray-600 hover:text-gray-700 text-xs"
+                              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
                             >
                               Reset
                             </button>
                           </div>
                         </div>
-                        
-                        <div className="mb-3 space-y-2">
-                          {/* Position adjustment controls */}
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-gray-600">Position Adjustment</span>
-                            <div className="flex items-center space-x-1">
-                              <button
-                                onClick={() => {
-                                  setSelectedTargets(prev => prev.map(t => 
-                                    t.id === target.id 
-                                      ? { ...t, adjustedY: currentY - 5 }
-                                      : t
-                                  ));
-                                }}
-                                className="w-6 h-6 bg-gray-100 hover:bg-gray-200 rounded flex items-center justify-center"
-                                title="Move up"
-                              >
-                                ↑
-                              </button>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-1">
-                              <button
-                                onClick={() => {
-                                  setSelectedTargets(prev => prev.map(t => 
-                                    t.id === target.id 
-                                      ? { ...t, adjustedX: currentX - 5 }
-                                      : t
-                                  ));
-                                }}
-                                className="w-6 h-6 bg-gray-100 hover:bg-gray-200 rounded flex items-center justify-center"
-                                title="Move left"
-                              >
-                                ←
-                              </button>
-                              <div className="w-16 text-center">
-                                <span className="text-xs text-gray-500">
-                                  {currentX.toFixed(0)}, {currentY.toFixed(0)}
-                                </span>
-                              </div>
-                              <button
-                                onClick={() => {
-                                  setSelectedTargets(prev => prev.map(t => 
-                                    t.id === target.id 
-                                      ? { ...t, adjustedX: currentX + 5 }
-                                      : t
-                                  ));
-                                }}
-                                className="w-6 h-6 bg-gray-100 hover:bg-gray-200 rounded flex items-center justify-center"
-                                title="Move right"
-                              >
-                                →
-                              </button>
-                            </div>
-                            <button
-                              onClick={() => {
-                                setSelectedTargets(prev => prev.map(t => 
-                                  t.id === target.id 
-                                    ? { ...t, adjustedY: currentY + 5 }
-                                    : t
-                                ));
-                              }}
-                              className="w-6 h-6 bg-gray-100 hover:bg-gray-200 rounded flex items-center justify-center"
-                              title="Move down"
-                            >
-                              ↓
-                            </button>
-                          </div>
-                          
-                          {/* Size adjustment controls */}
-                          <div className="flex items-center justify-between pt-2 border-t">
-                            <span className="text-xs text-gray-600">Size: {currentRadius.toFixed(1)}px</span>
-                            <div className="flex items-center space-x-2">
-                              <button
-                                onClick={() => {
-                                  const newRadius = currentRadius * 0.95;
-                                  const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
-                                  setSelectedTargets(prev => prev.map(t => 
-                                    t.id === target.id 
-                                      ? { 
-                                          ...t, 
-                                          adjustedRadius: newRadius,
-                                          pixelsPerInch: newPixelsPerInch
-                                        }
-                                      : t
-                                  ));
-                                }}
-                                className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs"
-                              >
-                                -5%
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const newRadius = currentRadius * 1.05;
-                                  const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
-                                  setSelectedTargets(prev => prev.map(t => 
-                                    t.id === target.id 
-                                      ? { 
-                                          ...t, 
-                                          adjustedRadius: newRadius,
-                                          pixelsPerInch: newPixelsPerInch
-                                        }
-                                      : t
-                                  ));
-                                }}
-                                className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs"
-                              >
-                                +5%
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const adjustment = prompt(
-                                    `Current radius: ${currentRadius.toFixed(1)}px\nEnter new radius in pixels:`,
-                                    currentRadius.toFixed(1)
-                                  );
-                                  if (adjustment && !isNaN(parseFloat(adjustment))) {
-                                    const newRadius = parseFloat(adjustment);
-                                    const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
-                                    setSelectedTargets(prev => prev.map(t => 
-                                      t.id === target.id 
-                                        ? { 
-                                            ...t, 
-                                            adjustedRadius: newRadius,
-                                            pixelsPerInch: newPixelsPerInch
-                                          }
-                                        : t
-                                    ));
-                                  }
-                                }}
-                                className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs"
-                              >
-                                Manual
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div 
-                          className="relative bg-gray-100 rounded-lg overflow-hidden mb-4 cursor-crosshair"
+
+                        <div
+                          className="relative bg-gray-100 rounded-lg overflow-hidden mb-4"
                           style={{ paddingBottom: '100%' }}
+                          onMouseDown={(e) => {
+                            // Check if clicking on a handle or circle
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const clickX = e.clientX - rect.left;
+                            const clickY = e.clientY - rect.top;
+                            const relativeX = clickX / rect.width;
+                            const relativeY = clickY / rect.height;
+
+                            // Convert to image coordinates
+                            const imageX = cropX + (relativeX * cropSize);
+                            const imageY = cropY + (relativeY * cropSize);
+
+                            // Check if clicking near circle center (for dragging circle)
+                            const distFromCenter = Math.sqrt(
+                              Math.pow(imageX - currentX, 2) + Math.pow(imageY - currentY, 2)
+                            );
+
+                            if (distFromCenter <= currentRadius * 0.8) {
+                              // Dragging circle
+                              setIsDragging(true);
+                              setDragTargetId(target.id);
+                              setDragStart({ x: imageX - currentX, y: imageY - currentY });
+                              e.preventDefault();
+                              return;
+                            }
+
+                            // Check if clicking on a resize handle
+                            const handleSize = currentRadius * 0.15;
+                            const handles = [
+                              { name: 'nw', x: currentX - currentRadius, y: currentY - currentRadius },
+                              { name: 'ne', x: currentX + currentRadius, y: currentY - currentRadius },
+                              { name: 'se', x: currentX + currentRadius, y: currentY + currentRadius },
+                              { name: 'sw', x: currentX - currentRadius, y: currentY + currentRadius }
+                            ];
+
+                            for (let handle of handles) {
+                              const distFromHandle = Math.sqrt(
+                                Math.pow(imageX - handle.x, 2) + Math.pow(imageY - handle.y, 2)
+                              );
+                              if (distFromHandle <= handleSize * 2) {
+                                setIsResizing(true);
+                                setDragTargetId(target.id);
+                                setResizeHandle(handle.name);
+                                setDragStart({ x: imageX, y: imageY, startRadius: currentRadius });
+                                e.preventDefault();
+                                return;
+                              }
+                            }
+                          }}
+                          onMouseMove={(e) => {
+                            if (!isDragging && !isResizing) return;
+                            if (dragTargetId !== target.id) return;
+
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const clickX = e.clientX - rect.left;
+                            const clickY = e.clientY - rect.top;
+                            const relativeX = clickX / rect.width;
+                            const relativeY = clickY / rect.height;
+
+                            const imageX = cropX + (relativeX * cropSize);
+                            const imageY = cropY + (relativeY * cropSize);
+
+                            if (isDragging) {
+                              // Update circle position
+                              const newX = imageX - dragStart.x;
+                              const newY = imageY - dragStart.y;
+
+                              setSelectedTargets(prev => prev.map(t =>
+                                t.id === target.id
+                                  ? { ...t, adjustedX: newX, adjustedY: newY }
+                                  : t
+                              ));
+                            } else if (isResizing) {
+                              // Calculate new radius based on distance from center
+                              const dx = imageX - currentX;
+                              const dy = imageY - currentY;
+                              const newRadius = Math.sqrt(dx * dx + dy * dy);
+                              const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
+
+                              setSelectedTargets(prev => prev.map(t =>
+                                t.id === target.id
+                                  ? {
+                                      ...t,
+                                      adjustedRadius: Math.max(10, newRadius),
+                                      pixelsPerInch: newPixelsPerInch
+                                    }
+                                  : t
+                              ));
+                            }
+                          }}
+                          onMouseUp={() => {
+                            setIsDragging(false);
+                            setIsResizing(false);
+                            setDragTargetId(null);
+                            setResizeHandle(null);
+                          }}
+                          onMouseLeave={() => {
+                            setIsDragging(false);
+                            setIsResizing(false);
+                            setDragTargetId(null);
+                            setResizeHandle(null);
+                          }}
                           onClick={(e) => {
+                            // Only mark shot if not dragging/resizing
+                            if (isDragging || isResizing) return;
+
                             const rect = e.currentTarget.getBoundingClientRect();
                             const relativeX = (e.clientX - rect.left) / rect.width;
                             const relativeY = (e.clientY - rect.top) / rect.height;
-                            
+
                             const shotX = cropX + (relativeX * cropSize);
                             const shotY = cropY + (relativeY * cropSize);
-                            
+
                             const newShot = {
                               id: Date.now(),
                               x: shotX,
                               y: shotY
                             };
-                            
-                            setSelectedTargets(prev => prev.map(t => 
-                              t.id === target.id 
+
+                            setSelectedTargets(prev => prev.map(t =>
+                              t.id === target.id
                                 ? { ...t, shots: [...t.shots, newShot] }
                                 : t
                             ));
                           }}
                         >
                           <div className="absolute inset-0">
-                            <img 
-                              src={uploadedImage} 
-                              alt={`Target ${index + 1}`} 
+                            <img
+                              src={uploadedImage}
+                              alt={`Target ${index + 1}`}
                               className="absolute"
                               style={{
                                 width: `${(target.imageWidth / cropSize) * 100}%`,
                                 height: `${(target.imageHeight / cropSize) * 100}%`,
                                 left: `${(-cropX / cropSize) * 100}%`,
                                 top: `${(-cropY / cropSize) * 100}%`,
-                                maxWidth: 'none'
+                                maxWidth: 'none',
+                                pointerEvents: 'none'
                               }}
                             />
-                            
-                            <svg 
-                              className="absolute inset-0 w-full h-full pointer-events-none"
+
+                            <svg
+                              className="absolute inset-0 w-full h-full"
                               viewBox={`0 0 ${cropSize} ${cropSize}`}
+                              style={{ pointerEvents: 'none' }}
                             >
-                              {/* Target circle */}
+                              {/* Target circle - draggable area */}
                               <circle
-                                cx={currentRadius * 3}
-                                cy={currentRadius * 3}
+                                cx={currentRadius * 5}
+                                cy={currentRadius * 5}
                                 r={currentRadius}
-                                fill="none"
+                                fill="rgba(34, 197, 94, 0.1)"
                                 stroke="#22c55e"
                                 strokeWidth="2"
+                                style={{
+                                  pointerEvents: 'all',
+                                  cursor: isDragging && dragTargetId === target.id ? 'grabbing' : 'grab'
+                                }}
                               />
-                              
-                              {/* Original detected circle for reference when adjusted */}
-                              {(target.adjustedRadius || target.adjustedX !== null || target.adjustedY !== null) && (
-                                <circle
-                                  cx={currentRadius * 3 + (target.x - currentX)}
-                                  cy={currentRadius * 3 + (target.y - currentY)}
-                                  r={target.radius}
-                                  fill="none"
-                                  stroke="#94a3b8"
-                                  strokeWidth="1"
-                                  strokeDasharray="4,4"
-                                  opacity="0.5"
-                                />
-                              )}
-                              
+
+                              {/* Corner resize handles */}
+                              {[
+                                { x: currentRadius * 5 - currentRadius, y: currentRadius * 5 - currentRadius, cursor: 'nwse-resize' }, // NW
+                                { x: currentRadius * 5 + currentRadius, y: currentRadius * 5 - currentRadius, cursor: 'nesw-resize' }, // NE
+                                { x: currentRadius * 5 + currentRadius, y: currentRadius * 5 + currentRadius, cursor: 'nwse-resize' }, // SE
+                                { x: currentRadius * 5 - currentRadius, y: currentRadius * 5 + currentRadius, cursor: 'nesw-resize' }  // SW
+                              ].map((handle, hi) => (
+                                <g key={hi}>
+                                  <rect
+                                    x={handle.x - 8}
+                                    y={handle.y - 8}
+                                    width="16"
+                                    height="16"
+                                    fill="white"
+                                    stroke="#22c55e"
+                                    strokeWidth="2"
+                                    style={{
+                                      pointerEvents: 'all',
+                                      cursor: handle.cursor
+                                    }}
+                                  />
+                                  <circle
+                                    cx={handle.x}
+                                    cy={handle.y}
+                                    r="3"
+                                    fill="#22c55e"
+                                    style={{ pointerEvents: 'none' }}
+                                  />
+                                </g>
+                              ))}
+
                               {/* Crosshair lines */}
                               <line
-                                x1={currentRadius * 3}
+                                x1={currentRadius * 5}
                                 y1={0}
-                                x2={currentRadius * 3}
+                                x2={currentRadius * 5}
                                 y2={cropSize}
                                 stroke="#22c55e"
                                 strokeWidth="0.5"
                                 strokeDasharray="2,2"
-                                opacity="0.5"
+                                opacity="0.3"
                               />
                               <line
                                 x1={0}
-                                y1={currentRadius * 3}
+                                y1={currentRadius * 5}
                                 x2={cropSize}
-                                y2={currentRadius * 3}
+                                y2={currentRadius * 5}
                                 stroke="#22c55e"
                                 strokeWidth="0.5"
                                 strokeDasharray="2,2"
-                                opacity="0.5"
+                                opacity="0.3"
                               />
-                              
+
                               {/* Shot markers */}
                               {target.shots.map((shot, shotIndex) => {
                                 const shotDisplayX = shot.x - cropX;
                                 const shotDisplayY = shot.y - cropY;
-                                
-                                if (shotDisplayX >= 0 && shotDisplayX <= cropSize && 
+
+                                if (shotDisplayX >= 0 && shotDisplayX <= cropSize &&
                                     shotDisplayY >= 0 && shotDisplayY <= cropSize) {
                                   return (
                                     <g key={shot.id}>
