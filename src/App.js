@@ -302,51 +302,146 @@ const CompletePRSApp = () => {
   };
 
   // Find orange circle using edge detection
-  const findOrangeCircle = (clickX, clickY, imageData, width, height) => {
-    const maxRadius = Math.min(width, height) / 4;
-    const samples = 32;
+  // Convert RGB to HSV for better color detection
+  const rgbToHsv = (r, g, b) => {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const diff = max - min;
+
+    let h = 0;
+    if (diff !== 0) {
+      if (max === r) {
+        h = 60 * (((g - b) / diff) % 6);
+      } else if (max === g) {
+        h = 60 * (((b - r) / diff) + 2);
+      } else {
+        h = 60 * (((r - g) / diff) + 4);
+      }
+    }
+    if (h < 0) h += 360;
+
+    const s = max === 0 ? 0 : diff / max;
+    const v = max;
+
+    return { h, s, v };
+  };
+
+  // Improved color detection supporting multiple target colors
+  const isTargetColor = (r, g, b, colorMode = 'orange') => {
+    const hsv = rgbToHsv(r, g, b);
+
+    // Orange detection (improved with HSV)
+    if (colorMode === 'orange') {
+      // Orange hue: 15-45 degrees, high saturation, medium-high value
+      return (
+        (hsv.h >= 10 && hsv.h <= 50) &&  // Orange hue range
+        hsv.s >= 0.3 &&                   // Minimum saturation (not too gray)
+        hsv.v >= 0.35                     // Minimum brightness (not too dark)
+      );
+    }
+
+    // Black/dark target detection
+    if (colorMode === 'black') {
+      return hsv.v < 0.3;  // Low brightness
+    }
+
+    // White target detection
+    if (colorMode === 'white') {
+      return hsv.v > 0.7 && hsv.s < 0.2;  // High brightness, low saturation
+    }
+
+    // Red detection (for alternative targets)
+    if (colorMode === 'red') {
+      return (
+        ((hsv.h >= 0 && hsv.h <= 15) || (hsv.h >= 345 && hsv.h <= 360)) &&
+        hsv.s >= 0.4 &&
+        hsv.v >= 0.3
+      );
+    }
+
+    return false;
+  };
+
+  const findOrangeCircle = (clickX, clickY, imageData, width, height, colorMode = 'orange') => {
+    const maxRadius = Math.min(width, height) / 3;  // Increased from 1/4 to 1/3
+    const samples = 64;  // Increased from 32 to 64 for better accuracy
     const radii = [];
-    
+
+    // Adaptive step size based on image resolution
+    const baseStepSize = Math.max(1, Math.floor(Math.min(width, height) / 1000));
+
     for (let i = 0; i < samples; i++) {
       const angle = (i / samples) * Math.PI * 2;
       const dx = Math.cos(angle);
       const dy = Math.sin(angle);
-      
-      let lastOrangeRadius = 0;
-      for (let r = 5; r < maxRadius; r += 2) {
+
+      let lastTargetRadius = 0;
+      let consecutiveNonTarget = 0;
+      const maxGap = 20;  // Increased tolerance for gaps
+
+      for (let r = 3; r < maxRadius; r += baseStepSize) {
         const x = Math.round(clickX + dx * r);
         const y = Math.round(clickY + dy * r);
-        
+
         if (x >= 0 && x < width && y >= 0 && y < height) {
           const idx = (y * width + x) * 4;
           const red = imageData.data[idx];
           const green = imageData.data[idx + 1];
           const blue = imageData.data[idx + 2];
-          
-          const isOrange = red > 180 && green > 50 && green < 180 && blue < 100 && red > green + 20;
-          
-          if (isOrange) {
-            lastOrangeRadius = r;
-          } else if (lastOrangeRadius > 0 && r - lastOrangeRadius > 10) {
-            break;
+
+          const isTarget = isTargetColor(red, green, blue, colorMode);
+
+          if (isTarget) {
+            lastTargetRadius = r;
+            consecutiveNonTarget = 0;
+          } else if (lastTargetRadius > 0) {
+            consecutiveNonTarget += baseStepSize;
+            if (consecutiveNonTarget > maxGap) {
+              break;  // Found edge
+            }
           }
         }
       }
-      
-      if (lastOrangeRadius > 10) {
-        radii.push(lastOrangeRadius);
+
+      // Lower minimum radius threshold
+      if (lastTargetRadius > 5) {
+        radii.push(lastTargetRadius);
       }
     }
-    
-    if (radii.length < samples / 2) {
+
+    // More lenient threshold: require 40% successful samples instead of 50%
+    if (radii.length < samples * 0.4) {
       return null;
     }
-    
+
+    // Calculate statistics for confidence
     radii.sort((a, b) => a - b);
-    const trimmed = radii.slice(Math.floor(radii.length * 0.2), Math.floor(radii.length * 0.8));
-    const avgRadius = trimmed.reduce((sum, r) => sum + r, 0) / trimmed.length;
-    
-    return avgRadius;
+    const median = radii[Math.floor(radii.length / 2)];
+    const mean = radii.reduce((sum, r) => sum + r, 0) / radii.length;
+
+    // Calculate standard deviation
+    const variance = radii.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / radii.length;
+    const stdDev = Math.sqrt(variance);
+
+    // Calculate confidence score (0-1)
+    const coefficientOfVariation = stdDev / mean;
+    const confidence = Math.max(0, Math.min(1, 1 - coefficientOfVariation));
+
+    // Use median instead of trimmed mean for better robustness
+    // But if confidence is high, use mean for precision
+    const finalRadius = confidence > 0.7 ? mean : median;
+
+    return {
+      radius: finalRadius,
+      confidence: confidence,
+      stdDev: stdDev,
+      sampleCount: radii.length,
+      allRadii: radii
+    };
   };
 
   // Handle target selection click
@@ -355,7 +450,7 @@ const CompletePRSApp = () => {
       alert('Please enter the target diameter first');
       return;
     }
-    
+
     const rect = e.currentTarget.getBoundingClientRect();
     const img = new Image();
     img.onload = () => {
@@ -364,23 +459,51 @@ const CompletePRSApp = () => {
       canvas.width = img.width;
       canvas.height = img.height;
       ctx.drawImage(img, 0, 0);
-      
+
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      
+
       const scaleX = img.width / rect.width;
       const scaleY = img.height / rect.height;
       const clickX = (e.clientX - rect.left) * scaleX;
       const clickY = (e.clientY - rect.top) * scaleY;
-      
-      const detectedRadius = findOrangeCircle(clickX, clickY, imageData, img.width, img.height);
-      
-      if (!detectedRadius) {
-        alert('No orange circle detected at this location. Try clicking closer to the center.');
+
+      // Try orange first, then fallback to other colors
+      let detectionResult = findOrangeCircle(clickX, clickY, imageData, img.width, img.height, 'orange');
+
+      if (!detectionResult) {
+        // Try red target
+        detectionResult = findOrangeCircle(clickX, clickY, imageData, img.width, img.height, 'red');
+      }
+
+      if (!detectionResult) {
+        // Try black target
+        detectionResult = findOrangeCircle(clickX, clickY, imageData, img.width, img.height, 'black');
+      }
+
+      if (!detectionResult) {
+        alert('No target detected at this location. Try clicking closer to the center of the target, or ensure the target is clearly visible and well-lit.');
         return;
       }
-      
+
+      // Show confidence warning for low-quality detections
+      if (detectionResult.confidence < 0.5) {
+        const proceed = window.confirm(
+          `Target detected with low confidence (${(detectionResult.confidence * 100).toFixed(0)}%).\n\n` +
+          `This may indicate:\n` +
+          `• Poor lighting or shadows\n` +
+          `• Target is damaged or faded\n` +
+          `• Non-circular target shape\n\n` +
+          `You can adjust the target manually after selection.\n\n` +
+          `Continue with this detection?`
+        );
+        if (!proceed) {
+          return;
+        }
+      }
+
+      const detectedRadius = detectionResult.radius;
       const pixelsPerInch = (detectedRadius * 2) / parseFloat(targetDiameter);
-      
+
       const newTarget = {
         id: Date.now(),
         x: clickX,
@@ -393,12 +516,21 @@ const CompletePRSApp = () => {
         imageHeight: img.height,
         adjustedX: null,
         adjustedY: null,
-        adjustedRadius: null
+        adjustedRadius: null,
+        // Store detection quality metrics
+        confidence: detectionResult.confidence,
+        detectionStdDev: detectionResult.stdDev,
+        sampleCount: detectionResult.sampleCount
       };
-      
+
       setSelectedTargets(prev => [...prev, newTarget]);
+
+      // Show success message with confidence
+      if (detectionResult.confidence >= 0.8) {
+        console.log(`Target detected with high confidence: ${(detectionResult.confidence * 100).toFixed(0)}%`);
+      }
     };
-    
+
     img.src = uploadedImage;
   };
 
@@ -1067,41 +1199,99 @@ const CompletePRSApp = () => {
                     {selectedTargets.map((target, index) => {
                       const scaleX = 100 / target.imageWidth;
                       const scaleY = 100 / target.imageHeight;
-                      
+
+                      // Color code based on confidence: green (high), yellow (medium), red (low)
+                      const confidence = target.confidence || 1.0;
+                      let confidenceColor = "#22c55e"; // Green (high confidence)
+                      if (confidence < 0.7) confidenceColor = "#eab308"; // Yellow (medium)
+                      if (confidence < 0.5) confidenceColor = "#ef4444"; // Red (low)
+
                       return (
                         <g key={target.id}>
+                          {/* Detected target boundary with confidence color */}
                           <circle
                             cx={`${(target.adjustedX ?? target.x) * scaleX}%`}
                             cy={`${(target.adjustedY ?? target.y) * scaleY}%`}
                             r={`${(target.adjustedRadius || target.radius) * scaleX}%`}
                             fill="none"
-                            stroke="#22c55e"
-                            strokeWidth="0.3"
+                            stroke={confidenceColor}
+                            strokeWidth="0.4"
                           />
+                          {/* Search area indicator */}
                           <circle
                             cx={`${(target.adjustedX ?? target.x) * scaleX}%`}
                             cy={`${(target.adjustedY ?? target.y) * scaleY}%`}
                             r={`${(target.adjustedRadius || target.radius) * 3 * scaleX}%`}
                             fill="none"
-                            stroke="#eab308"
-                            strokeWidth="0.2"
+                            stroke="#94a3b8"
+                            strokeWidth="0.15"
                             strokeDasharray="1,1"
+                            opacity="0.5"
                           />
+                          {/* Target label */}
                           <text
                             x={`${(target.adjustedX ?? target.x) * scaleX}%`}
                             y={`${((target.adjustedY ?? target.y) - (target.adjustedRadius || target.radius) * 3 - 10) * scaleY}%`}
-                            fill="#eab308"
+                            fill={confidenceColor}
                             fontSize={isMobile ? "1.5" : "2"}
                             textAnchor="middle"
                             fontWeight="bold"
                           >
                             Target {index + 1}
                           </text>
+                          {/* Confidence indicator badge */}
+                          {confidence < 0.8 && (
+                            <g>
+                              <rect
+                                x={`${((target.adjustedX ?? target.x) + (target.adjustedRadius || target.radius) * 1.2) * scaleX}%`}
+                                y={`${((target.adjustedY ?? target.y) - (target.adjustedRadius || target.radius) * 0.5) * scaleY}%`}
+                                width={isMobile ? "3" : "4"}
+                                height={isMobile ? "1.8" : "2.2"}
+                                fill={confidenceColor}
+                                opacity="0.9"
+                                rx="0.3"
+                              />
+                              <text
+                                x={`${((target.adjustedX ?? target.x) + (target.adjustedRadius || target.radius) * 1.2 + 15) * scaleX}%`}
+                                y={`${((target.adjustedY ?? target.y) - (target.adjustedRadius || target.radius) * 0.5 + 15) * scaleY}%`}
+                                fill="white"
+                                fontSize={isMobile ? "1.2" : "1.5"}
+                                textAnchor="middle"
+                                fontWeight="bold"
+                              >
+                                {(confidence * 100).toFixed(0)}%
+                              </text>
+                            </g>
+                          )}
                         </g>
                       );
                     })}
                   </svg>
                 </div>
+
+                {/* Detection Confidence Legend */}
+                {selectedTargets.length > 0 && (
+                  <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs font-medium text-blue-900 mb-2">Detection Quality:</p>
+                    <div className="flex flex-wrap gap-3 text-xs">
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 rounded-full bg-green-500 mr-1.5"></div>
+                        <span className="text-gray-700">High (80%+)</span>
+                      </div>
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 rounded-full bg-yellow-500 mr-1.5"></div>
+                        <span className="text-gray-700">Medium (50-80%)</span>
+                      </div>
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 rounded-full bg-red-500 mr-1.5"></div>
+                        <span className="text-gray-700">Low (&lt;50%)</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-2">
+                      Low confidence? Adjust target position and size manually in the next step.
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex justify-between items-center">
                   <div className="text-sm text-gray-600">
@@ -1161,7 +1351,24 @@ const CompletePRSApp = () => {
                     return (
                       <div key={target.id} className="bg-white rounded-lg shadow-sm p-4">
                         <div className="flex justify-between items-center mb-3">
-                          <h4 className="font-medium">Target {index + 1}</h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium">Target {index + 1}</h4>
+                            {/* Confidence badge */}
+                            {target.confidence !== undefined && (
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                  target.confidence >= 0.8
+                                    ? 'bg-green-100 text-green-800'
+                                    : target.confidence >= 0.5
+                                    ? 'bg-yellow-100 text-yellow-800'
+                                    : 'bg-red-100 text-red-800'
+                                }`}
+                                title="Detection confidence - how accurately the target boundary was detected"
+                              >
+                                {(target.confidence * 100).toFixed(0)}% confidence
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center space-x-2">
                             {(target.adjustedX !== null || target.adjustedY !== null || target.adjustedRadius !== null) && (
                               <span className="text-xs text-orange-600">Adjusted</span>
