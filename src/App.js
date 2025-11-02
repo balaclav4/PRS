@@ -34,11 +34,12 @@ const CompletePRSApp = () => {
   const [selectedTargets, setSelectedTargets] = useState([]);
   const [currentEditingTarget, setCurrentEditingTarget] = useState(null);
 
-  // Manual selection mode state
-  const [selectionMode, setSelectionMode] = useState('auto'); // 'auto' or 'manual'
-  const [manualSelectionStep, setManualSelectionStep] = useState(0); // 0: waiting, 1: center clicked, 2: edge clicked
-  const [manualCenter, setManualCenter] = useState(null);
-  const [manualEdge, setManualEdge] = useState(null);
+  // Drag and resize state for visual target adjustment
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [dragTargetId, setDragTargetId] = useState(null);
+  const [resizeHandle, setResizeHandle] = useState(null); // 'nw', 'ne', 'se', 'sw'
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [sessionData, setSessionData] = useState({
     name: '',
     date: new Date().toISOString().split('T')[0],
@@ -450,7 +451,7 @@ const CompletePRSApp = () => {
     };
   };
 
-  // Handle target selection click (auto and manual modes)
+  // Handle target selection click - SIMPLIFIED: just place numbered markers
   const handleTargetClick = (e) => {
     if (!targetDiameter || parseFloat(targetDiameter) <= 0) {
       alert('Please enter the target diameter first');
@@ -458,128 +459,20 @@ const CompletePRSApp = () => {
     }
 
     const rect = e.currentTarget.getBoundingClientRect();
-    const scaleX = rect.naturalWidth ? rect.naturalWidth / rect.width : 1;
-    const scaleY = rect.naturalHeight ? rect.naturalHeight / rect.height : 1;
-    const clickX = (e.clientX - rect.left) * scaleX;
-    const clickY = (e.clientY - rect.top) * scaleY;
-
-    // MANUAL MODE: Two-click selection
-    if (selectionMode === 'manual') {
-      const img = new Image();
-      img.onload = () => {
-        const adjustedClickX = (e.clientX - rect.left) * (img.width / rect.width);
-        const adjustedClickY = (e.clientY - rect.top) * (img.height / rect.height);
-
-        if (manualSelectionStep === 0) {
-          // First click: Set center
-          setManualCenter({ x: adjustedClickX, y: adjustedClickY });
-          setManualSelectionStep(1);
-        } else if (manualSelectionStep === 1) {
-          // Second click: Set radius and create target
-          const radius = Math.sqrt(
-            Math.pow(adjustedClickX - manualCenter.x, 2) +
-            Math.pow(adjustedClickY - manualCenter.y, 2)
-          );
-
-          const pixelsPerInch = (radius * 2) / parseFloat(targetDiameter);
-
-          const newTarget = {
-            id: Date.now(),
-            x: manualCenter.x,
-            y: manualCenter.y,
-            radius: radius,
-            diameterInches: parseFloat(targetDiameter),
-            pixelsPerInch: pixelsPerInch,
-            shots: [],
-            imageWidth: img.width,
-            imageHeight: img.height,
-            adjustedX: null,
-            adjustedY: null,
-            adjustedRadius: null,
-            confidence: 1.0, // Manual selection = perfect confidence
-            detectionStdDev: 0,
-            sampleCount: 2,
-            manualSelection: true
-          };
-
-          setSelectedTargets(prev => [...prev, newTarget]);
-
-          // Reset manual selection
-          setManualSelectionStep(0);
-          setManualCenter(null);
-          setManualEdge(null);
-        }
-      };
-      img.src = uploadedImage;
-      return;
-    }
-
-    // AUTO MODE: AI detection
     const img = new Image();
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
+      const clickX = (e.clientX - rect.left) * (img.width / rect.width);
+      const clickY = (e.clientY - rect.top) * (img.height / rect.height);
 
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-      const adjustedClickX = (e.clientX - rect.left) * (img.width / rect.width);
-      const adjustedClickY = (e.clientY - rect.top) * (img.height / rect.height);
-
-      // Try orange first, then fallback to other colors
-      let detectionResult = findOrangeCircle(adjustedClickX, adjustedClickY, imageData, img.width, img.height, 'orange');
-
-      if (!detectionResult) {
-        detectionResult = findOrangeCircle(adjustedClickX, adjustedClickY, imageData, img.width, img.height, 'red');
-      }
-
-      if (!detectionResult) {
-        detectionResult = findOrangeCircle(adjustedClickX, adjustedClickY, imageData, img.width, img.height, 'black');
-      }
-
-      if (!detectionResult) {
-        const tryManual = window.confirm(
-          'No target detected at this location.\n\n' +
-          'Would you like to switch to Manual Mode?\n\n' +
-          'In Manual Mode:\n' +
-          '• Click 1: Center of target\n' +
-          '• Click 2: Edge of target\n\n' +
-          'This gives you perfect control!'
-        );
-        if (tryManual) {
-          setSelectionMode('manual');
-        }
-        return;
-      }
-
-      // Show confidence warning for low-quality detections
-      if (detectionResult.confidence < 0.5) {
-        const proceed = window.confirm(
-          `Target detected with LOW confidence (${(detectionResult.confidence * 100).toFixed(0)}%).\n\n` +
-          `This may indicate:\n` +
-          `• Poor lighting or shadows\n` +
-          `• Target is damaged or faded\n` +
-          `• Non-circular target shape\n\n` +
-          `Options:\n` +
-          `• OK = Use this detection (you can adjust later)\n` +
-          `• Cancel = Switch to Manual Mode for perfect selection`
-        );
-        if (!proceed) {
-          setSelectionMode('manual');
-          return;
-        }
-      }
-
-      const detectedRadius = detectionResult.radius;
-      const pixelsPerInch = (detectedRadius * 2) / parseFloat(targetDiameter);
+      // Create target with estimated circle (user will drag/resize on next screen)
+      const estimatedRadius = (img.width / 15); // Rough estimate, user adjusts visually
+      const pixelsPerInch = (estimatedRadius * 2) / parseFloat(targetDiameter);
 
       const newTarget = {
         id: Date.now(),
-        x: adjustedClickX,
-        y: adjustedClickY,
-        radius: detectedRadius,
+        x: clickX,
+        y: clickY,
+        radius: estimatedRadius,
         diameterInches: parseFloat(targetDiameter),
         pixelsPerInch: pixelsPerInch,
         shots: [],
@@ -587,18 +480,10 @@ const CompletePRSApp = () => {
         imageHeight: img.height,
         adjustedX: null,
         adjustedY: null,
-        adjustedRadius: null,
-        confidence: detectionResult.confidence,
-        detectionStdDev: detectionResult.stdDev,
-        sampleCount: detectionResult.sampleCount,
-        manualSelection: false
+        adjustedRadius: null
       };
 
       setSelectedTargets(prev => [...prev, newTarget]);
-
-      if (detectionResult.confidence >= 0.8) {
-        console.log(`Target detected with high confidence: ${(detectionResult.confidence * 100).toFixed(0)}%`);
-      }
     };
 
     img.src = uploadedImage;
@@ -1246,48 +1131,15 @@ const CompletePRSApp = () => {
 
             {captureStep === 'select-targets' && uploadedImage && (
               <div className="space-y-6">
-                {/* Mode Selection and Instructions */}
-                <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <h3 className="font-medium text-blue-900 mb-1">
-                        {selectionMode === 'auto' ? '🤖 Auto Detection Mode' : '✋ Manual Selection Mode'}
-                      </h3>
-                      {selectionMode === 'auto' ? (
-                        <p className="text-sm text-blue-800">
-                          Click on the center of each target. AI will detect the boundary automatically.
-                        </p>
-                      ) : (
-                        <div className="text-sm text-purple-800 space-y-1">
-                          <p className="font-medium">
-                            {manualSelectionStep === 0 && '📍 Step 1: Click the CENTER of the target'}
-                            {manualSelectionStep === 1 && '⭕ Step 2: Click the EDGE of the target'}
-                          </p>
-                          <p className="text-xs">Perfect for damaged, faded, or non-standard targets</p>
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => {
-                        setSelectionMode(selectionMode === 'auto' ? 'manual' : 'auto');
-                        setManualSelectionStep(0);
-                        setManualCenter(null);
-                      }}
-                      className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                        selectionMode === 'manual'
-                          ? 'bg-purple-600 text-white hover:bg-purple-700'
-                          : 'bg-blue-600 text-white hover:bg-blue-700'
-                      }`}
-                    >
-                      {selectionMode === 'auto' ? 'Switch to Manual' : 'Switch to Auto'}
-                    </button>
-                  </div>
-
-                  {selectionMode === 'manual' && manualSelectionStep === 1 && (
-                    <div className="mt-2 p-2 bg-purple-100 rounded text-xs text-purple-900">
-                      ✓ Center set! Now click anywhere on the target edge to set the radius.
-                    </div>
-                  )}
+                {/* Simple Instructions */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h3 className="font-medium text-blue-900 mb-2">📍 Mark Target Locations</h3>
+                  <p className="text-sm text-blue-800">
+                    Click on each target to mark its location. They'll be numbered 1, 2, 3, etc.
+                  </p>
+                  <p className="text-xs text-blue-600 mt-2">
+                    💡 Don't worry about perfect sizing - you'll adjust that on the next screen with drag handles!
+                  </p>
                 </div>
 
                 <div className="relative bg-white rounded-lg shadow-sm overflow-hidden">
@@ -1303,145 +1155,45 @@ const CompletePRSApp = () => {
                     viewBox="0 0 100 100"
                     preserveAspectRatio="none"
                   >
-                    {/* Show manual selection center point */}
-                    {selectionMode === 'manual' && manualCenter && uploadedImage && (() => {
-                      const img = new Image();
-                      img.src = uploadedImage;
-                      const scaleX = 100 / img.width;
-                      const scaleY = 100 / img.height;
-                      return (
-                        <g>
-                          {/* Center crosshair */}
-                          <circle
-                            cx={`${manualCenter.x * scaleX}%`}
-                            cy={`${manualCenter.y * scaleY}%`}
-                            r="1"
-                            fill="#8b5cf6"
-                            opacity="0.8"
-                          />
-                          <line
-                            x1={`${(manualCenter.x - 20) * scaleX}%`}
-                            y1={`${manualCenter.y * scaleY}%`}
-                            x2={`${(manualCenter.x + 20) * scaleX}%`}
-                            y2={`${manualCenter.y * scaleY}%`}
-                            stroke="#8b5cf6"
-                            strokeWidth="0.3"
-                          />
-                          <line
-                            x1={`${manualCenter.x * scaleX}%`}
-                            y1={`${(manualCenter.y - 20) * scaleY}%`}
-                            x2={`${manualCenter.x * scaleX}%`}
-                            y2={`${(manualCenter.y + 20) * scaleY}%`}
-                            stroke="#8b5cf6"
-                            strokeWidth="0.3"
-                          />
-                        </g>
-                      );
-                    })()}
-
                     {selectedTargets.map((target, index) => {
                       const scaleX = 100 / target.imageWidth;
                       const scaleY = 100 / target.imageHeight;
 
-                      // Manual selections = purple, Auto = confidence-based colors
-                      const isManual = target.manualSelection;
-                      const confidence = target.confidence || 1.0;
-                      let confidenceColor = isManual ? "#8b5cf6" : "#22c55e"; // Purple for manual, green for auto
-                      if (!isManual) {
-                        if (confidence < 0.7) confidenceColor = "#eab308"; // Yellow (medium)
-                        if (confidence < 0.5) confidenceColor = "#ef4444"; // Red (low)
-                      }
-
                       return (
                         <g key={target.id}>
-                          {/* Target boundary with confidence/manual color */}
+                          {/* Simple numbered marker */}
                           <circle
-                            cx={`${(target.adjustedX ?? target.x) * scaleX}%`}
-                            cy={`${(target.adjustedY ?? target.y) * scaleY}%`}
-                            r={`${(target.adjustedRadius || target.radius) * scaleX}%`}
-                            fill="none"
-                            stroke={confidenceColor}
-                            strokeWidth={isManual ? "0.5" : "0.4"}
-                            strokeDasharray={isManual ? "2,1" : "none"}
+                            cx={`${target.x * scaleX}%`}
+                            cy={`${target.y * scaleY}%`}
+                            r="2"
+                            fill="#3b82f6"
+                            opacity="0.7"
                           />
-                          {/* Search area indicator */}
-                          {!isManual && (
-                            <circle
-                              cx={`${(target.adjustedX ?? target.x) * scaleX}%`}
-                              cy={`${(target.adjustedY ?? target.y) * scaleY}%`}
-                              r={`${(target.adjustedRadius || target.radius) * 3 * scaleX}%`}
-                              fill="none"
-                              stroke="#94a3b8"
-                              strokeWidth="0.15"
-                              strokeDasharray="1,1"
-                              opacity="0.5"
-                            />
-                          )}
-                          {/* Target label */}
+                          {/* Number label */}
                           <text
-                            x={`${(target.adjustedX ?? target.x) * scaleX}%`}
-                            y={`${((target.adjustedY ?? target.y) - (target.adjustedRadius || target.radius) * 3 - 10) * scaleY}%`}
-                            fill={confidenceColor}
-                            fontSize={isMobile ? "1.5" : "2"}
+                            x={`${target.x * scaleX}%`}
+                            y={`${(target.y - 30) * scaleY}%`}
+                            fill="#3b82f6"
+                            fontSize={isMobile ? "3" : "4"}
                             textAnchor="middle"
                             fontWeight="bold"
+                            stroke="white"
+                            strokeWidth="0.5"
                           >
-                            Target {index + 1}
+                            {index + 1}
                           </text>
-                          {/* Manual/Confidence indicator badge */}
-                          {(isManual || confidence < 0.8) && (
-                            <g>
-                              <rect
-                                x={`${((target.adjustedX ?? target.x) + (target.adjustedRadius || target.radius) * 1.2) * scaleX}%`}
-                                y={`${((target.adjustedY ?? target.y) - (target.adjustedRadius || target.radius) * 0.5) * scaleY}%`}
-                                width={isMobile ? "3" : "4"}
-                                height={isMobile ? "1.8" : "2.2"}
-                                fill={confidenceColor}
-                                opacity="0.9"
-                                rx="0.3"
-                              />
-                              <text
-                                x={`${((target.adjustedX ?? target.x) + (target.adjustedRadius || target.radius) * 1.2 + 15) * scaleX}%`}
-                                y={`${((target.adjustedY ?? target.y) - (target.adjustedRadius || target.radius) * 0.5 + 15) * scaleY}%`}
-                                fill="white"
-                                fontSize={isMobile ? "1.0" : "1.3"}
-                                textAnchor="middle"
-                                fontWeight="bold"
-                              >
-                                {isManual ? 'MANUAL' : `${(confidence * 100).toFixed(0)}%`}
-                              </text>
-                            </g>
-                          )}
                         </g>
                       );
                     })}
                   </svg>
                 </div>
 
-                {/* Detection Quality Legend */}
-                {selectedTargets.length > 0 && (
-                  <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <p className="text-xs font-medium text-blue-900 mb-2">Target Indicators:</p>
-                    <div className="flex flex-wrap gap-3 text-xs">
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 rounded-full bg-purple-600 mr-1.5"></div>
-                        <span className="text-gray-700 font-medium">Manual (Perfect)</span>
-                      </div>
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 rounded-full bg-green-500 mr-1.5"></div>
-                        <span className="text-gray-700">Auto High (80%+)</span>
-                      </div>
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 rounded-full bg-yellow-500 mr-1.5"></div>
-                        <span className="text-gray-700">Auto Med (50-80%)</span>
-                      </div>
-                      <div className="flex items-center">
-                        <div className="w-3 h-3 rounded-full bg-red-500 mr-1.5"></div>
-                        <span className="text-gray-700">Auto Low (&lt;50%)</span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-600 mt-2">
-                      💡 Tip: Use Manual Mode for faded, damaged, or difficult targets. You can also adjust any target in the next step.
+                  <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                    <p className="text-sm text-green-900">
+                      ✅ {selectedTargets.length} target{selectedTargets.length !== 1 ? 's' : ''} marked
+                    </p>
+                    <p className="text-xs text-green-700 mt-1">
+                      Next step: Adjust size and position with visual drag handles
                     </p>
                   </div>
                 )}
