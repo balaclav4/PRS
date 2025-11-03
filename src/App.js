@@ -23,11 +23,17 @@ import {
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
 import Auth from './components/Auth';
+import {
+  addSession, getSessions,
+  addRifle, getRifles,
+  addLoad, getLoads
+} from './services/firestore';
 
 const CompletePRSApp = () => {
   // Authentication state
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
 
   // State management - using in-memory storage with persistence structure
   const [activeTab, setActiveTab] = useState('home');
@@ -110,6 +116,44 @@ const CompletePRSApp = () => {
     return () => unsubscribe();
   }, []);
 
+  // Load user data when logged in
+  useEffect(() => {
+    if (user) {
+      loadUserData();
+    } else {
+      // Clear data when logged out
+      setSessions([]);
+      setEquipment({ rifles: [], loads: [] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // Load all user data from Firestore
+  const loadUserData = async () => {
+    if (!user) return;
+
+    setDataLoading(true);
+    try {
+      // Load sessions, rifles, and loads in parallel
+      const [sessionsData, riflesData, loadsData] = await Promise.all([
+        getSessions(user.uid),
+        getRifles(user.uid),
+        getLoads(user.uid)
+      ]);
+
+      setSessions(sessionsData);
+      setEquipment({
+        rifles: riflesData,
+        loads: loadsData
+      });
+    } catch (error) {
+      console.error('Error loading user data:', error);
+      alert('Failed to load your data. Please refresh the page.');
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
   // Check for mobile device
   useEffect(() => {
     const checkMobile = () => {
@@ -135,34 +179,7 @@ const CompletePRSApp = () => {
     setDarkMode(prev => !prev);
   };
 
-  // Data persistence endpoints (placeholder for iOS app integration)
-  const dataEndpoints = {
-    saveSession: async (session) => {
-      // POST /api/sessions
-      console.log('Saving session:', session);
-      return { success: true, id: session.id };
-    },
-    loadSessions: async () => {
-      // GET /api/sessions
-      console.log('Loading sessions');
-      return { sessions: [] };
-    },
-    saveEquipment: async (equipment) => {
-      // POST /api/equipment
-      console.log('Saving equipment:', equipment);
-      return { success: true };
-    },
-    loadEquipment: async () => {
-      // GET /api/equipment
-      console.log('Loading equipment');
-      return { rifles: [], loads: [] };
-    },
-    exportData: async (format) => {
-      // GET /api/export?format=csv
-      console.log('Exporting data:', format);
-      return { url: '' };
-    }
-  };
+  // Note: All data persistence now handled by Firestore service layer
 
   // Parse chrono data from string or file
   const parseChronoData = (data) => {
@@ -586,52 +603,66 @@ const CompletePRSApp = () => {
 
   // Save session
   const saveSession = async () => {
-    const targetsWithStats = selectedTargets.map(target => {
-      const finalX = target.adjustedX ?? target.x;
-      const finalY = target.adjustedY ?? target.y;
-      const finalRadius = target.adjustedRadius || target.radius;
-      
-      return {
-        ...target,
-        x: finalX,
-        y: finalY,
-        radius: finalRadius,
-        stats: calculateGroupStats(target.shots, finalX, finalY, target.pixelsPerInch)
-      };
-    });
-    
-    const newSession = {
-      id: Date.now(),
-      ...sessionData,
-      targets: targetsWithStats,
-      image: uploadedImage
-    };
-    
-    setSessions(prev => [...prev, newSession]);
-    
-    // Call save endpoint
-    await dataEndpoints.saveSession(newSession);
-    
-    // Reset capture state
-    setCaptureStep('upload');
-    setUploadedImage(null);
-    setSelectedTargets([]);
-    setTargetDiameter('');
-    setSessionData({
-      name: '',
-      date: new Date().toISOString().split('T')[0],
-      rifle: '',
-      load: '',
-      distance: 100,
-      temperature: 70,
-      humidity: 50,
-      windSpeed: 0,
-      windDirection: '12',
-      pressure: 29.92,
-      chronoData: null
-    });
+    if (!user) {
+      alert('You must be logged in to save sessions');
+      return;
+    }
 
-    setActiveTab('analytics');
+    try {
+      const targetsWithStats = selectedTargets.map(target => {
+        const finalX = target.adjustedX ?? target.x;
+        const finalY = target.adjustedY ?? target.y;
+        const finalRadius = target.adjustedRadius || target.radius;
+
+        return {
+          ...target,
+          x: finalX,
+          y: finalY,
+          radius: finalRadius,
+          stats: calculateGroupStats(target.shots, finalX, finalY, target.pixelsPerInch)
+        };
+      });
+
+      const sessionToSave = {
+        ...sessionData,
+        targets: targetsWithStats,
+        image: uploadedImage
+      };
+
+      // Save to Firestore
+      const sessionId = await addSession(user.uid, sessionToSave);
+
+      // Update local state with new session
+      const newSession = {
+        id: sessionId,
+        ...sessionToSave
+      };
+      setSessions(prev => [...prev, newSession]);
+
+      // Reset capture state
+      setCaptureStep('upload');
+      setUploadedImage(null);
+      setSelectedTargets([]);
+      setTargetDiameter('');
+      setSessionData({
+        name: '',
+        date: new Date().toISOString().split('T')[0],
+        rifle: '',
+        load: '',
+        distance: 100,
+        temperature: 70,
+        humidity: 50,
+        windSpeed: 0,
+        windDirection: '12',
+        pressure: 29.92,
+        chronoData: null
+      });
+
+      setActiveTab('analytics');
+    } catch (error) {
+      console.error('Error saving session:', error);
+      alert('Failed to save session. Please try again.');
+    }
   };
 
   // Generate analytics report
@@ -842,21 +873,7 @@ const CompletePRSApp = () => {
     </div>
   );
 
-  // Initialize some sample data
-  useEffect(() => {
-    if (equipment.rifles.length === 0) {
-      setEquipment({
-        rifles: [
-          { name: 'Custom 6.5 Creedmoor', caliber: '6.5 Creedmoor', barrel: '26"', twist: '1:8', scope: 'Nightforce ATACR 5-25x56' },
-          { name: 'Remington 700 .308', caliber: '.308 Winchester', barrel: '24"', twist: '1:10', scope: 'Vortex Razor HD 4.5-27x56' }
-        ],
-        loads: [
-          { name: '6.5CM - 140gr ELD-M', caliber: '6.5 Creedmoor', bullet: 'Hornady ELD-M', bulletWeight: '140gr', powder: 'H4350', charge: '41.5gr', primer: 'CCI BR-2', brass: 'Lapua', oal: '2.800"', cbto: '2.230"' },
-          { name: '.308 - 175gr SMK', caliber: '.308 Winchester', bullet: 'Sierra MatchKing', bulletWeight: '175gr', powder: 'Varget', charge: '44.0gr', primer: 'Federal 210M', brass: 'Lapua', oal: '2.810"', cbto: '2.240"' }
-        ]
-      });
-    }
-  }, [equipment.rifles.length]);
+  // Note: Sample data removed - users now create their own equipment in Firestore
 
   // Show loading state while checking auth
   if (authLoading) {
@@ -865,6 +882,21 @@ const CompletePRSApp = () => {
         <div className="text-center">
           <Target className="h-16 w-16 text-blue-600 dark:text-blue-400 mx-auto mb-4 animate-pulse" />
           <p className="text-gray-600 dark:text-gray-300">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state while fetching user data
+  if (dataLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
+        <Navigation />
+        <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 64px)' }}>
+          <div className="text-center">
+            <Target className="h-16 w-16 text-blue-600 dark:text-blue-400 mx-auto mb-4 animate-pulse" />
+            <p className="text-gray-600 dark:text-gray-300">Loading your data...</p>
+          </div>
         </div>
       </div>
     );
@@ -2340,14 +2372,23 @@ const CompletePRSApp = () => {
                       alert('Please fill in required fields');
                       return;
                     }
-                    const updatedEquipment = {
-                      ...equipment,
-                      rifles: [...equipment.rifles, newRifle]
-                    };
-                    setEquipment(updatedEquipment);
-                    await dataEndpoints.saveEquipment(updatedEquipment);
-                    setShowAddRifle(false);
-                    setNewRifle({ name: '', caliber: '', barrel: '', twist: '', scope: '' });
+                    try {
+                      // Save to Firestore
+                      const rifleId = await addRifle(user.uid, newRifle);
+
+                      // Update local state
+                      const rifleWithId = { id: rifleId, ...newRifle };
+                      setEquipment(prev => ({
+                        ...prev,
+                        rifles: [...prev.rifles, rifleWithId]
+                      }));
+
+                      setShowAddRifle(false);
+                      setNewRifle({ name: '', caliber: '', barrel: '', twist: '', scope: '' });
+                    } catch (error) {
+                      console.error('Error adding rifle:', error);
+                      alert('Failed to add rifle. Please try again.');
+                    }
                   }}
                   className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
                 >
@@ -2484,17 +2525,26 @@ const CompletePRSApp = () => {
                       alert('Please fill in required fields');
                       return;
                     }
-                    const updatedEquipment = {
-                      ...equipment,
-                      loads: [...equipment.loads, newLoad]
-                    };
-                    setEquipment(updatedEquipment);
-                    await dataEndpoints.saveEquipment(updatedEquipment);
-                    setShowAddLoad(false);
-                    setNewLoad({
-                      name: '', caliber: '', bullet: '', bulletWeight: '',
-                      powder: '', charge: '', primer: '', brass: '', oal: '', cbto: ''
-                    });
+                    try {
+                      // Save to Firestore
+                      const loadId = await addLoad(user.uid, newLoad);
+
+                      // Update local state
+                      const loadWithId = { id: loadId, ...newLoad };
+                      setEquipment(prev => ({
+                        ...prev,
+                        loads: [...prev.loads, loadWithId]
+                      }));
+
+                      setShowAddLoad(false);
+                      setNewLoad({
+                        name: '', caliber: '', bullet: '', bulletWeight: '',
+                        powder: '', charge: '', primer: '', brass: '', oal: '', cbto: ''
+                      });
+                    } catch (error) {
+                      console.error('Error adding load:', error);
+                      alert('Failed to add load. Please try again.');
+                    }
                   }}
                   className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
                 >
