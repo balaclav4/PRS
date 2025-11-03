@@ -1452,6 +1452,16 @@ const CompletePRSApp = () => {
                             if (!isDragging && !isResizing) return;
                             if (dragTargetId !== target.id) return;
 
+                            // Capture event data immediately (event object becomes stale in async callbacks)
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const clickX = e.clientX - rect.left;
+                            const clickY = e.clientY - rect.top;
+                            const relativeX = clickX / rect.width;
+                            const relativeY = clickY / rect.height;
+
+                            const imageX = cropX + (relativeX * cropSize);
+                            const imageY = cropY + (relativeY * cropSize);
+
                             // Cancel previous frame update if still pending
                             if (dragUpdateRef.current) {
                               cancelAnimationFrame(dragUpdateRef.current);
@@ -1459,15 +1469,6 @@ const CompletePRSApp = () => {
 
                             // Use requestAnimationFrame for smooth, throttled updates
                             dragUpdateRef.current = requestAnimationFrame(() => {
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              const clickX = e.clientX - rect.left;
-                              const clickY = e.clientY - rect.top;
-                              const relativeX = clickX / rect.width;
-                              const relativeY = clickY / rect.height;
-
-                              const imageX = cropX + (relativeX * cropSize);
-                              const imageY = cropY + (relativeY * cropSize);
-
                               if (isDragging) {
                                 // Update circle position
                                 const newX = imageX - dragStart.x;
