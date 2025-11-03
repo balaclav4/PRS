@@ -626,11 +626,11 @@ const CompletePRSApp = () => {
 
       const sessionToSave = {
         ...sessionData,
-        targets: targetsWithStats,
-        image: uploadedImage
+        targets: targetsWithStats
+        // Note: Image not saved - only needed during capture, not for historical reference
       };
 
-      // Save to Firestore
+      // Save to Firestore (without image - keeps documents small and free)
       const sessionId = await addSession(user.uid, sessionToSave);
 
       // Update local state with new session

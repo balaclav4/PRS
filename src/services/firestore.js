@@ -10,37 +10,7 @@ import {
   orderBy,
   serverTimestamp
 } from 'firebase/firestore';
-import { ref, uploadString, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../firebase';
-
-// ============================================================================
-// IMAGE STORAGE
-// ============================================================================
-
-/**
- * Upload image to Firebase Storage
- * @param {string} userId - The user's UID
- * @param {string} base64Image - Base64 encoded image string
- * @param {string} sessionId - Optional session ID for organizing images
- * @returns {Promise<string>} - Download URL of the uploaded image
- */
-const uploadImage = async (userId, base64Image, sessionId = Date.now()) => {
-  try {
-    // Create a reference with a unique filename
-    const imageName = `session-${sessionId}-${Date.now()}.jpg`;
-    const imageRef = ref(storage, `users/${userId}/targets/${imageName}`);
-
-    // Upload the base64 image
-    await uploadString(imageRef, base64Image, 'data_url');
-
-    // Get the download URL
-    const downloadURL = await getDownloadURL(imageRef);
-    return downloadURL;
-  } catch (error) {
-    console.error('Error uploading image:', error);
-    throw error;
-  }
-};
+import { db } from '../firebase';
 
 // ============================================================================
 // SESSIONS
@@ -54,22 +24,12 @@ const uploadImage = async (userId, base64Image, sessionId = Date.now()) => {
  */
 export const addSession = async (userId, sessionData) => {
   try {
-    // Upload image to Storage if present
-    let imageUrl = null;
-    if (sessionData.image) {
-      imageUrl = await uploadImage(userId, sessionData.image);
-    }
-
-    // Prepare session data without base64 image
-    const sessionToSave = {
+    const sessionsRef = collection(db, 'users', userId, 'sessions');
+    const docRef = await addDoc(sessionsRef, {
       ...sessionData,
-      image: imageUrl, // Store URL instead of base64
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
-    };
-
-    const sessionsRef = collection(db, 'users', userId, 'sessions');
-    const docRef = await addDoc(sessionsRef, sessionToSave);
+    });
     return docRef.id;
   } catch (error) {
     console.error('Error adding session:', error);

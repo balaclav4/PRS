@@ -2,7 +2,6 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getAnalytics } from 'firebase/analytics';
-import { getStorage } from 'firebase/storage';
 
 // Firebase configuration
 // Credentials are loaded from .env.local file (not committed to git for security)
@@ -24,9 +23,6 @@ export const auth = getAuth(app);
 
 // Initialize Cloud Firestore and get a reference to the service
 export const db = getFirestore(app);
-
-// Initialize Firebase Storage
-export const storage = getStorage(app);
 
 // Initialize Analytics (optional)
 let analytics = null;
