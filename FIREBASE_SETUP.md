@@ -72,6 +72,36 @@ service cloud.firestore {
 
 3. Click "Publish"
 
+## Step 4a: Enable Firebase Storage
+
+**IMPORTANT**: Storage is required for saving target images (Firestore has a 1MB limit).
+
+1. In the Firebase Console, select your project
+2. Click "Storage" in the left sidebar
+3. Click "Get started"
+4. Click "Next" (use default production mode rules)
+5. Select a location (same as Firestore is recommended)
+6. Click "Done"
+
+### Storage Security Rules
+
+1. In Storage, click on the "Rules" tab
+2. Replace the default rules with:
+
+```javascript
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Users can only access their own images
+    match /users/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+```
+
+3. Click "Publish"
+
 ## Step 5: Get Your Firebase Configuration
 
 1. In the Firebase Console, click the gear icon (⚙️) next to "Project Overview"
