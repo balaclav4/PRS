@@ -1434,12 +1434,18 @@ const CompletePRSApp = () => {
                               }
                             }
 
-                            // Check if clicking inside circle (for dragging)
+                            // Check if clicking NEAR the circle perimeter (for dragging)
+                            // Only detect drag on the outline/stroke, NOT in the center
                             const distFromCenter = Math.sqrt(
                               Math.pow(imageX - currentX, 2) + Math.pow(imageY - currentY, 2)
                             );
 
-                            if (distFromCenter <= currentRadius * 0.8) {
+                            // Calculate distance from the perimeter (how far from the outline)
+                            const distFromPerimeter = Math.abs(distFromCenter - currentRadius);
+                            const dragThreshold = 25; // pixels - allow drag within 25px of the outline (good for mobile)
+
+                            if (distFromPerimeter <= dragThreshold) {
+                              // Clicking near the perimeter - allow drag
                               setIsDragging(true);
                               setDragTargetId(target.id);
                               setDragStart({ x: imageX - currentX, y: imageY - currentY });
@@ -1447,6 +1453,7 @@ const CompletePRSApp = () => {
                               e.stopPropagation();
                               return;
                             }
+                            // If clicking in center (far from perimeter), allow click to pass through for shot marking
                           }}
                           onMouseMove={(e) => {
                             if (!isDragging && !isResizing) return;
