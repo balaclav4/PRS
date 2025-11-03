@@ -20,8 +20,15 @@ import {
   CheckCircle, AlertCircle, TrendingUp, Award, FileText,
   Clock, File, Smartphone, Moon, Sun
 } from 'lucide-react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from './firebase';
+import Auth from './components/Auth';
 
 const CompletePRSApp = () => {
+  // Authentication state
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   // State management - using in-memory storage with persistence structure
   const [activeTab, setActiveTab] = useState('home');
   const [darkMode, setDarkMode] = useState(() => {
@@ -93,6 +100,15 @@ const CompletePRSApp = () => {
   
   const fileInputRef = useRef(null);
   const chronoFileRef = useRef(null);
+
+  // Authentication state listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Check for mobile device
   useEffect(() => {
@@ -697,27 +713,29 @@ const CompletePRSApp = () => {
             <h1 className={`${isMobile ? 'text-lg' : 'text-xl'} font-bold text-gray-900 dark:text-white`}>PRS Precision</h1>
           </div>
           <div className="flex items-center space-x-2">
-            <nav className={`flex ${isMobile ? 'space-x-2' : 'space-x-8'}`}>
-              {[
-                { id: 'home', label: 'Home', icon: Home },
-                { id: 'capture', label: 'Capture', icon: Camera },
-                { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-                { id: 'equipment', label: 'Equipment', icon: Settings }
-              ].map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setActiveTab(id)}
-                  className={`flex items-center ${isMobile ? 'space-x-1 px-2 py-1' : 'space-x-2 px-3 py-2'} rounded-md ${isMobile ? 'text-xs' : 'text-sm'} font-medium transition-colors ${
-                    activeTab === id
-                      ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  <Icon className={`${isMobile ? 'h-4 w-4' : 'h-4 w-4'}`} />
-                  {!isMobile && <span>{label}</span>}
-                </button>
-              ))}
-            </nav>
+            {user && (
+              <nav className={`flex ${isMobile ? 'space-x-2' : 'space-x-8'}`}>
+                {[
+                  { id: 'home', label: 'Home', icon: Home },
+                  { id: 'capture', label: 'Capture', icon: Camera },
+                  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+                  { id: 'equipment', label: 'Equipment', icon: Settings }
+                ].map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    onClick={() => setActiveTab(id)}
+                    className={`flex items-center ${isMobile ? 'space-x-1 px-2 py-1' : 'space-x-2 px-3 py-2'} rounded-md ${isMobile ? 'text-xs' : 'text-sm'} font-medium transition-colors ${
+                      activeTab === id
+                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800'
+                    }`}
+                  >
+                    <Icon className={`${isMobile ? 'h-4 w-4' : 'h-4 w-4'}`} />
+                    {!isMobile && <span>{label}</span>}
+                  </button>
+                ))}
+              </nav>
+            )}
             <button
               onClick={toggleDarkMode}
               className="p-2 rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -725,6 +743,7 @@ const CompletePRSApp = () => {
             >
               {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
+            {user && <Auth user={user} />}
           </div>
         </div>
       </div>
@@ -838,6 +857,28 @@ const CompletePRSApp = () => {
       });
     }
   }, [equipment.rifles.length]);
+
+  // Show loading state while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors flex items-center justify-center">
+        <div className="text-center">
+          <Target className="h-16 w-16 text-blue-600 dark:text-blue-400 mx-auto mb-4 animate-pulse" />
+          <p className="text-gray-600 dark:text-gray-300">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show auth screen if not logged in
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
+        <Navigation />
+        <Auth user={user} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
