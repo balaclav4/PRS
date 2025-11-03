@@ -2,7 +2,10 @@ import React, { useState } from 'react';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  signOut
+  signOut,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence
 } from 'firebase/auth';
 import { auth } from '../firebase';
 import { LogIn, LogOut, UserPlus, Mail, Lock, User, AlertCircle } from 'lucide-react';
@@ -13,6 +16,7 @@ const Auth = ({ user, onAuthStateChange }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -22,7 +26,12 @@ const Auth = ({ user, onAuthStateChange }) => {
     setLoading(true);
 
     try {
+      // Set persistence before login
       if (isLogin) {
+        await setPersistence(
+          auth,
+          rememberMe ? browserLocalPersistence : browserSessionPersistence
+        );
         // Login
         await signInWithEmailAndPassword(auth, email, password);
       } else {
@@ -37,6 +46,10 @@ const Auth = ({ user, onAuthStateChange }) => {
           setLoading(false);
           return;
         }
+        await setPersistence(
+          auth,
+          rememberMe ? browserLocalPersistence : browserSessionPersistence
+        );
         await createUserWithEmailAndPassword(auth, email, password);
       }
 
@@ -179,6 +192,20 @@ const Auth = ({ user, onAuthStateChange }) => {
               </div>
             </div>
           )}
+
+          {/* Remember Me Checkbox */}
+          <div className="flex items-center">
+            <input
+              id="remember-me"
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+            />
+            <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+              Remember me (stay signed in)
+            </label>
+          </div>
 
           <button
             type="submit"
