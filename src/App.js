@@ -40,6 +40,7 @@ const CompletePRSApp = () => {
   const [dragTargetId, setDragTargetId] = useState(null);
   const [resizeHandle, setResizeHandle] = useState(null); // 'nw', 'ne', 'se', 'sw'
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [justFinishedDragging, setJustFinishedDragging] = useState(false);
   const [sessionData, setSessionData] = useState({
     name: '',
     date: new Date().toISOString().split('T')[0],
@@ -48,7 +49,7 @@ const CompletePRSApp = () => {
     distance: 100,
     temperature: 70,
     humidity: 50,
-    windSpeed: 5,
+    windSpeed: 0,
     windDirection: '12',
     pressure: 29.92,
     chronoData: null
@@ -587,12 +588,12 @@ const CompletePRSApp = () => {
       distance: 100,
       temperature: 70,
       humidity: 50,
-      windSpeed: 5,
+      windSpeed: 0,
       windDirection: '12',
       pressure: 29.92,
       chronoData: null
     });
-    
+
     setActiveTab('analytics');
   };
 
@@ -1286,7 +1287,8 @@ const CompletePRSApp = () => {
                           className="relative bg-gray-100 rounded-lg overflow-hidden mb-4"
                           style={{ paddingBottom: '100%' }}
                           onMouseDown={(e) => {
-                            // Check if clicking on a handle or circle
+                            setJustFinishedDragging(false); // Reset flag on new interaction
+
                             const rect = e.currentTarget.getBoundingClientRect();
                             const clickX = e.clientX - rect.left;
                             const clickY = e.clientY - rect.top;
@@ -1297,22 +1299,8 @@ const CompletePRSApp = () => {
                             const imageX = cropX + (relativeX * cropSize);
                             const imageY = cropY + (relativeY * cropSize);
 
-                            // Check if clicking near circle center (for dragging circle)
-                            const distFromCenter = Math.sqrt(
-                              Math.pow(imageX - currentX, 2) + Math.pow(imageY - currentY, 2)
-                            );
-
-                            if (distFromCenter <= currentRadius * 0.8) {
-                              // Dragging circle
-                              setIsDragging(true);
-                              setDragTargetId(target.id);
-                              setDragStart({ x: imageX - currentX, y: imageY - currentY });
-                              e.preventDefault();
-                              return;
-                            }
-
-                            // Check if clicking on a resize handle
-                            const handleSize = currentRadius * 0.15;
+                            // Check if clicking on a resize handle FIRST (higher priority)
+                            const handleHitSize = 50; // Large hit area for mobile (in image pixels)
                             const handles = [
                               { name: 'nw', x: currentX - currentRadius, y: currentY - currentRadius },
                               { name: 'ne', x: currentX + currentRadius, y: currentY - currentRadius },
@@ -1324,14 +1312,36 @@ const CompletePRSApp = () => {
                               const distFromHandle = Math.sqrt(
                                 Math.pow(imageX - handle.x, 2) + Math.pow(imageY - handle.y, 2)
                               );
-                              if (distFromHandle <= handleSize * 2) {
+                              if (distFromHandle <= handleHitSize) {
                                 setIsResizing(true);
                                 setDragTargetId(target.id);
                                 setResizeHandle(handle.name);
-                                setDragStart({ x: imageX, y: imageY, startRadius: currentRadius });
+                                // Store start position and radius for 1:1 scaling
+                                setDragStart({
+                                  x: imageX,
+                                  y: imageY,
+                                  startRadius: currentRadius,
+                                  startX: currentX,
+                                  startY: currentY
+                                });
                                 e.preventDefault();
+                                e.stopPropagation();
                                 return;
                               }
+                            }
+
+                            // Check if clicking inside circle (for dragging)
+                            const distFromCenter = Math.sqrt(
+                              Math.pow(imageX - currentX, 2) + Math.pow(imageY - currentY, 2)
+                            );
+
+                            if (distFromCenter <= currentRadius * 0.8) {
+                              setIsDragging(true);
+                              setDragTargetId(target.id);
+                              setDragStart({ x: imageX - currentX, y: imageY - currentY });
+                              e.preventDefault();
+                              e.stopPropagation();
+                              return;
                             }
                           }}
                           onMouseMove={(e) => {
@@ -1358,17 +1368,31 @@ const CompletePRSApp = () => {
                                   : t
                               ));
                             } else if (isResizing) {
-                              // Calculate new radius based on distance from center
-                              const dx = imageX - currentX;
-                              const dy = imageY - currentY;
-                              const newRadius = Math.sqrt(dx * dx + dy * dy);
+                              // 1:1 scaling: track how far mouse moved from start position
+                              const deltaX = imageX - dragStart.x;
+                              const deltaY = imageY - dragStart.y;
+
+                              // Calculate diagonal distance moved (1:1 ratio with mouse)
+                              const dragDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+                              // Determine direction based on which handle
+                              let radiusChange = dragDistance;
+                              if (resizeHandle === 'nw' || resizeHandle === 'sw') {
+                                // Left handles: moving left = bigger, right = smaller
+                                radiusChange = deltaX < 0 ? dragDistance : -dragDistance;
+                              } else {
+                                // Right handles: moving right = bigger, left = smaller
+                                radiusChange = deltaX > 0 ? dragDistance : -dragDistance;
+                              }
+
+                              const newRadius = Math.max(10, dragStart.startRadius + radiusChange);
                               const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
 
                               setSelectedTargets(prev => prev.map(t =>
                                 t.id === target.id
                                   ? {
                                       ...t,
-                                      adjustedRadius: Math.max(10, newRadius),
+                                      adjustedRadius: newRadius,
                                       pixelsPerInch: newPixelsPerInch
                                     }
                                   : t
@@ -1376,19 +1400,29 @@ const CompletePRSApp = () => {
                             }
                           }}
                           onMouseUp={() => {
+                            if (isDragging || isResizing) {
+                              setJustFinishedDragging(true); // Flag to prevent shot marking
+                            }
                             setIsDragging(false);
                             setIsResizing(false);
                             setDragTargetId(null);
                             setResizeHandle(null);
                           }}
                           onMouseLeave={() => {
+                            if (isDragging || isResizing) {
+                              setJustFinishedDragging(true);
+                            }
                             setIsDragging(false);
                             setIsResizing(false);
                             setDragTargetId(null);
                             setResizeHandle(null);
                           }}
                           onClick={(e) => {
-                            // Only mark shot if not dragging/resizing
+                            // Prevent shot marking if we just finished dragging/resizing
+                            if (justFinishedDragging) {
+                              setJustFinishedDragging(false);
+                              return;
+                            }
                             if (isDragging || isResizing) return;
 
                             const rect = e.currentTarget.getBoundingClientRect();
@@ -1445,7 +1479,7 @@ const CompletePRSApp = () => {
                                 }}
                               />
 
-                              {/* Corner resize handles */}
+                              {/* Corner resize handles - Large and obvious for mobile */}
                               {[
                                 { x: currentRadius * 5 - currentRadius, y: currentRadius * 5 - currentRadius, cursor: 'nwse-resize' }, // NW
                                 { x: currentRadius * 5 + currentRadius, y: currentRadius * 5 - currentRadius, cursor: 'nesw-resize' }, // NE
@@ -1453,24 +1487,37 @@ const CompletePRSApp = () => {
                                 { x: currentRadius * 5 - currentRadius, y: currentRadius * 5 + currentRadius, cursor: 'nesw-resize' }  // SW
                               ].map((handle, hi) => (
                                 <g key={hi}>
+                                  {/* Drop shadow for visibility */}
                                   <rect
-                                    x={handle.x - 8}
-                                    y={handle.y - 8}
-                                    width="16"
-                                    height="16"
+                                    x={handle.x - 17}
+                                    y={handle.y - 17}
+                                    width="34"
+                                    height="34"
+                                    fill="rgba(0, 0, 0, 0.3)"
+                                    rx="4"
+                                    style={{ pointerEvents: 'none' }}
+                                  />
+                                  {/* Main handle */}
+                                  <rect
+                                    x={handle.x - 16}
+                                    y={handle.y - 16}
+                                    width="32"
+                                    height="32"
                                     fill="white"
-                                    stroke="#22c55e"
-                                    strokeWidth="2"
+                                    stroke="#3b82f6"
+                                    strokeWidth="3"
+                                    rx="4"
                                     style={{
                                       pointerEvents: 'all',
                                       cursor: handle.cursor
                                     }}
                                   />
+                                  {/* Center dot for clarity */}
                                   <circle
                                     cx={handle.x}
                                     cy={handle.y}
-                                    r="3"
-                                    fill="#22c55e"
+                                    r="6"
+                                    fill="#3b82f6"
                                     style={{ pointerEvents: 'none' }}
                                   />
                                 </g>
