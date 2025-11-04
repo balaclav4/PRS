@@ -66,6 +66,11 @@ const CompletePRSApp = () => {
   const [isPinching, setIsPinching] = useState(false);
   const [initialPinchDistance, setInitialPinchDistance] = useState(0);
   const [initialPinchRadius, setInitialPinchRadius] = useState(0);
+
+  // Shot dragging state
+  const [draggingShotId, setDraggingShotId] = useState(null);
+  const [shotDragOffset, setShotDragOffset] = useState({ x: 0, y: 0 });
+
   const [sessionData, setSessionData] = useState({
     name: '',
     date: new Date().toISOString().split('T')[0],
@@ -89,7 +94,15 @@ const CompletePRSApp = () => {
     silencer: 'all',
     distance: [0, 1000] // [min, max] in yards
   });
-  
+
+  // Analytics chart settings
+  const [performanceMetric, setPerformanceMetric] = useState('velocity'); // 'velocity', 'groupSize', 'totalRounds', 'avgPOI'
+  const [chartCollapsed, setChartCollapsed] = useState({
+    groupSize: false,
+    shotDistribution: false,
+    performance: false
+  });
+
   // Equipment form state
   const [showAddRifle, setShowAddRifle] = useState(false);
   const [showAddLoad, setShowAddLoad] = useState(false);
@@ -1445,7 +1458,7 @@ const CompletePRSApp = () => {
                             const imageY = cropY + (relativeY * cropSize);
 
                             // Check if clicking on a resize handle FIRST (higher priority)
-                            const handleHitSize = 50; // Large hit area for mobile (in image pixels)
+                            const handleHitSize = 25; // Reduced hit area for better shot marking access
                             const handles = [
                               { name: 'nw', x: currentX - currentRadius, y: currentY - currentRadius },
                               { name: 'ne', x: currentX + currentRadius, y: currentY - currentRadius },
@@ -1497,8 +1510,8 @@ const CompletePRSApp = () => {
                             // If clicking in center (far from perimeter), allow click to pass through for shot marking
                           }}
                           onMouseMove={(e) => {
-                            if (!isDragging && !isResizing) return;
-                            if (dragTargetId !== target.id) return;
+                            if (!isDragging && !isResizing && !draggingShotId) return;
+                            if (dragTargetId !== target.id && !draggingShotId) return;
 
                             // Capture event data immediately (event object becomes stale in async callbacks)
                             const rect = e.currentTarget.getBoundingClientRect();
@@ -1517,7 +1530,21 @@ const CompletePRSApp = () => {
 
                             // Use requestAnimationFrame for smooth, throttled updates
                             dragUpdateRef.current = requestAnimationFrame(() => {
-                              if (isDragging) {
+                              if (draggingShotId) {
+                                // Update shot position
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? {
+                                        ...t,
+                                        shots: t.shots.map(s =>
+                                          s.id === draggingShotId
+                                            ? { ...s, x: imageX, y: imageY }
+                                            : s
+                                        )
+                                      }
+                                    : t
+                                ));
+                              } else if (isDragging) {
                                 // Update circle position
                                 const newX = imageX - dragStart.x;
                                 const newY = imageY - dragStart.y;
@@ -1570,13 +1597,14 @@ const CompletePRSApp = () => {
                               dragUpdateRef.current = null;
                             }
 
-                            if (isDragging || isResizing) {
+                            if (isDragging || isResizing || draggingShotId) {
                               setJustFinishedDragging(true); // Flag to prevent shot marking
                             }
                             setIsDragging(false);
                             setIsResizing(false);
                             setDragTargetId(null);
                             setResizeHandle(null);
+                            setDraggingShotId(null);
                           }}
                           onMouseLeave={() => {
                             // Cancel any pending animation frame
@@ -1585,13 +1613,14 @@ const CompletePRSApp = () => {
                               dragUpdateRef.current = null;
                             }
 
-                            if (isDragging || isResizing) {
+                            if (isDragging || isResizing || draggingShotId) {
                               setJustFinishedDragging(true);
                             }
                             setIsDragging(false);
                             setIsResizing(false);
                             setDragTargetId(null);
                             setResizeHandle(null);
+                            setDraggingShotId(null);
                           }}
                           onClick={(e) => {
                             // Prevent shot marking if we just finished dragging/resizing
@@ -1651,8 +1680,8 @@ const CompletePRSApp = () => {
                             const imageX = cropX + (relativeX * cropSize);
                             const imageY = cropY + (relativeY * cropSize);
 
-                            // Check resize handles first (larger for mobile - 80px)
-                            const handleHitSize = 80;
+                            // Check resize handles first (larger for mobile)
+                            const handleHitSize = 40;
                             const handles = [
                               { name: 'nw', x: currentX - currentRadius, y: currentY - currentRadius },
                               { name: 'ne', x: currentX + currentRadius, y: currentY - currentRadius },
@@ -1724,8 +1753,8 @@ const CompletePRSApp = () => {
                             }
 
                             // Single-finger drag/resize (same as mouse)
-                            if (!isDragging && !isResizing) return;
-                            if (dragTargetId !== target.id) return;
+                            if (!isDragging && !isResizing && !draggingShotId) return;
+                            if (dragTargetId !== target.id && !draggingShotId) return;
 
                             const touch = e.touches[0];
                             const rect = e.currentTarget.getBoundingClientRect();
@@ -1742,7 +1771,21 @@ const CompletePRSApp = () => {
                             }
 
                             dragUpdateRef.current = requestAnimationFrame(() => {
-                              if (isDragging) {
+                              if (draggingShotId) {
+                                // Update shot position
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? {
+                                        ...t,
+                                        shots: t.shots.map(s =>
+                                          s.id === draggingShotId
+                                            ? { ...s, x: imageX, y: imageY }
+                                            : s
+                                        )
+                                      }
+                                    : t
+                                ));
+                              } else if (isDragging) {
                                 const newX = imageX - dragStart.x;
                                 const newY = imageY - dragStart.y;
                                 setSelectedTargets(prev => prev.map(t =>
@@ -1786,7 +1829,7 @@ const CompletePRSApp = () => {
                               dragUpdateRef.current = null;
                             }
 
-                            if (isDragging || isResizing || isPinching) {
+                            if (isDragging || isResizing || isPinching || draggingShotId) {
                               setJustFinishedDragging(true);
                             }
 
@@ -1795,6 +1838,7 @@ const CompletePRSApp = () => {
                             setIsPinching(false);
                             setDragTargetId(null);
                             setResizeHandle(null);
+                            setDraggingShotId(null);
 
                             // Handle tap for shot marking (only if single touch and not dragging)
                             if (e.touches.length === 0 && e.changedTouches.length === 1 && !justFinishedDragging) {
@@ -1864,24 +1908,24 @@ const CompletePRSApp = () => {
                                 <g key={hi}>
                                   {/* Drop shadow for visibility */}
                                   <rect
-                                    x={handle.x - 17}
-                                    y={handle.y - 17}
-                                    width="34"
-                                    height="34"
+                                    x={handle.x - 9}
+                                    y={handle.y - 9}
+                                    width="18"
+                                    height="18"
                                     fill="rgba(0, 0, 0, 0.3)"
-                                    rx="4"
+                                    rx="3"
                                     style={{ pointerEvents: 'none' }}
                                   />
                                   {/* Main handle */}
                                   <rect
-                                    x={handle.x - 16}
-                                    y={handle.y - 16}
-                                    width="32"
-                                    height="32"
+                                    x={handle.x - 8}
+                                    y={handle.y - 8}
+                                    width="16"
+                                    height="16"
                                     fill="white"
                                     stroke="#3b82f6"
-                                    strokeWidth="3"
-                                    rx="4"
+                                    strokeWidth="2"
+                                    rx="3"
                                     style={{
                                       pointerEvents: 'all',
                                       cursor: handle.cursor
@@ -1891,7 +1935,7 @@ const CompletePRSApp = () => {
                                   <circle
                                     cx={handle.x}
                                     cy={handle.y}
-                                    r="6"
+                                    r="3"
                                     fill="#3b82f6"
                                     style={{ pointerEvents: 'none' }}
                                   />
@@ -1925,25 +1969,58 @@ const CompletePRSApp = () => {
                                 const shotDisplayX = shot.x - cropX;
                                 const shotDisplayY = shot.y - cropY;
 
+                                // Calculate shot marker size based on caliber (half bullet diameter)
+                                const rifle = equipment.rifles.find(r => r.name === sessionData.rifle);
+                                let bulletDiameterInches = 0.308; // Default .308
+                                if (rifle?.caliber) {
+                                  // Parse caliber (e.g., "6.5 Creedmoor" -> 0.264", ".308 Win" -> 0.308")
+                                  const calMatch = rifle.caliber.match(/(\d+\.?\d*)/);
+                                  if (calMatch) {
+                                    const calValue = parseFloat(calMatch[1]);
+                                    if (calValue < 1) {
+                                      bulletDiameterInches = calValue; // Already in inches (e.g., .308)
+                                    } else if (calValue < 20) {
+                                      // Metric mm (e.g., 6.5) - convert to inches
+                                      bulletDiameterInches = calValue / 25.4;
+                                    }
+                                  }
+                                }
+                                const markerRadius = Math.max(4, (bulletDiameterInches / 2) * target.pixelsPerInch);
+
                                 if (shotDisplayX >= 0 && shotDisplayX <= cropSize &&
                                     shotDisplayY >= 0 && shotDisplayY <= cropSize) {
                                   return (
-                                    <g key={shot.id}>
+                                    <g
+                                      key={shot.id}
+                                      style={{ cursor: draggingShotId === shot.id ? 'grabbing' : 'grab' }}
+                                      onMouseDown={(e) => {
+                                        e.stopPropagation();
+                                        setDraggingShotId(shot.id);
+                                        setShotDragOffset({ x: 0, y: 0 });
+                                      }}
+                                      onTouchStart={(e) => {
+                                        e.stopPropagation();
+                                        setDraggingShotId(shot.id);
+                                        setShotDragOffset({ x: 0, y: 0 });
+                                      }}
+                                    >
                                       <circle
                                         cx={shotDisplayX}
                                         cy={shotDisplayY}
-                                        r="8"
-                                        fill="#ef4444"
+                                        r={markerRadius}
+                                        fill={draggingShotId === shot.id ? "#dc2626" : "#ef4444"}
                                         stroke="#dc2626"
                                         strokeWidth="1"
+                                        style={{ pointerEvents: 'all' }}
                                       />
                                       <text
                                         x={shotDisplayX}
-                                        y={shotDisplayY + 3}
+                                        y={shotDisplayY + markerRadius * 0.25}
                                         fill="white"
-                                        fontSize="12"
+                                        fontSize={Math.min(12, markerRadius * 1.2)}
                                         textAnchor="middle"
                                         fontWeight="bold"
+                                        style={{ pointerEvents: 'none' }}
                                       >
                                         {shotIndex + 1}
                                       </text>
