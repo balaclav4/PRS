@@ -2269,6 +2269,261 @@ const CompletePRSApp = () => {
                         </div>
                       </div>
 
+                      {/* Charts Section */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Chart 1: Group Size Over Time */}
+                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Group Size Over Time</h3>
+                          {(() => {
+                            const sessionsWithData = report.filteredSessions
+                              .map(s => ({
+                                date: new Date(s.date),
+                                dateStr: s.date,
+                                avgGroup: s.targets
+                                  .filter(t => t.shots?.length >= 2 && t.stats)
+                                  .reduce((sum, t, _, arr) => sum + (t.stats.sizeInches / arr.length), 0)
+                              }))
+                              .filter(s => s.avgGroup > 0)
+                              .sort((a, b) => a.date - b.date);
+
+                            if (sessionsWithData.length === 0) {
+                              return <p className="text-gray-500 dark:text-gray-400 text-center py-8">No data available</p>;
+                            }
+
+                            const width = 500;
+                            const height = 300;
+                            const padding = { top: 20, right: 20, bottom: 40, left: 50 };
+                            const chartWidth = width - padding.left - padding.right;
+                            const chartHeight = height - padding.top - padding.bottom;
+
+                            const maxGroup = Math.max(...sessionsWithData.map(d => d.avgGroup));
+                            const minGroup = Math.min(...sessionsWithData.map(d => d.avgGroup));
+                            const yScale = (value) => chartHeight - ((value - minGroup) / (maxGroup - minGroup || 1)) * chartHeight;
+
+                            const points = sessionsWithData.map((d, i) => {
+                              const x = padding.left + (i / (sessionsWithData.length - 1 || 1)) * chartWidth;
+                              const y = padding.top + yScale(d.avgGroup);
+                              return `${x},${y}`;
+                            }).join(' ');
+
+                            return (
+                              <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
+                                {/* Grid lines */}
+                                {[0, 0.25, 0.5, 0.75, 1].map(fraction => {
+                                  const y = padding.top + chartHeight * (1 - fraction);
+                                  const value = minGroup + (maxGroup - minGroup) * fraction;
+                                  return (
+                                    <g key={fraction}>
+                                      <line x1={padding.left} y1={y} x2={width - padding.right} y2={y}
+                                        stroke="currentColor" className="text-gray-200 dark:text-gray-700" strokeWidth="1" />
+                                      <text x={padding.left - 10} y={y + 4} textAnchor="end"
+                                        className="text-xs fill-gray-600 dark:fill-gray-400">
+                                        {value.toFixed(2)}"
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+
+                                {/* Line */}
+                                <polyline points={points} fill="none" stroke="#3b82f6" strokeWidth="2" />
+
+                                {/* Points */}
+                                {sessionsWithData.map((d, i) => {
+                                  const x = padding.left + (i / (sessionsWithData.length - 1 || 1)) * chartWidth;
+                                  const y = padding.top + yScale(d.avgGroup);
+                                  return (
+                                    <circle key={i} cx={x} cy={y} r="4" fill="#3b82f6" />
+                                  );
+                                })}
+
+                                {/* X-axis labels */}
+                                {sessionsWithData.map((d, i) => {
+                                  if (sessionsWithData.length > 10 && i % Math.ceil(sessionsWithData.length / 5) !== 0) return null;
+                                  const x = padding.left + (i / (sessionsWithData.length - 1 || 1)) * chartWidth;
+                                  return (
+                                    <text key={i} x={x} y={height - 10} textAnchor="middle"
+                                      className="text-xs fill-gray-600 dark:fill-gray-400">
+                                      {d.dateStr.slice(5)}
+                                    </text>
+                                  );
+                                })}
+
+                                {/* Axis labels */}
+                                <text x={padding.left / 2} y={height / 2} textAnchor="middle"
+                                  transform={`rotate(-90 ${padding.left / 2} ${height / 2})`}
+                                  className="text-sm fill-gray-700 dark:fill-gray-300 font-medium">
+                                  Group Size (inches)
+                                </text>
+                              </svg>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Chart 2: Shot Distribution Plot */}
+                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Shot Distribution</h3>
+                          {(() => {
+                            const allShots = [];
+                            report.filteredSessions.forEach(session => {
+                              session.targets.forEach(target => {
+                                if (target.stats && target.shots?.length >= 2) {
+                                  target.shots.forEach(shot => {
+                                    const xOffset = (shot.x - target.x) / target.pixelsPerInch;
+                                    const yOffset = -(shot.y - target.y) / target.pixelsPerInch; // Negative for proper orientation
+                                    allShots.push({ x: xOffset, y: yOffset });
+                                  });
+                                }
+                              });
+                            });
+
+                            if (allShots.length === 0) {
+                              return <p className="text-gray-500 dark:text-gray-400 text-center py-8">No data available</p>;
+                            }
+
+                            const width = 500;
+                            const height = 300;
+                            const padding = 40;
+                            const chartSize = Math.min(width, height) - 2 * padding;
+
+                            const maxOffset = Math.max(...allShots.map(s => Math.max(Math.abs(s.x), Math.abs(s.y))));
+                            const scale = chartSize / (2 * (maxOffset || 1));
+
+                            return (
+                              <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
+                                {/* Center crosshairs */}
+                                <line x1={width / 2 - 20} y1={height / 2} x2={width / 2 + 20} y2={height / 2}
+                                  stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="1" />
+                                <line x1={width / 2} y1={height / 2 - 20} x2={width / 2} y2={height / 2 + 20}
+                                  stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="1" />
+
+                                {/* Circle guides */}
+                                {[0.5, 1, 1.5].map(radius => (
+                                  <circle key={radius}
+                                    cx={width / 2} cy={height / 2}
+                                    r={radius * scale}
+                                    fill="none" stroke="currentColor"
+                                    className="text-gray-200 dark:text-gray-700"
+                                    strokeWidth="1" strokeDasharray="4,4" />
+                                ))}
+
+                                {/* Shot points */}
+                                {allShots.map((shot, i) => (
+                                  <circle key={i}
+                                    cx={width / 2 + shot.x * scale}
+                                    cy={height / 2 + shot.y * scale}
+                                    r="3"
+                                    fill="#ef4444"
+                                    opacity="0.6" />
+                                ))}
+
+                                {/* Scale reference */}
+                                <text x={width / 2} y={height - 5} textAnchor="middle"
+                                  className="text-xs fill-gray-600 dark:fill-gray-400">
+                                  All shots relative to target center
+                                </text>
+                              </svg>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Chart 3: Performance by Configuration */}
+                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 lg:col-span-2">
+                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Performance by Configuration</h3>
+                          {(() => {
+                            const configStats = {};
+                            report.filteredSessions.forEach(session => {
+                              const configKey = `${session.rifle} + ${session.load}${session.silencer ? ' (Silencer)' : ''}`;
+                              if (!configStats[configKey]) {
+                                configStats[configKey] = [];
+                              }
+                              session.targets.forEach(target => {
+                                if (target.stats && target.shots?.length >= 2) {
+                                  configStats[configKey].push(target.stats.sizeInches);
+                                }
+                              });
+                            });
+
+                            const configs = Object.entries(configStats)
+                              .map(([name, groups]) => ({
+                                name,
+                                avg: groups.reduce((a, b) => a + b, 0) / groups.length,
+                                count: groups.length
+                              }))
+                              .sort((a, b) => a.avg - b.avg)
+                              .slice(0, 10); // Top 10
+
+                            if (configs.length === 0) {
+                              return <p className="text-gray-500 dark:text-gray-400 text-center py-8">No data available</p>;
+                            }
+
+                            const width = 1000;
+                            const height = 400;
+                            const padding = { top: 20, right: 20, bottom: 120, left: 60 };
+                            const chartWidth = width - padding.left - padding.right;
+                            const chartHeight = height - padding.top - padding.bottom;
+
+                            const maxAvg = Math.max(...configs.map(c => c.avg));
+                            const barWidth = chartWidth / configs.length * 0.8;
+                            const barSpacing = chartWidth / configs.length;
+
+                            return (
+                              <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
+                                {/* Y-axis grid */}
+                                {[0, 0.25, 0.5, 0.75, 1].map(fraction => {
+                                  const y = padding.top + chartHeight * (1 - fraction);
+                                  const value = maxAvg * fraction;
+                                  return (
+                                    <g key={fraction}>
+                                      <line x1={padding.left} y1={y} x2={width - padding.right} y2={y}
+                                        stroke="currentColor" className="text-gray-200 dark:text-gray-700" strokeWidth="1" />
+                                      <text x={padding.left - 10} y={y + 4} textAnchor="end"
+                                        className="text-xs fill-gray-600 dark:fill-gray-400">
+                                        {value.toFixed(2)}"
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+
+                                {/* Bars */}
+                                {configs.map((config, i) => {
+                                  const x = padding.left + i * barSpacing + (barSpacing - barWidth) / 2;
+                                  const barHeight = (config.avg / maxAvg) * chartHeight;
+                                  const y = padding.top + chartHeight - barHeight;
+
+                                  return (
+                                    <g key={i}>
+                                      <rect x={x} y={y} width={barWidth} height={barHeight}
+                                        fill="#10b981" opacity="0.8" />
+                                      <text x={x + barWidth / 2} y={y - 5} textAnchor="middle"
+                                        className="text-xs fill-gray-900 dark:fill-white font-medium">
+                                        {config.avg.toFixed(3)}"
+                                      </text>
+                                      <text x={x + barWidth / 2} y={height - padding.bottom + 15}
+                                        textAnchor="end" transform={`rotate(-45 ${x + barWidth / 2} ${height - padding.bottom + 15})`}
+                                        className="text-xs fill-gray-600 dark:fill-gray-400">
+                                        {config.name}
+                                      </text>
+                                      <text x={x + barWidth / 2} y={height - padding.bottom + 30}
+                                        textAnchor="end" transform={`rotate(-45 ${x + barWidth / 2} ${height - padding.bottom + 30})`}
+                                        className="text-xs fill-gray-500 dark:fill-gray-500">
+                                        ({config.count} groups)
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+
+                                {/* Axis labels */}
+                                <text x={padding.left / 2} y={height / 2} textAnchor="middle"
+                                  transform={`rotate(-90 ${padding.left / 2} ${height / 2})`}
+                                  className="text-sm fill-gray-700 dark:fill-gray-300 font-medium">
+                                  Average Group Size (inches)
+                                </text>
+                              </svg>
+                            );
+                          })()}
+                        </div>
+                      </div>
+
                       {/* Group Details Toggle */}
                       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
                         <div className="flex justify-between items-center mb-4">
