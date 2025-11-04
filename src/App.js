@@ -61,11 +61,17 @@ const CompletePRSApp = () => {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [justFinishedDragging, setJustFinishedDragging] = useState(false);
   const dragUpdateRef = useRef(null);
+
+  // Pinch-to-zoom state for mobile
+  const [isPinching, setIsPinching] = useState(false);
+  const [initialPinchDistance, setInitialPinchDistance] = useState(0);
+  const [initialPinchRadius, setInitialPinchRadius] = useState(0);
   const [sessionData, setSessionData] = useState({
     name: '',
     date: new Date().toISOString().split('T')[0],
     rifle: '',
     load: '',
+    silencer: false,
     distance: 100,
     temperature: 70,
     humidity: 50,
@@ -79,7 +85,9 @@ const CompletePRSApp = () => {
   const [analyticsFilters, setAnalyticsFilters] = useState({
     rifle: 'all',
     load: 'all',
-    session: 'all'
+    session: 'all',
+    silencer: 'all',
+    distance: [0, 1000] // [min, max] in yards
   });
   
   // Equipment form state
@@ -677,8 +685,17 @@ const CompletePRSApp = () => {
       filteredSessions = filteredSessions.filter(s => s.load === analyticsFilters.load);
     }
     if (analyticsFilters.session !== 'all') {
-      filteredSessions = filteredSessions.filter(s => s.id === parseInt(analyticsFilters.session));
+      filteredSessions = filteredSessions.filter(s => s.id === analyticsFilters.session);
     }
+    if (analyticsFilters.silencer !== 'all') {
+      const wantsSilencer = analyticsFilters.silencer === 'true';
+      filteredSessions = filteredSessions.filter(s => s.silencer === wantsSilencer);
+    }
+    // Distance filter
+    filteredSessions = filteredSessions.filter(s => {
+      const dist = s.distance || 0;
+      return dist >= analyticsFilters.distance[0] && dist <= analyticsFilters.distance[1];
+    });
     
     const allShots = [];
     const targetStats = [];
@@ -692,12 +709,21 @@ const CompletePRSApp = () => {
           target.pixelsPerInch
         );
         
+        // Calculate POI (Point of Impact) metrics
+        // Positive Y = below center (in image coords), so we negate for "drop" semantics
+        const poiVerticalInches = -stats.groupCenterYInches; // Negative = below center (drop)
+        const distance = session.distance || 100; // Default to 100 yards if not specified
+        const poiMils = distance > 0 ? (poiVerticalInches * 27.78) / distance : 0;
+        const poiMOA = distance > 0 ? (poiVerticalInches * 95.5) / distance : 0;
+
         targetStats.push({
           sessionId: session.id,
           sessionName: session.name,
           date: session.date,
           rifle: session.rifle,
           load: session.load,
+          silencer: session.silencer,
+          distance: distance,
           targetIndex: targetIndex + 1,
           shots: target.shots.length,
           groupSize: stats.sizeInches,
@@ -705,6 +731,9 @@ const CompletePRSApp = () => {
           standardDev: stats.standardDevInches,
           groupCenterX: stats.groupCenterXInches,
           groupCenterY: stats.groupCenterYInches,
+          poiVerticalInches: poiVerticalInches,
+          poiMils: poiMils,
+          poiMOA: poiMOA,
           chronoAvg: session.chronoData?.average,
           chronoES: session.chronoData?.es,
           chronoSD: session.chronoData?.sd
@@ -1105,6 +1134,18 @@ const CompletePRSApp = () => {
                         ))}
                       </select>
                     </div>
+                    <div className="flex items-center">
+                      <input
+                        id="silencer-toggle"
+                        type="checkbox"
+                        checked={sessionData.silencer}
+                        onChange={(e) => setSessionData({...sessionData, silencer: e.target.checked})}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                      />
+                      <label htmlFor="silencer-toggle" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+                        Silencer/Suppressor Used
+                      </label>
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Distance (yards)</label>
                       <input
@@ -1389,7 +1430,7 @@ const CompletePRSApp = () => {
 
                         <div
                           className="relative bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden mb-4"
-                          style={{ paddingBottom: '100%' }}
+                          style={{ paddingBottom: '100%', touchAction: 'none' }}
                           onMouseDown={(e) => {
                             setJustFinishedDragging(false); // Reset flag on new interaction
 
@@ -1578,6 +1619,205 @@ const CompletePRSApp = () => {
                                 ? { ...t, shots: [...t.shots, newShot] }
                                 : t
                             ));
+                          }}
+                          onTouchStart={(e) => {
+                            e.preventDefault(); // Prevent scrolling
+                            setJustFinishedDragging(false);
+
+                            // Two-finger pinch to zoom
+                            if (e.touches.length === 2) {
+                              const touch1 = e.touches[0];
+                              const touch2 = e.touches[1];
+                              const distance = Math.sqrt(
+                                Math.pow(touch2.clientX - touch1.clientX, 2) +
+                                Math.pow(touch2.clientY - touch1.clientY, 2)
+                              );
+
+                              setIsPinching(true);
+                              setInitialPinchDistance(distance);
+                              setInitialPinchRadius(currentRadius);
+                              setDragTargetId(target.id);
+                              return;
+                            }
+
+                            // Single-finger touch (same as mouse)
+                            const touch = e.touches[0];
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const clickX = touch.clientX - rect.left;
+                            const clickY = touch.clientY - rect.top;
+                            const relativeX = clickX / rect.width;
+                            const relativeY = clickY / rect.height;
+
+                            const imageX = cropX + (relativeX * cropSize);
+                            const imageY = cropY + (relativeY * cropSize);
+
+                            // Check resize handles first (larger for mobile - 80px)
+                            const handleHitSize = 80;
+                            const handles = [
+                              { name: 'nw', x: currentX - currentRadius, y: currentY - currentRadius },
+                              { name: 'ne', x: currentX + currentRadius, y: currentY - currentRadius },
+                              { name: 'se', x: currentX + currentRadius, y: currentY + currentRadius },
+                              { name: 'sw', x: currentX - currentRadius, y: currentY + currentRadius }
+                            ];
+
+                            for (let handle of handles) {
+                              const distFromHandle = Math.sqrt(
+                                Math.pow(imageX - handle.x, 2) + Math.pow(imageY - handle.y, 2)
+                              );
+                              if (distFromHandle <= handleHitSize) {
+                                setIsResizing(true);
+                                setDragTargetId(target.id);
+                                setResizeHandle(handle.name);
+                                setDragStart({
+                                  x: imageX,
+                                  y: imageY,
+                                  startRadius: currentRadius,
+                                  startX: currentX,
+                                  startY: currentY
+                                });
+                                return;
+                              }
+                            }
+
+                            // Check perimeter drag (wider threshold for mobile - 40px)
+                            const distFromCenter = Math.sqrt(
+                              Math.pow(imageX - currentX, 2) + Math.pow(imageY - currentY, 2)
+                            );
+                            const distFromPerimeter = Math.abs(distFromCenter - currentRadius);
+                            const dragThreshold = 40;
+
+                            if (distFromPerimeter <= dragThreshold) {
+                              setIsDragging(true);
+                              setDragTargetId(target.id);
+                              setDragStart({ x: imageX - currentX, y: imageY - currentY });
+                            }
+                          }}
+                          onTouchMove={(e) => {
+                            e.preventDefault(); // Prevent scrolling
+
+                            // Two-finger pinch-to-zoom
+                            if (isPinching && e.touches.length === 2) {
+                              if (dragTargetId !== target.id) return;
+
+                              const touch1 = e.touches[0];
+                              const touch2 = e.touches[1];
+                              const currentDistance = Math.sqrt(
+                                Math.pow(touch2.clientX - touch1.clientX, 2) +
+                                Math.pow(touch2.clientY - touch1.clientY, 2)
+                              );
+
+                              // Calculate scale factor based on pinch distance change
+                              const scaleFactor = currentDistance / initialPinchDistance;
+                              const newRadius = Math.max(10, initialPinchRadius * scaleFactor);
+                              const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
+
+                              setSelectedTargets(prev => prev.map(t =>
+                                t.id === target.id
+                                  ? {
+                                      ...t,
+                                      adjustedRadius: newRadius,
+                                      pixelsPerInch: newPixelsPerInch
+                                    }
+                                  : t
+                              ));
+                              return;
+                            }
+
+                            // Single-finger drag/resize (same as mouse)
+                            if (!isDragging && !isResizing) return;
+                            if (dragTargetId !== target.id) return;
+
+                            const touch = e.touches[0];
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const clickX = touch.clientX - rect.left;
+                            const clickY = touch.clientY - rect.top;
+                            const relativeX = clickX / rect.width;
+                            const relativeY = clickY / rect.height;
+
+                            const imageX = cropX + (relativeX * cropSize);
+                            const imageY = cropY + (relativeY * cropSize);
+
+                            if (dragUpdateRef.current) {
+                              cancelAnimationFrame(dragUpdateRef.current);
+                            }
+
+                            dragUpdateRef.current = requestAnimationFrame(() => {
+                              if (isDragging) {
+                                const newX = imageX - dragStart.x;
+                                const newY = imageY - dragStart.y;
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? { ...t, adjustedX: newX, adjustedY: newY }
+                                    : t
+                                ));
+                              } else if (isResizing) {
+                                const deltaX = imageX - dragStart.x;
+                                const deltaY = imageY - dragStart.y;
+                                const dragDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                                const scalingFactor = 0.3;
+
+                                let radiusChange = dragDistance * scalingFactor;
+                                if (resizeHandle === 'nw' || resizeHandle === 'sw') {
+                                  radiusChange = deltaX < 0 ? dragDistance * scalingFactor : -dragDistance * scalingFactor;
+                                } else {
+                                  radiusChange = deltaX > 0 ? dragDistance * scalingFactor : -dragDistance * scalingFactor;
+                                }
+
+                                const newRadius = Math.max(10, dragStart.startRadius + radiusChange);
+                                const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
+
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? {
+                                        ...t,
+                                        adjustedRadius: newRadius,
+                                        pixelsPerInch: newPixelsPerInch
+                                      }
+                                    : t
+                                ));
+                              }
+                            });
+                          }}
+                          onTouchEnd={(e) => {
+                            e.preventDefault();
+
+                            if (dragUpdateRef.current) {
+                              cancelAnimationFrame(dragUpdateRef.current);
+                              dragUpdateRef.current = null;
+                            }
+
+                            if (isDragging || isResizing || isPinching) {
+                              setJustFinishedDragging(true);
+                            }
+
+                            setIsDragging(false);
+                            setIsResizing(false);
+                            setIsPinching(false);
+                            setDragTargetId(null);
+                            setResizeHandle(null);
+
+                            // Handle tap for shot marking (only if single touch and not dragging)
+                            if (e.touches.length === 0 && e.changedTouches.length === 1 && !justFinishedDragging) {
+                              const touch = e.changedTouches[0];
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const relativeX = (touch.clientX - rect.left) / rect.width;
+                              const relativeY = (touch.clientY - rect.top) / rect.height;
+
+                              const shotX = cropX + (relativeX * cropSize);
+                              const shotY = cropY + (relativeY * cropSize);
+
+                              const newShot = {
+                                id: Date.now(),
+                                x: shotX,
+                                y: shotY
+                              };
+
+                              setSelectedTargets(prev => prev.map(t =>
+                                t.id === target.id
+                                  ? { ...t, shots: [...t.shots, newShot] }
+                                  : t
+                              ));
+                            }
                           }}
                         >
                           <div className="absolute inset-0">
@@ -1907,7 +2147,7 @@ const CompletePRSApp = () => {
 
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
               <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Filters</h3>
-              <div className={`grid grid-cols-1 ${isMobile ? '' : 'md:grid-cols-3'} gap-4`}>
+              <div className={`grid grid-cols-1 ${isMobile ? '' : 'md:grid-cols-3 lg:grid-cols-5'} gap-4`}>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Rifle</label>
                   <select
@@ -1946,6 +2186,46 @@ const CompletePRSApp = () => {
                       <option key={session.id} value={session.id}>{session.name} - {session.date}</option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Silencer</label>
+                  <select
+                    value={analyticsFilters.silencer}
+                    onChange={(e) => setAnalyticsFilters({...analyticsFilters, silencer: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="all">All</option>
+                    <option value="true">With Silencer</option>
+                    <option value="false">Without Silencer</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                    Distance (yds): {analyticsFilters.distance[0]}-{analyticsFilters.distance[1]}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={analyticsFilters.distance[0]}
+                      onChange={(e) => setAnalyticsFilters({
+                        ...analyticsFilters,
+                        distance: [parseInt(e.target.value) || 0, analyticsFilters.distance[1]]
+                      })}
+                      className="w-20 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      placeholder="Min"
+                    />
+                    <span className="text-gray-500 dark:text-gray-400">-</span>
+                    <input
+                      type="number"
+                      value={analyticsFilters.distance[1]}
+                      onChange={(e) => setAnalyticsFilters({
+                        ...analyticsFilters,
+                        distance: [analyticsFilters.distance[0], parseInt(e.target.value) || 1000]
+                      })}
+                      className="w-20 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      placeholder="Max"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1986,6 +2266,261 @@ const CompletePRSApp = () => {
                             <p className="text-sm text-gray-600 dark:text-gray-300">Best Group</p>
                           </div>
                           <p className="text-2xl font-bold text-gray-900 dark:text-white">{report.aggregateStats.bestGroup.toFixed(3)}"</p>
+                        </div>
+                      </div>
+
+                      {/* Charts Section */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Chart 1: Group Size Over Time */}
+                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Group Size Over Time</h3>
+                          {(() => {
+                            const sessionsWithData = report.filteredSessions
+                              .map(s => ({
+                                date: new Date(s.date),
+                                dateStr: s.date,
+                                avgGroup: s.targets
+                                  .filter(t => t.shots?.length >= 2 && t.stats)
+                                  .reduce((sum, t, _, arr) => sum + (t.stats.sizeInches / arr.length), 0)
+                              }))
+                              .filter(s => s.avgGroup > 0)
+                              .sort((a, b) => a.date - b.date);
+
+                            if (sessionsWithData.length === 0) {
+                              return <p className="text-gray-500 dark:text-gray-400 text-center py-8">No data available</p>;
+                            }
+
+                            const width = 500;
+                            const height = 300;
+                            const padding = { top: 20, right: 20, bottom: 40, left: 50 };
+                            const chartWidth = width - padding.left - padding.right;
+                            const chartHeight = height - padding.top - padding.bottom;
+
+                            const maxGroup = Math.max(...sessionsWithData.map(d => d.avgGroup));
+                            const minGroup = Math.min(...sessionsWithData.map(d => d.avgGroup));
+                            const yScale = (value) => chartHeight - ((value - minGroup) / (maxGroup - minGroup || 1)) * chartHeight;
+
+                            const points = sessionsWithData.map((d, i) => {
+                              const x = padding.left + (i / (sessionsWithData.length - 1 || 1)) * chartWidth;
+                              const y = padding.top + yScale(d.avgGroup);
+                              return `${x},${y}`;
+                            }).join(' ');
+
+                            return (
+                              <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
+                                {/* Grid lines */}
+                                {[0, 0.25, 0.5, 0.75, 1].map(fraction => {
+                                  const y = padding.top + chartHeight * (1 - fraction);
+                                  const value = minGroup + (maxGroup - minGroup) * fraction;
+                                  return (
+                                    <g key={fraction}>
+                                      <line x1={padding.left} y1={y} x2={width - padding.right} y2={y}
+                                        stroke="currentColor" className="text-gray-200 dark:text-gray-700" strokeWidth="1" />
+                                      <text x={padding.left - 10} y={y + 4} textAnchor="end"
+                                        className="text-xs fill-gray-600 dark:fill-gray-400">
+                                        {value.toFixed(2)}"
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+
+                                {/* Line */}
+                                <polyline points={points} fill="none" stroke="#3b82f6" strokeWidth="2" />
+
+                                {/* Points */}
+                                {sessionsWithData.map((d, i) => {
+                                  const x = padding.left + (i / (sessionsWithData.length - 1 || 1)) * chartWidth;
+                                  const y = padding.top + yScale(d.avgGroup);
+                                  return (
+                                    <circle key={i} cx={x} cy={y} r="4" fill="#3b82f6" />
+                                  );
+                                })}
+
+                                {/* X-axis labels */}
+                                {sessionsWithData.map((d, i) => {
+                                  if (sessionsWithData.length > 10 && i % Math.ceil(sessionsWithData.length / 5) !== 0) return null;
+                                  const x = padding.left + (i / (sessionsWithData.length - 1 || 1)) * chartWidth;
+                                  return (
+                                    <text key={i} x={x} y={height - 10} textAnchor="middle"
+                                      className="text-xs fill-gray-600 dark:fill-gray-400">
+                                      {d.dateStr.slice(5)}
+                                    </text>
+                                  );
+                                })}
+
+                                {/* Axis labels */}
+                                <text x={padding.left / 2} y={height / 2} textAnchor="middle"
+                                  transform={`rotate(-90 ${padding.left / 2} ${height / 2})`}
+                                  className="text-sm fill-gray-700 dark:fill-gray-300 font-medium">
+                                  Group Size (inches)
+                                </text>
+                              </svg>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Chart 2: Shot Distribution Plot */}
+                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Shot Distribution</h3>
+                          {(() => {
+                            const allShots = [];
+                            report.filteredSessions.forEach(session => {
+                              session.targets.forEach(target => {
+                                if (target.stats && target.shots?.length >= 2) {
+                                  target.shots.forEach(shot => {
+                                    const xOffset = (shot.x - target.x) / target.pixelsPerInch;
+                                    const yOffset = -(shot.y - target.y) / target.pixelsPerInch; // Negative for proper orientation
+                                    allShots.push({ x: xOffset, y: yOffset });
+                                  });
+                                }
+                              });
+                            });
+
+                            if (allShots.length === 0) {
+                              return <p className="text-gray-500 dark:text-gray-400 text-center py-8">No data available</p>;
+                            }
+
+                            const width = 500;
+                            const height = 300;
+                            const padding = 40;
+                            const chartSize = Math.min(width, height) - 2 * padding;
+
+                            const maxOffset = Math.max(...allShots.map(s => Math.max(Math.abs(s.x), Math.abs(s.y))));
+                            const scale = chartSize / (2 * (maxOffset || 1));
+
+                            return (
+                              <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
+                                {/* Center crosshairs */}
+                                <line x1={width / 2 - 20} y1={height / 2} x2={width / 2 + 20} y2={height / 2}
+                                  stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="1" />
+                                <line x1={width / 2} y1={height / 2 - 20} x2={width / 2} y2={height / 2 + 20}
+                                  stroke="currentColor" className="text-gray-300 dark:text-gray-600" strokeWidth="1" />
+
+                                {/* Circle guides */}
+                                {[0.5, 1, 1.5].map(radius => (
+                                  <circle key={radius}
+                                    cx={width / 2} cy={height / 2}
+                                    r={radius * scale}
+                                    fill="none" stroke="currentColor"
+                                    className="text-gray-200 dark:text-gray-700"
+                                    strokeWidth="1" strokeDasharray="4,4" />
+                                ))}
+
+                                {/* Shot points */}
+                                {allShots.map((shot, i) => (
+                                  <circle key={i}
+                                    cx={width / 2 + shot.x * scale}
+                                    cy={height / 2 + shot.y * scale}
+                                    r="3"
+                                    fill="#ef4444"
+                                    opacity="0.6" />
+                                ))}
+
+                                {/* Scale reference */}
+                                <text x={width / 2} y={height - 5} textAnchor="middle"
+                                  className="text-xs fill-gray-600 dark:fill-gray-400">
+                                  All shots relative to target center
+                                </text>
+                              </svg>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Chart 3: Performance by Configuration */}
+                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 lg:col-span-2">
+                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Performance by Configuration</h3>
+                          {(() => {
+                            const configStats = {};
+                            report.filteredSessions.forEach(session => {
+                              const configKey = `${session.rifle} + ${session.load}${session.silencer ? ' (Silencer)' : ''}`;
+                              if (!configStats[configKey]) {
+                                configStats[configKey] = [];
+                              }
+                              session.targets.forEach(target => {
+                                if (target.stats && target.shots?.length >= 2) {
+                                  configStats[configKey].push(target.stats.sizeInches);
+                                }
+                              });
+                            });
+
+                            const configs = Object.entries(configStats)
+                              .map(([name, groups]) => ({
+                                name,
+                                avg: groups.reduce((a, b) => a + b, 0) / groups.length,
+                                count: groups.length
+                              }))
+                              .sort((a, b) => a.avg - b.avg)
+                              .slice(0, 10); // Top 10
+
+                            if (configs.length === 0) {
+                              return <p className="text-gray-500 dark:text-gray-400 text-center py-8">No data available</p>;
+                            }
+
+                            const width = 1000;
+                            const height = 400;
+                            const padding = { top: 20, right: 20, bottom: 120, left: 60 };
+                            const chartWidth = width - padding.left - padding.right;
+                            const chartHeight = height - padding.top - padding.bottom;
+
+                            const maxAvg = Math.max(...configs.map(c => c.avg));
+                            const barWidth = chartWidth / configs.length * 0.8;
+                            const barSpacing = chartWidth / configs.length;
+
+                            return (
+                              <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
+                                {/* Y-axis grid */}
+                                {[0, 0.25, 0.5, 0.75, 1].map(fraction => {
+                                  const y = padding.top + chartHeight * (1 - fraction);
+                                  const value = maxAvg * fraction;
+                                  return (
+                                    <g key={fraction}>
+                                      <line x1={padding.left} y1={y} x2={width - padding.right} y2={y}
+                                        stroke="currentColor" className="text-gray-200 dark:text-gray-700" strokeWidth="1" />
+                                      <text x={padding.left - 10} y={y + 4} textAnchor="end"
+                                        className="text-xs fill-gray-600 dark:fill-gray-400">
+                                        {value.toFixed(2)}"
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+
+                                {/* Bars */}
+                                {configs.map((config, i) => {
+                                  const x = padding.left + i * barSpacing + (barSpacing - barWidth) / 2;
+                                  const barHeight = (config.avg / maxAvg) * chartHeight;
+                                  const y = padding.top + chartHeight - barHeight;
+
+                                  return (
+                                    <g key={i}>
+                                      <rect x={x} y={y} width={barWidth} height={barHeight}
+                                        fill="#10b981" opacity="0.8" />
+                                      <text x={x + barWidth / 2} y={y - 5} textAnchor="middle"
+                                        className="text-xs fill-gray-900 dark:fill-white font-medium">
+                                        {config.avg.toFixed(3)}"
+                                      </text>
+                                      <text x={x + barWidth / 2} y={height - padding.bottom + 15}
+                                        textAnchor="end" transform={`rotate(-45 ${x + barWidth / 2} ${height - padding.bottom + 15})`}
+                                        className="text-xs fill-gray-600 dark:fill-gray-400">
+                                        {config.name}
+                                      </text>
+                                      <text x={x + barWidth / 2} y={height - padding.bottom + 30}
+                                        textAnchor="end" transform={`rotate(-45 ${x + barWidth / 2} ${height - padding.bottom + 30})`}
+                                        className="text-xs fill-gray-500 dark:fill-gray-500">
+                                        ({config.count} groups)
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+
+                                {/* Axis labels */}
+                                <text x={padding.left / 2} y={height / 2} textAnchor="middle"
+                                  transform={`rotate(-90 ${padding.left / 2} ${height / 2})`}
+                                  className="text-sm fill-gray-700 dark:fill-gray-300 font-medium">
+                                  Average Group Size (inches)
+                                </text>
+                              </svg>
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -2192,11 +2727,11 @@ const CompletePRSApp = () => {
                               <tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Session</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Rifle</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Load</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Targets</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Distance</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Silencer</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Shots</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Best Group</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Avg Group</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">POI Vertical</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Velocity</th>
                               </tr>
                             </thead>
@@ -2205,22 +2740,42 @@ const CompletePRSApp = () => {
                                 const sessionGroups = session.targets
                                   .filter(t => t.shots.length >= 2)
                                   .map(t => t.stats?.sizeInches || 0);
-                                const avgGroup = sessionGroups.length > 0
-                                  ? sessionGroups.reduce((a, b) => a + b, 0) / sessionGroups.length
-                                  : 0;
+                                const totalShots = session.targets.reduce((sum, t) => sum + t.shots.length, 0);
+
+                                // Calculate average POI across all targets in session
+                                const targetPOIs = session.targets
+                                  .filter(t => t.shots.length >= 2 && t.stats)
+                                  .map(t => {
+                                    const poi = -t.stats.groupCenterYInches;
+                                    const distance = session.distance || 100;
+                                    return {
+                                      inches: poi,
+                                      mils: (poi * 27.78) / distance,
+                                      moa: (poi * 95.5) / distance
+                                    };
+                                  });
+                                const avgPOI = targetPOIs.length > 0
+                                  ? {
+                                      inches: targetPOIs.reduce((sum, p) => sum + p.inches, 0) / targetPOIs.length,
+                                      mils: targetPOIs.reduce((sum, p) => sum + p.mils, 0) / targetPOIs.length,
+                                      moa: targetPOIs.reduce((sum, p) => sum + p.moa, 0) / targetPOIs.length
+                                    }
+                                  : null;
 
                                 return (
                                   <tr key={session.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{session.name}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.date}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.rifle}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.load}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.targets.length}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.distance || 100} yds</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.silencer ? 'Yes' : 'No'}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{totalShots}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-medium">
                                       {Math.min(...session.targets.map(t => t.stats?.sizeInches || Infinity)).toFixed(3)}"
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                      {avgGroup.toFixed(3)}"
+                                      {avgPOI
+                                        ? `${avgPOI.inches.toFixed(2)}" / ${avgPOI.mils.toFixed(2)} mil / ${avgPOI.moa.toFixed(2)} MOA`
+                                        : 'N/A'}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                       {session.chronoData ? `${session.chronoData.average.toFixed(0)} fps` : 'N/A'}
