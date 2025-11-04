@@ -725,9 +725,16 @@ const CompletePRSApp = () => {
         // Calculate POI (Point of Impact) metrics
         // Positive Y = below center (in image coords), so we negate for "drop" semantics
         const poiVerticalInches = -stats.groupCenterYInches; // Negative = below center (drop)
+        const poiHorizontalInches = stats.groupCenterXInches; // Positive = right of center
         const distance = session.distance || 100; // Default to 100 yards if not specified
-        const poiMils = distance > 0 ? (poiVerticalInches * 27.78) / distance : 0;
-        const poiMOA = distance > 0 ? (poiVerticalInches * 95.5) / distance : 0;
+
+        // Vertical POI in mils and MOA
+        const poiVerticalMils = distance > 0 ? (poiVerticalInches * 27.78) / distance : 0;
+        const poiVerticalMOA = distance > 0 ? (poiVerticalInches * 95.5) / distance : 0;
+
+        // Horizontal POI in mils and MOA
+        const poiHorizontalMils = distance > 0 ? (poiHorizontalInches * 27.78) / distance : 0;
+        const poiHorizontalMOA = distance > 0 ? (poiHorizontalInches * 95.5) / distance : 0;
 
         targetStats.push({
           sessionId: session.id,
@@ -745,8 +752,11 @@ const CompletePRSApp = () => {
           groupCenterX: stats.groupCenterXInches,
           groupCenterY: stats.groupCenterYInches,
           poiVerticalInches: poiVerticalInches,
-          poiMils: poiMils,
-          poiMOA: poiMOA,
+          poiVerticalMils: poiVerticalMils,
+          poiVerticalMOA: poiVerticalMOA,
+          poiHorizontalInches: poiHorizontalInches,
+          poiHorizontalMils: poiHorizontalMils,
+          poiHorizontalMOA: poiHorizontalMOA,
           chronoAvg: session.chronoData?.average,
           chronoES: session.chronoData?.es,
           chronoSD: session.chronoData?.sd
@@ -2883,10 +2893,9 @@ const CompletePRSApp = () => {
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Session</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Distance</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Silencer</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Shots</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Best Group</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">POI Vertical</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">POI V/H (MOA)</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Velocity</th>
                               </tr>
                             </thead>
@@ -2901,35 +2910,33 @@ const CompletePRSApp = () => {
                                 const targetPOIs = session.targets
                                   .filter(t => t.shots.length >= 2 && t.stats)
                                   .map(t => {
-                                    const poi = -t.stats.groupCenterYInches;
+                                    const poiVertical = -t.stats.groupCenterYInches;
+                                    const poiHorizontal = t.stats.groupCenterXInches;
                                     const distance = session.distance || 100;
                                     return {
-                                      inches: poi,
-                                      mils: (poi * 27.78) / distance,
-                                      moa: (poi * 95.5) / distance
+                                      verticalMOA: (poiVertical * 95.5) / distance,
+                                      horizontalMOA: (poiHorizontal * 95.5) / distance
                                     };
                                   });
                                 const avgPOI = targetPOIs.length > 0
                                   ? {
-                                      inches: targetPOIs.reduce((sum, p) => sum + p.inches, 0) / targetPOIs.length,
-                                      mils: targetPOIs.reduce((sum, p) => sum + p.mils, 0) / targetPOIs.length,
-                                      moa: targetPOIs.reduce((sum, p) => sum + p.moa, 0) / targetPOIs.length
+                                      verticalMOA: targetPOIs.reduce((sum, p) => sum + p.verticalMOA, 0) / targetPOIs.length,
+                                      horizontalMOA: targetPOIs.reduce((sum, p) => sum + p.horizontalMOA, 0) / targetPOIs.length
                                     }
                                   : null;
 
                                 return (
                                   <tr key={session.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{session.name}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{session.name}{session.silencer ? ' 🔇' : ''}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.date}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.distance || 100} yds</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.silencer ? 'Yes' : 'No'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{totalShots}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-medium">
                                       {Math.min(...session.targets.map(t => t.stats?.sizeInches || Infinity)).toFixed(3)}"
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                       {avgPOI
-                                        ? `${avgPOI.inches.toFixed(2)}" / ${avgPOI.mils.toFixed(2)} mil / ${avgPOI.moa.toFixed(2)} MOA`
+                                        ? `↕${avgPOI.verticalMOA >= 0 ? '+' : ''}${avgPOI.verticalMOA.toFixed(2)} / ↔${avgPOI.horizontalMOA >= 0 ? '+' : ''}${avgPOI.horizontalMOA.toFixed(2)}`
                                         : 'N/A'}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
