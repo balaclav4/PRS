@@ -24,9 +24,9 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
 import Auth from './components/Auth';
 import {
-  addSession, getSessions,
-  addRifle, getRifles,
-  addLoad, getLoads
+  addSession, getSessions, deleteSession,
+  addRifle, getRifles, deleteRifle,
+  addLoad, getLoads, deleteLoad
 } from './services/firestore';
 
 const CompletePRSApp = () => {
@@ -2988,10 +2988,29 @@ const CompletePRSApp = () => {
                 {equipment.rifles.length > 0 ? (
                   <div className="space-y-3">
                     {equipment.rifles.map((rifle, index) => (
-                      <div key={index} className="border-l-4 border-blue-500 dark:border-blue-400 pl-4 py-2">
-                        <p className="font-medium text-gray-900 dark:text-white">{rifle.name}</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-300">{rifle.caliber} • {rifle.barrel} • {rifle.twist}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{rifle.scope}</p>
+                      <div key={index} className="border-l-4 border-blue-500 dark:border-blue-400 pl-4 py-2 flex justify-between items-start">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900 dark:text-white">{rifle.name}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">{rifle.caliber} • {rifle.barrel} • {rifle.twist}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">{rifle.scope}</p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (window.confirm(`Delete rifle "${rifle.name}"? This cannot be undone.`)) {
+                              try {
+                                await deleteRifle(user.uid, rifle.id);
+                                const updatedRifles = await getRifles(user.uid);
+                                setEquipment(prev => ({ ...prev, rifles: updatedRifles }));
+                              } catch (error) {
+                                console.error('Error deleting rifle:', error);
+                                alert('Failed to delete rifle');
+                              }
+                            }
+                          }}
+                          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -3014,10 +3033,29 @@ const CompletePRSApp = () => {
                 {equipment.loads.length > 0 ? (
                   <div className="space-y-3">
                     {equipment.loads.map((load, index) => (
-                      <div key={index} className="border-l-4 border-green-500 dark:border-green-400 pl-4 py-2">
-                        <p className="font-medium text-gray-900 dark:text-white">{load.name}</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-300">{load.caliber} • {load.bulletWeight} {load.bullet}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{load.charge} {load.powder} • OAL: {load.oal}</p>
+                      <div key={index} className="border-l-4 border-green-500 dark:border-green-400 pl-4 py-2 flex justify-between items-start">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900 dark:text-white">{load.name}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">{load.caliber} • {load.bulletWeight} {load.bullet}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">{load.charge} {load.powder} • OAL: {load.oal}</p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (window.confirm(`Delete load "${load.name}"? This cannot be undone.`)) {
+                              try {
+                                await deleteLoad(user.uid, load.id);
+                                const updatedLoads = await getLoads(user.uid);
+                                setEquipment(prev => ({ ...prev, loads: updatedLoads }));
+                              } catch (error) {
+                                console.error('Error deleting load:', error);
+                                alert('Failed to delete load');
+                              }
+                            }
+                          }}
+                          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     ))}
                   </div>
