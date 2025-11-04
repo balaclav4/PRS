@@ -2350,8 +2350,16 @@ const CompletePRSApp = () => {
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         {/* Chart 1: Group Size Over Time */}
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Group Size Over Time</h3>
-                          {(() => {
+                          <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Group Size Over Time</h3>
+                            <button
+                              onClick={() => setChartCollapsed({...chartCollapsed, groupSize: !chartCollapsed.groupSize})}
+                              className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                            >
+                              {chartCollapsed.groupSize ? '▼' : '▲'}
+                            </button>
+                          </div>
+                          {!chartCollapsed.groupSize && (() => {
                             const sessionsWithData = report.filteredSessions
                               .map(s => ({
                                 date: new Date(s.date),
@@ -2438,8 +2446,16 @@ const CompletePRSApp = () => {
 
                         {/* Chart 2: Shot Distribution Plot */}
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Shot Distribution</h3>
-                          {(() => {
+                          <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Shot Distribution</h3>
+                            <button
+                              onClick={() => setChartCollapsed({...chartCollapsed, shotDistribution: !chartCollapsed.shotDistribution})}
+                              className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                            >
+                              {chartCollapsed.shotDistribution ? '▼' : '▲'}
+                            </button>
+                          </div>
+                          {!chartCollapsed.shotDistribution && (() => {
                             const allShots = [];
                             report.filteredSessions.forEach(session => {
                               session.targets.forEach(target => {
@@ -2505,28 +2521,90 @@ const CompletePRSApp = () => {
 
                         {/* Chart 3: Performance by Configuration */}
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 lg:col-span-2">
-                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Performance by Configuration</h3>
-                          {(() => {
+                          <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Performance by Configuration</h3>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={performanceMetric}
+                                onChange={(e) => setPerformanceMetric(e.target.value)}
+                                className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                              >
+                                <option value="velocity">Avg Velocity (fps)</option>
+                                <option value="groupSize">Avg Group Size (in)</option>
+                                <option value="totalRounds">Total Rounds Fired</option>
+                                <option value="avgPOI">Avg POI Vertical (MOA)</option>
+                              </select>
+                              <button
+                                onClick={() => setChartCollapsed({...chartCollapsed, performance: !chartCollapsed.performance})}
+                                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                              >
+                                {chartCollapsed.performance ? '▼' : '▲'}
+                              </button>
+                            </div>
+                          </div>
+                          {!chartCollapsed.performance && (() => {
                             const configStats = {};
                             report.filteredSessions.forEach(session => {
                               const configKey = `${session.rifle} + ${session.load}${session.silencer ? ' (Silencer)' : ''}`;
                               if (!configStats[configKey]) {
-                                configStats[configKey] = [];
+                                configStats[configKey] = {
+                                  groupSizes: [],
+                                  velocities: [],
+                                  totalRounds: 0,
+                                  pois: []
+                                };
                               }
                               session.targets.forEach(target => {
                                 if (target.stats && target.shots?.length >= 2) {
-                                  configStats[configKey].push(target.stats.sizeInches);
+                                  configStats[configKey].groupSizes.push(target.stats.sizeInches);
+                                  configStats[configKey].totalRounds += target.shots.length;
+                                  const poiVerticalInches = -target.stats.groupCenterYInches;
+                                  const distance = session.distance || 100;
+                                  const poiMOA = distance > 0 ? (poiVerticalInches * 95.5) / distance : 0;
+                                  configStats[configKey].pois.push(poiMOA);
                                 }
                               });
+                              if (session.chronoData) {
+                                configStats[configKey].velocities.push(session.chronoData.average);
+                              }
                             });
 
                             const configs = Object.entries(configStats)
-                              .map(([name, groups]) => ({
-                                name,
-                                avg: groups.reduce((a, b) => a + b, 0) / groups.length,
-                                count: groups.length
-                              }))
-                              .sort((a, b) => a.avg - b.avg)
+                              .map(([name, data]) => {
+                                let value = 0, label = '';
+                                if (performanceMetric === 'velocity') {
+                                  value = data.velocities.length > 0
+                                    ? data.velocities.reduce((a, b) => a + b, 0) / data.velocities.length
+                                    : 0;
+                                  label = 'fps';
+                                } else if (performanceMetric === 'groupSize') {
+                                  value = data.groupSizes.length > 0
+                                    ? data.groupSizes.reduce((a, b) => a + b, 0) / data.groupSizes.length
+                                    : 0;
+                                  label = 'in';
+                                } else if (performanceMetric === 'totalRounds') {
+                                  value = data.totalRounds;
+                                  label = 'rounds';
+                                } else if (performanceMetric === 'avgPOI') {
+                                  value = data.pois.length > 0
+                                    ? data.pois.reduce((a, b) => a + b, 0) / data.pois.length
+                                    : 0;
+                                  label = 'MOA';
+                                }
+                                return {
+                                  name,
+                                  value,
+                                  label,
+                                  count: data.groupSizes.length
+                                };
+                              })
+                              .filter(c => c.value > 0)
+                              .sort((a, b) => {
+                                if (performanceMetric === 'groupSize' || performanceMetric === 'avgPOI') {
+                                  return a.value - b.value; // Smaller is better
+                                }
+                                return b.value - a.value; // Larger is better
+                              })
                               .slice(0, 10); // Top 10
 
                             if (configs.length === 0) {
@@ -2539,7 +2617,7 @@ const CompletePRSApp = () => {
                             const chartWidth = width - padding.left - padding.right;
                             const chartHeight = height - padding.top - padding.bottom;
 
-                            const maxAvg = Math.max(...configs.map(c => c.avg));
+                            const maxValue = Math.max(...configs.map(c => c.value));
                             const barWidth = chartWidth / configs.length * 0.8;
                             const barSpacing = chartWidth / configs.length;
 
@@ -2548,14 +2626,14 @@ const CompletePRSApp = () => {
                                 {/* Y-axis grid */}
                                 {[0, 0.25, 0.5, 0.75, 1].map(fraction => {
                                   const y = padding.top + chartHeight * (1 - fraction);
-                                  const value = maxAvg * fraction;
+                                  const gridValue = maxValue * fraction;
                                   return (
                                     <g key={fraction}>
                                       <line x1={padding.left} y1={y} x2={width - padding.right} y2={y}
                                         stroke="currentColor" className="text-gray-200 dark:text-gray-700" strokeWidth="1" />
                                       <text x={padding.left - 10} y={y + 4} textAnchor="end"
                                         className="text-xs fill-gray-600 dark:fill-gray-400">
-                                        {value.toFixed(2)}"
+                                        {performanceMetric === 'totalRounds' ? gridValue.toFixed(0) : gridValue.toFixed(1)}
                                       </text>
                                     </g>
                                   );
@@ -2564,7 +2642,7 @@ const CompletePRSApp = () => {
                                 {/* Bars */}
                                 {configs.map((config, i) => {
                                   const x = padding.left + i * barSpacing + (barSpacing - barWidth) / 2;
-                                  const barHeight = (config.avg / maxAvg) * chartHeight;
+                                  const barHeight = (config.value / maxValue) * chartHeight;
                                   const y = padding.top + chartHeight - barHeight;
 
                                   return (
@@ -2573,7 +2651,7 @@ const CompletePRSApp = () => {
                                         fill="#10b981" opacity="0.8" />
                                       <text x={x + barWidth / 2} y={y - 5} textAnchor="middle"
                                         className="text-xs fill-gray-900 dark:fill-white font-medium">
-                                        {config.avg.toFixed(3)}"
+                                        {performanceMetric === 'totalRounds' ? config.value.toFixed(0) : config.value.toFixed(1)} {config.label}
                                       </text>
                                       <text x={x + barWidth / 2} y={height - padding.bottom + 15}
                                         textAnchor="end" transform={`rotate(-45 ${x + barWidth / 2} ${height - padding.bottom + 15})`}
