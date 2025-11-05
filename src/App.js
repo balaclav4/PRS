@@ -28,6 +28,12 @@ import {
   addRifle, getRifles, deleteRifle,
   addLoad, getLoads, deleteLoad
 } from './services/firestore';
+import {
+  initializeOpenCV,
+  detectTargets,
+  validateTarget,
+  estimateTargetDiameter
+} from './utils/targetDetection';
 
 const CompletePRSApp = () => {
   // Authentication state
@@ -52,6 +58,12 @@ const CompletePRSApp = () => {
   const [targetDiameter, setTargetDiameter] = useState('');
   const [selectedTargets, setSelectedTargets] = useState([]);
   const [currentEditingTarget, setCurrentEditingTarget] = useState(null);
+
+  // Auto-detection state
+  const [detectedTargets, setDetectedTargets] = useState([]);
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [detectionError, setDetectionError] = useState(null);
+  const [openCVReady, setOpenCVReady] = useState(false);
 
   // Drag and resize state for visual target adjustment
   const [isDragging, setIsDragging] = useState(false);
@@ -195,6 +207,21 @@ const CompletePRSApp = () => {
     }
     localStorage.setItem('darkMode', darkMode.toString());
   }, [darkMode]);
+
+  // Initialize OpenCV for target detection
+  useEffect(() => {
+    const loadOpenCV = async () => {
+      try {
+        await initializeOpenCV();
+        setOpenCVReady(true);
+        console.log('OpenCV initialized successfully');
+      } catch (error) {
+        console.error('Failed to initialize OpenCV:', error);
+        setDetectionError('Auto-detection unavailable');
+      }
+    };
+    loadOpenCV();
+  }, []);
 
   // Toggle dark mode function
   const toggleDarkMode = () => {
@@ -375,14 +402,97 @@ const CompletePRSApp = () => {
     const file = e.target.files[0];
     if (file && file.type.startsWith('image/')) {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         setUploadedImage(e.target.result);
         setCaptureStep('setup');
         setSelectedTargets([]);
         setTargetDiameter('');
+        setDetectedTargets([]);
+        setDetectionError(null);
+
+        // Auto-detect targets after image loads
+        if (openCVReady) {
+          await runAutoDetection(e.target.result);
+        }
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  // Run auto-detection on uploaded image
+  const runAutoDetection = async (imageDataUrl) => {
+    setIsDetecting(true);
+    setDetectionError(null);
+
+    try {
+      // Create an image element from the data URL
+      const img = new Image();
+      img.src = imageDataUrl;
+
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+      });
+
+      // Run detection
+      const targets = await detectTargets(img, {
+        minRadius: 20,
+        maxRadius: 500,
+        minDistance: 80,
+        cannyThreshold: 100,
+        circleThreshold: 30,
+        maxTargets: 10
+      });
+
+      // Validate targets
+      const validatedTargets = targets.map(t => validateTarget(t, img));
+
+      // Filter to high-confidence targets
+      const goodTargets = validatedTargets.filter(t => t.confidence > 50);
+
+      setDetectedTargets(goodTargets);
+
+      // Auto-suggest diameter for best target
+      if (goodTargets.length > 0) {
+        const bestTarget = goodTargets[0];
+        const suggestedDiameter = estimateTargetDiameter(bestTarget.radius);
+        setTargetDiameter(suggestedDiameter.toString());
+      }
+
+    } catch (error) {
+      console.error('Auto-detection failed:', error);
+      setDetectionError('Auto-detection failed. You can manually add targets.');
+    } finally {
+      setIsDetecting(false);
+    }
+  };
+
+  // Apply detected targets to selection
+  const applyDetectedTargets = () => {
+    if (detectedTargets.length === 0 || !targetDiameter) return;
+
+    const diameter = parseFloat(targetDiameter);
+    if (!diameter || diameter <= 0) {
+      alert('Please enter a valid target diameter');
+      return;
+    }
+
+    const newTargets = detectedTargets.map(detected => ({
+      id: detected.id,
+      x: detected.x,
+      y: detected.y,
+      radius: detected.radius,
+      diameterInches: diameter,
+      pixelsPerInch: (detected.radius * 2) / diameter,
+      shots: [],
+      adjustedX: null,
+      adjustedY: null,
+      adjustedRadius: null,
+      confidence: detected.confidence
+    }));
+
+    setSelectedTargets(newTargets);
+    setCaptureStep('adjust');
   };
 
   // Find orange circle using edge detection
@@ -1273,7 +1383,119 @@ const CompletePRSApp = () => {
                       </div>
                     </div>
                   </div>
-                  
+
+                  {/* Auto-Detection Section */}
+                  <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">
+                      🎯 Automatic Target Detection
+                    </h4>
+
+                    {/* Detection Status */}
+                    {isDetecting && (
+                      <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg border border-blue-200 dark:border-blue-700">
+                        <div className="flex items-center">
+                          <div className="animate-spin h-5 w-5 border-2 border-blue-600 border-t-transparent rounded-full mr-3"></div>
+                          <span className="text-blue-900 dark:text-blue-200 font-medium">
+                            Analyzing image and detecting circular targets...
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Detection Success */}
+                    {!isDetecting && detectedTargets.length > 0 && (
+                      <div className="space-y-4">
+                        <div className="p-4 bg-green-50 dark:bg-green-900 rounded-lg border border-green-200 dark:border-green-700">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-green-900 dark:text-green-200 font-medium">
+                                ✓ Found {detectedTargets.length} target{detectedTargets.length !== 1 ? 's' : ''}
+                              </p>
+                              <p className="text-sm text-green-700 dark:text-green-300 mt-1">
+                                Click "Apply Detected Targets" to use them, or continue to select manually
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Detected Targets Preview */}
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {detectedTargets.slice(0, 6).map((target, index) => (
+                            <div
+                              key={target.id}
+                              className="p-3 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600"
+                            >
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-medium text-gray-700 dark:text-gray-200">
+                                  Target {index + 1}
+                                </span>
+                                <span
+                                  className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                                    target.confidence >= 70
+                                      ? 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100'
+                                      : target.confidence >= 50
+                                      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100'
+                                      : 'bg-orange-100 text-orange-800 dark:bg-orange-800 dark:text-orange-100'
+                                  }`}
+                                >
+                                  {target.confidence.toFixed(0)}%
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-600 dark:text-gray-400">
+                                {(target.radius * 2).toFixed(0)}px diameter
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            onClick={applyDetectedTargets}
+                            disabled={!targetDiameter || parseFloat(targetDiameter) <= 0}
+                            className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
+                          >
+                            <Target className="h-4 w-4 mr-2" />
+                            Apply Detected Targets
+                          </button>
+                          <button
+                            onClick={runAutoDetection.bind(null, uploadedImage)}
+                            className="bg-gray-600 hover:bg-gray-700 dark:bg-gray-600 dark:hover:bg-gray-500 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                          >
+                            🔄 Re-run Detection
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Detection Error */}
+                    {!isDetecting && detectionError && (
+                      <div className="p-4 bg-yellow-50 dark:bg-yellow-900 rounded-lg border border-yellow-200 dark:border-yellow-700">
+                        <p className="text-yellow-900 dark:text-yellow-200 font-medium">
+                          ⚠ {detectionError}
+                        </p>
+                        <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+                          You can still manually select targets using the next screen.
+                        </p>
+                        <button
+                          onClick={runAutoDetection.bind(null, uploadedImage)}
+                          className="mt-3 text-yellow-800 dark:text-yellow-200 hover:text-yellow-900 dark:hover:text-yellow-100 text-sm font-medium underline"
+                        >
+                          Try Again
+                        </button>
+                      </div>
+                    )}
+
+                    {/* No Detection Yet */}
+                    {!isDetecting && !detectionError && detectedTargets.length === 0 && openCVReady && (
+                      <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                        <p className="text-gray-700 dark:text-gray-300">
+                          Auto-detection ready. Detection will run automatically when you upload an image.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="mt-6 flex justify-end space-x-4">
                     <button
                       onClick={() => setCaptureStep('upload')}
