@@ -24,9 +24,9 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
 import Auth from './components/Auth';
 import {
-  addSession, getSessions,
-  addRifle, getRifles,
-  addLoad, getLoads
+  addSession, getSessions, deleteSession,
+  addRifle, getRifles, deleteRifle,
+  addLoad, getLoads, deleteLoad
 } from './services/firestore';
 
 const CompletePRSApp = () => {
@@ -66,6 +66,11 @@ const CompletePRSApp = () => {
   const [isPinching, setIsPinching] = useState(false);
   const [initialPinchDistance, setInitialPinchDistance] = useState(0);
   const [initialPinchRadius, setInitialPinchRadius] = useState(0);
+
+  // Shot dragging state
+  const [draggingShotId, setDraggingShotId] = useState(null);
+  const [shotDragOffset, setShotDragOffset] = useState({ x: 0, y: 0 });
+
   const [sessionData, setSessionData] = useState({
     name: '',
     date: new Date().toISOString().split('T')[0],
@@ -89,7 +94,15 @@ const CompletePRSApp = () => {
     silencer: 'all',
     distance: [0, 1000] // [min, max] in yards
   });
-  
+
+  // Analytics chart settings
+  const [performanceMetric, setPerformanceMetric] = useState('velocity'); // 'velocity', 'groupSize', 'totalRounds', 'avgPOI'
+  const [chartCollapsed, setChartCollapsed] = useState({
+    groupSize: false,
+    shotDistribution: false,
+    performance: false
+  });
+
   // Equipment form state
   const [showAddRifle, setShowAddRifle] = useState(false);
   const [showAddLoad, setShowAddLoad] = useState(false);
@@ -712,9 +725,16 @@ const CompletePRSApp = () => {
         // Calculate POI (Point of Impact) metrics
         // Positive Y = below center (in image coords), so we negate for "drop" semantics
         const poiVerticalInches = -stats.groupCenterYInches; // Negative = below center (drop)
+        const poiHorizontalInches = stats.groupCenterXInches; // Positive = right of center
         const distance = session.distance || 100; // Default to 100 yards if not specified
-        const poiMils = distance > 0 ? (poiVerticalInches * 27.78) / distance : 0;
-        const poiMOA = distance > 0 ? (poiVerticalInches * 95.5) / distance : 0;
+
+        // Vertical POI in mils and MOA
+        const poiVerticalMils = distance > 0 ? (poiVerticalInches * 27.78) / distance : 0;
+        const poiVerticalMOA = distance > 0 ? (poiVerticalInches * 95.5) / distance : 0;
+
+        // Horizontal POI in mils and MOA
+        const poiHorizontalMils = distance > 0 ? (poiHorizontalInches * 27.78) / distance : 0;
+        const poiHorizontalMOA = distance > 0 ? (poiHorizontalInches * 95.5) / distance : 0;
 
         targetStats.push({
           sessionId: session.id,
@@ -732,8 +752,11 @@ const CompletePRSApp = () => {
           groupCenterX: stats.groupCenterXInches,
           groupCenterY: stats.groupCenterYInches,
           poiVerticalInches: poiVerticalInches,
-          poiMils: poiMils,
-          poiMOA: poiMOA,
+          poiVerticalMils: poiVerticalMils,
+          poiVerticalMOA: poiVerticalMOA,
+          poiHorizontalInches: poiHorizontalInches,
+          poiHorizontalMils: poiHorizontalMils,
+          poiHorizontalMOA: poiHorizontalMOA,
           chronoAvg: session.chronoData?.average,
           chronoES: session.chronoData?.es,
           chronoSD: session.chronoData?.sd
@@ -1445,7 +1468,7 @@ const CompletePRSApp = () => {
                             const imageY = cropY + (relativeY * cropSize);
 
                             // Check if clicking on a resize handle FIRST (higher priority)
-                            const handleHitSize = 50; // Large hit area for mobile (in image pixels)
+                            const handleHitSize = 25; // Reduced hit area for better shot marking access
                             const handles = [
                               { name: 'nw', x: currentX - currentRadius, y: currentY - currentRadius },
                               { name: 'ne', x: currentX + currentRadius, y: currentY - currentRadius },
@@ -1497,8 +1520,8 @@ const CompletePRSApp = () => {
                             // If clicking in center (far from perimeter), allow click to pass through for shot marking
                           }}
                           onMouseMove={(e) => {
-                            if (!isDragging && !isResizing) return;
-                            if (dragTargetId !== target.id) return;
+                            if (!isDragging && !isResizing && !draggingShotId) return;
+                            if (dragTargetId !== target.id && !draggingShotId) return;
 
                             // Capture event data immediately (event object becomes stale in async callbacks)
                             const rect = e.currentTarget.getBoundingClientRect();
@@ -1517,7 +1540,21 @@ const CompletePRSApp = () => {
 
                             // Use requestAnimationFrame for smooth, throttled updates
                             dragUpdateRef.current = requestAnimationFrame(() => {
-                              if (isDragging) {
+                              if (draggingShotId) {
+                                // Update shot position
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? {
+                                        ...t,
+                                        shots: t.shots.map(s =>
+                                          s.id === draggingShotId
+                                            ? { ...s, x: imageX, y: imageY }
+                                            : s
+                                        )
+                                      }
+                                    : t
+                                ));
+                              } else if (isDragging) {
                                 // Update circle position
                                 const newX = imageX - dragStart.x;
                                 const newY = imageY - dragStart.y;
@@ -1570,13 +1607,14 @@ const CompletePRSApp = () => {
                               dragUpdateRef.current = null;
                             }
 
-                            if (isDragging || isResizing) {
+                            if (isDragging || isResizing || draggingShotId) {
                               setJustFinishedDragging(true); // Flag to prevent shot marking
                             }
                             setIsDragging(false);
                             setIsResizing(false);
                             setDragTargetId(null);
                             setResizeHandle(null);
+                            setDraggingShotId(null);
                           }}
                           onMouseLeave={() => {
                             // Cancel any pending animation frame
@@ -1585,13 +1623,14 @@ const CompletePRSApp = () => {
                               dragUpdateRef.current = null;
                             }
 
-                            if (isDragging || isResizing) {
+                            if (isDragging || isResizing || draggingShotId) {
                               setJustFinishedDragging(true);
                             }
                             setIsDragging(false);
                             setIsResizing(false);
                             setDragTargetId(null);
                             setResizeHandle(null);
+                            setDraggingShotId(null);
                           }}
                           onClick={(e) => {
                             // Prevent shot marking if we just finished dragging/resizing
@@ -1651,8 +1690,8 @@ const CompletePRSApp = () => {
                             const imageX = cropX + (relativeX * cropSize);
                             const imageY = cropY + (relativeY * cropSize);
 
-                            // Check resize handles first (larger for mobile - 80px)
-                            const handleHitSize = 80;
+                            // Check resize handles first (larger for mobile)
+                            const handleHitSize = 40;
                             const handles = [
                               { name: 'nw', x: currentX - currentRadius, y: currentY - currentRadius },
                               { name: 'ne', x: currentX + currentRadius, y: currentY - currentRadius },
@@ -1724,8 +1763,8 @@ const CompletePRSApp = () => {
                             }
 
                             // Single-finger drag/resize (same as mouse)
-                            if (!isDragging && !isResizing) return;
-                            if (dragTargetId !== target.id) return;
+                            if (!isDragging && !isResizing && !draggingShotId) return;
+                            if (dragTargetId !== target.id && !draggingShotId) return;
 
                             const touch = e.touches[0];
                             const rect = e.currentTarget.getBoundingClientRect();
@@ -1742,7 +1781,21 @@ const CompletePRSApp = () => {
                             }
 
                             dragUpdateRef.current = requestAnimationFrame(() => {
-                              if (isDragging) {
+                              if (draggingShotId) {
+                                // Update shot position
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? {
+                                        ...t,
+                                        shots: t.shots.map(s =>
+                                          s.id === draggingShotId
+                                            ? { ...s, x: imageX, y: imageY }
+                                            : s
+                                        )
+                                      }
+                                    : t
+                                ));
+                              } else if (isDragging) {
                                 const newX = imageX - dragStart.x;
                                 const newY = imageY - dragStart.y;
                                 setSelectedTargets(prev => prev.map(t =>
@@ -1786,7 +1839,7 @@ const CompletePRSApp = () => {
                               dragUpdateRef.current = null;
                             }
 
-                            if (isDragging || isResizing || isPinching) {
+                            if (isDragging || isResizing || isPinching || draggingShotId) {
                               setJustFinishedDragging(true);
                             }
 
@@ -1795,6 +1848,7 @@ const CompletePRSApp = () => {
                             setIsPinching(false);
                             setDragTargetId(null);
                             setResizeHandle(null);
+                            setDraggingShotId(null);
 
                             // Handle tap for shot marking (only if single touch and not dragging)
                             if (e.touches.length === 0 && e.changedTouches.length === 1 && !justFinishedDragging) {
@@ -1864,24 +1918,24 @@ const CompletePRSApp = () => {
                                 <g key={hi}>
                                   {/* Drop shadow for visibility */}
                                   <rect
-                                    x={handle.x - 17}
-                                    y={handle.y - 17}
-                                    width="34"
-                                    height="34"
+                                    x={handle.x - 9}
+                                    y={handle.y - 9}
+                                    width="18"
+                                    height="18"
                                     fill="rgba(0, 0, 0, 0.3)"
-                                    rx="4"
+                                    rx="3"
                                     style={{ pointerEvents: 'none' }}
                                   />
                                   {/* Main handle */}
                                   <rect
-                                    x={handle.x - 16}
-                                    y={handle.y - 16}
-                                    width="32"
-                                    height="32"
+                                    x={handle.x - 8}
+                                    y={handle.y - 8}
+                                    width="16"
+                                    height="16"
                                     fill="white"
                                     stroke="#3b82f6"
-                                    strokeWidth="3"
-                                    rx="4"
+                                    strokeWidth="2"
+                                    rx="3"
                                     style={{
                                       pointerEvents: 'all',
                                       cursor: handle.cursor
@@ -1891,7 +1945,7 @@ const CompletePRSApp = () => {
                                   <circle
                                     cx={handle.x}
                                     cy={handle.y}
-                                    r="6"
+                                    r="3"
                                     fill="#3b82f6"
                                     style={{ pointerEvents: 'none' }}
                                   />
@@ -1925,25 +1979,58 @@ const CompletePRSApp = () => {
                                 const shotDisplayX = shot.x - cropX;
                                 const shotDisplayY = shot.y - cropY;
 
+                                // Calculate shot marker size based on caliber (half bullet diameter)
+                                const rifle = equipment.rifles.find(r => r.name === sessionData.rifle);
+                                let bulletDiameterInches = 0.308; // Default .308
+                                if (rifle?.caliber) {
+                                  // Parse caliber (e.g., "6.5 Creedmoor" -> 0.264", ".308 Win" -> 0.308")
+                                  const calMatch = rifle.caliber.match(/(\d+\.?\d*)/);
+                                  if (calMatch) {
+                                    const calValue = parseFloat(calMatch[1]);
+                                    if (calValue < 1) {
+                                      bulletDiameterInches = calValue; // Already in inches (e.g., .308)
+                                    } else if (calValue < 20) {
+                                      // Metric mm (e.g., 6.5) - convert to inches
+                                      bulletDiameterInches = calValue / 25.4;
+                                    }
+                                  }
+                                }
+                                const markerRadius = Math.max(4, (bulletDiameterInches / 2) * target.pixelsPerInch);
+
                                 if (shotDisplayX >= 0 && shotDisplayX <= cropSize &&
                                     shotDisplayY >= 0 && shotDisplayY <= cropSize) {
                                   return (
-                                    <g key={shot.id}>
+                                    <g
+                                      key={shot.id}
+                                      style={{ cursor: draggingShotId === shot.id ? 'grabbing' : 'grab' }}
+                                      onMouseDown={(e) => {
+                                        e.stopPropagation();
+                                        setDraggingShotId(shot.id);
+                                        setShotDragOffset({ x: 0, y: 0 });
+                                      }}
+                                      onTouchStart={(e) => {
+                                        e.stopPropagation();
+                                        setDraggingShotId(shot.id);
+                                        setShotDragOffset({ x: 0, y: 0 });
+                                      }}
+                                    >
                                       <circle
                                         cx={shotDisplayX}
                                         cy={shotDisplayY}
-                                        r="8"
-                                        fill="#ef4444"
+                                        r={markerRadius}
+                                        fill={draggingShotId === shot.id ? "#dc2626" : "#ef4444"}
                                         stroke="#dc2626"
                                         strokeWidth="1"
+                                        style={{ pointerEvents: 'all' }}
                                       />
                                       <text
                                         x={shotDisplayX}
-                                        y={shotDisplayY + 3}
+                                        y={shotDisplayY + markerRadius * 0.25}
                                         fill="white"
-                                        fontSize="12"
+                                        fontSize={Math.min(12, markerRadius * 1.2)}
                                         textAnchor="middle"
                                         fontWeight="bold"
+                                        style={{ pointerEvents: 'none' }}
                                       >
                                         {shotIndex + 1}
                                       </text>
@@ -2273,8 +2360,16 @@ const CompletePRSApp = () => {
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         {/* Chart 1: Group Size Over Time */}
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Group Size Over Time</h3>
-                          {(() => {
+                          <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Group Size Over Time</h3>
+                            <button
+                              onClick={() => setChartCollapsed({...chartCollapsed, groupSize: !chartCollapsed.groupSize})}
+                              className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                            >
+                              {chartCollapsed.groupSize ? '▼' : '▲'}
+                            </button>
+                          </div>
+                          {!chartCollapsed.groupSize && (() => {
                             const sessionsWithData = report.filteredSessions
                               .map(s => ({
                                 date: new Date(s.date),
@@ -2361,8 +2456,16 @@ const CompletePRSApp = () => {
 
                         {/* Chart 2: Shot Distribution Plot */}
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Shot Distribution</h3>
-                          {(() => {
+                          <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Shot Distribution</h3>
+                            <button
+                              onClick={() => setChartCollapsed({...chartCollapsed, shotDistribution: !chartCollapsed.shotDistribution})}
+                              className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                            >
+                              {chartCollapsed.shotDistribution ? '▼' : '▲'}
+                            </button>
+                          </div>
+                          {!chartCollapsed.shotDistribution && (() => {
                             const allShots = [];
                             report.filteredSessions.forEach(session => {
                               session.targets.forEach(target => {
@@ -2428,28 +2531,90 @@ const CompletePRSApp = () => {
 
                         {/* Chart 3: Performance by Configuration */}
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 lg:col-span-2">
-                          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Performance by Configuration</h3>
-                          {(() => {
+                          <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Performance by Configuration</h3>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={performanceMetric}
+                                onChange={(e) => setPerformanceMetric(e.target.value)}
+                                className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                              >
+                                <option value="velocity">Avg Velocity (fps)</option>
+                                <option value="groupSize">Avg Group Size (in)</option>
+                                <option value="totalRounds">Total Rounds Fired</option>
+                                <option value="avgPOI">Avg POI Vertical (MOA)</option>
+                              </select>
+                              <button
+                                onClick={() => setChartCollapsed({...chartCollapsed, performance: !chartCollapsed.performance})}
+                                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                              >
+                                {chartCollapsed.performance ? '▼' : '▲'}
+                              </button>
+                            </div>
+                          </div>
+                          {!chartCollapsed.performance && (() => {
                             const configStats = {};
                             report.filteredSessions.forEach(session => {
                               const configKey = `${session.rifle} + ${session.load}${session.silencer ? ' (Silencer)' : ''}`;
                               if (!configStats[configKey]) {
-                                configStats[configKey] = [];
+                                configStats[configKey] = {
+                                  groupSizes: [],
+                                  velocities: [],
+                                  totalRounds: 0,
+                                  pois: []
+                                };
                               }
                               session.targets.forEach(target => {
                                 if (target.stats && target.shots?.length >= 2) {
-                                  configStats[configKey].push(target.stats.sizeInches);
+                                  configStats[configKey].groupSizes.push(target.stats.sizeInches);
+                                  configStats[configKey].totalRounds += target.shots.length;
+                                  const poiVerticalInches = -target.stats.groupCenterYInches;
+                                  const distance = session.distance || 100;
+                                  const poiMOA = distance > 0 ? (poiVerticalInches * 95.5) / distance : 0;
+                                  configStats[configKey].pois.push(poiMOA);
                                 }
                               });
+                              if (session.chronoData) {
+                                configStats[configKey].velocities.push(session.chronoData.average);
+                              }
                             });
 
                             const configs = Object.entries(configStats)
-                              .map(([name, groups]) => ({
-                                name,
-                                avg: groups.reduce((a, b) => a + b, 0) / groups.length,
-                                count: groups.length
-                              }))
-                              .sort((a, b) => a.avg - b.avg)
+                              .map(([name, data]) => {
+                                let value = 0, label = '';
+                                if (performanceMetric === 'velocity') {
+                                  value = data.velocities.length > 0
+                                    ? data.velocities.reduce((a, b) => a + b, 0) / data.velocities.length
+                                    : 0;
+                                  label = 'fps';
+                                } else if (performanceMetric === 'groupSize') {
+                                  value = data.groupSizes.length > 0
+                                    ? data.groupSizes.reduce((a, b) => a + b, 0) / data.groupSizes.length
+                                    : 0;
+                                  label = 'in';
+                                } else if (performanceMetric === 'totalRounds') {
+                                  value = data.totalRounds;
+                                  label = 'rounds';
+                                } else if (performanceMetric === 'avgPOI') {
+                                  value = data.pois.length > 0
+                                    ? data.pois.reduce((a, b) => a + b, 0) / data.pois.length
+                                    : 0;
+                                  label = 'MOA';
+                                }
+                                return {
+                                  name,
+                                  value,
+                                  label,
+                                  count: data.groupSizes.length
+                                };
+                              })
+                              .filter(c => c.value > 0)
+                              .sort((a, b) => {
+                                if (performanceMetric === 'groupSize' || performanceMetric === 'avgPOI') {
+                                  return a.value - b.value; // Smaller is better
+                                }
+                                return b.value - a.value; // Larger is better
+                              })
                               .slice(0, 10); // Top 10
 
                             if (configs.length === 0) {
@@ -2462,7 +2627,7 @@ const CompletePRSApp = () => {
                             const chartWidth = width - padding.left - padding.right;
                             const chartHeight = height - padding.top - padding.bottom;
 
-                            const maxAvg = Math.max(...configs.map(c => c.avg));
+                            const maxValue = Math.max(...configs.map(c => c.value));
                             const barWidth = chartWidth / configs.length * 0.8;
                             const barSpacing = chartWidth / configs.length;
 
@@ -2471,14 +2636,14 @@ const CompletePRSApp = () => {
                                 {/* Y-axis grid */}
                                 {[0, 0.25, 0.5, 0.75, 1].map(fraction => {
                                   const y = padding.top + chartHeight * (1 - fraction);
-                                  const value = maxAvg * fraction;
+                                  const gridValue = maxValue * fraction;
                                   return (
                                     <g key={fraction}>
                                       <line x1={padding.left} y1={y} x2={width - padding.right} y2={y}
                                         stroke="currentColor" className="text-gray-200 dark:text-gray-700" strokeWidth="1" />
                                       <text x={padding.left - 10} y={y + 4} textAnchor="end"
                                         className="text-xs fill-gray-600 dark:fill-gray-400">
-                                        {value.toFixed(2)}"
+                                        {performanceMetric === 'totalRounds' ? gridValue.toFixed(0) : gridValue.toFixed(1)}
                                       </text>
                                     </g>
                                   );
@@ -2487,7 +2652,7 @@ const CompletePRSApp = () => {
                                 {/* Bars */}
                                 {configs.map((config, i) => {
                                   const x = padding.left + i * barSpacing + (barSpacing - barWidth) / 2;
-                                  const barHeight = (config.avg / maxAvg) * chartHeight;
+                                  const barHeight = (config.value / maxValue) * chartHeight;
                                   const y = padding.top + chartHeight - barHeight;
 
                                   return (
@@ -2496,7 +2661,7 @@ const CompletePRSApp = () => {
                                         fill="#10b981" opacity="0.8" />
                                       <text x={x + barWidth / 2} y={y - 5} textAnchor="middle"
                                         className="text-xs fill-gray-900 dark:fill-white font-medium">
-                                        {config.avg.toFixed(3)}"
+                                        {performanceMetric === 'totalRounds' ? config.value.toFixed(0) : config.value.toFixed(1)} {config.label}
                                       </text>
                                       <text x={x + barWidth / 2} y={height - padding.bottom + 15}
                                         textAnchor="end" transform={`rotate(-45 ${x + barWidth / 2} ${height - padding.bottom + 15})`}
@@ -2728,10 +2893,9 @@ const CompletePRSApp = () => {
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Session</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Distance</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Silencer</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Shots</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Best Group</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">POI Vertical</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">POI V/H (MOA)</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Velocity</th>
                               </tr>
                             </thead>
@@ -2746,35 +2910,33 @@ const CompletePRSApp = () => {
                                 const targetPOIs = session.targets
                                   .filter(t => t.shots.length >= 2 && t.stats)
                                   .map(t => {
-                                    const poi = -t.stats.groupCenterYInches;
+                                    const poiVertical = -t.stats.groupCenterYInches;
+                                    const poiHorizontal = t.stats.groupCenterXInches;
                                     const distance = session.distance || 100;
                                     return {
-                                      inches: poi,
-                                      mils: (poi * 27.78) / distance,
-                                      moa: (poi * 95.5) / distance
+                                      verticalMOA: (poiVertical * 95.5) / distance,
+                                      horizontalMOA: (poiHorizontal * 95.5) / distance
                                     };
                                   });
                                 const avgPOI = targetPOIs.length > 0
                                   ? {
-                                      inches: targetPOIs.reduce((sum, p) => sum + p.inches, 0) / targetPOIs.length,
-                                      mils: targetPOIs.reduce((sum, p) => sum + p.mils, 0) / targetPOIs.length,
-                                      moa: targetPOIs.reduce((sum, p) => sum + p.moa, 0) / targetPOIs.length
+                                      verticalMOA: targetPOIs.reduce((sum, p) => sum + p.verticalMOA, 0) / targetPOIs.length,
+                                      horizontalMOA: targetPOIs.reduce((sum, p) => sum + p.horizontalMOA, 0) / targetPOIs.length
                                     }
                                   : null;
 
                                 return (
                                   <tr key={session.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{session.name}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{session.name}{session.silencer ? ' 🔇' : ''}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.date}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.distance || 100} yds</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.silencer ? 'Yes' : 'No'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{totalShots}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-medium">
                                       {Math.min(...session.targets.map(t => t.stats?.sizeInches || Infinity)).toFixed(3)}"
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                       {avgPOI
-                                        ? `${avgPOI.inches.toFixed(2)}" / ${avgPOI.mils.toFixed(2)} mil / ${avgPOI.moa.toFixed(2)} MOA`
+                                        ? `↕${avgPOI.verticalMOA >= 0 ? '+' : ''}${avgPOI.verticalMOA.toFixed(2)} / ↔${avgPOI.horizontalMOA >= 0 ? '+' : ''}${avgPOI.horizontalMOA.toFixed(2)}`
                                         : 'N/A'}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
@@ -2826,10 +2988,29 @@ const CompletePRSApp = () => {
                 {equipment.rifles.length > 0 ? (
                   <div className="space-y-3">
                     {equipment.rifles.map((rifle, index) => (
-                      <div key={index} className="border-l-4 border-blue-500 dark:border-blue-400 pl-4 py-2">
-                        <p className="font-medium text-gray-900 dark:text-white">{rifle.name}</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-300">{rifle.caliber} • {rifle.barrel} • {rifle.twist}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{rifle.scope}</p>
+                      <div key={index} className="border-l-4 border-blue-500 dark:border-blue-400 pl-4 py-2 flex justify-between items-start">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900 dark:text-white">{rifle.name}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">{rifle.caliber} • {rifle.barrel} • {rifle.twist}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">{rifle.scope}</p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (window.confirm(`Delete rifle "${rifle.name}"? This cannot be undone.`)) {
+                              try {
+                                await deleteRifle(user.uid, rifle.id);
+                                const updatedRifles = await getRifles(user.uid);
+                                setEquipment(prev => ({ ...prev, rifles: updatedRifles }));
+                              } catch (error) {
+                                console.error('Error deleting rifle:', error);
+                                alert('Failed to delete rifle');
+                              }
+                            }
+                          }}
+                          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -2852,10 +3033,29 @@ const CompletePRSApp = () => {
                 {equipment.loads.length > 0 ? (
                   <div className="space-y-3">
                     {equipment.loads.map((load, index) => (
-                      <div key={index} className="border-l-4 border-green-500 dark:border-green-400 pl-4 py-2">
-                        <p className="font-medium text-gray-900 dark:text-white">{load.name}</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-300">{load.caliber} • {load.bulletWeight} {load.bullet}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{load.charge} {load.powder} • OAL: {load.oal}</p>
+                      <div key={index} className="border-l-4 border-green-500 dark:border-green-400 pl-4 py-2 flex justify-between items-start">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900 dark:text-white">{load.name}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">{load.caliber} • {load.bulletWeight} {load.bullet}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">{load.charge} {load.powder} • OAL: {load.oal}</p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (window.confirm(`Delete load "${load.name}"? This cannot be undone.`)) {
+                              try {
+                                await deleteLoad(user.uid, load.id);
+                                const updatedLoads = await getLoads(user.uid);
+                                setEquipment(prev => ({ ...prev, loads: updatedLoads }));
+                              } catch (error) {
+                                console.error('Error deleting load:', error);
+                                alert('Failed to delete load');
+                              }
+                            }
+                          }}
+                          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     ))}
                   </div>
