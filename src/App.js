@@ -1995,7 +1995,7 @@ const CompletePRSApp = () => {
                                     }
                                   }
                                 }
-                                const markerRadius = Math.max(4, (bulletDiameterInches / 2) * target.pixelsPerInch);
+                                const markerRadius = Math.max(3, (bulletDiameterInches / 4) * target.pixelsPerInch);
 
                                 if (shotDisplayX >= 0 && shotDisplayX <= cropSize &&
                                     shotDisplayY >= 0 && shotDisplayY <= cropSize) {
@@ -2359,8 +2359,8 @@ const CompletePRSApp = () => {
                       {/* Charts Section */}
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         {/* Chart 1: Group Size Over Time */}
-                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-                          <div className="flex justify-between items-center mb-4">
+                        <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm ${chartCollapsed.groupSize ? 'p-4' : 'p-6'}`}>
+                          <div className={`flex justify-between items-center ${chartCollapsed.groupSize ? 'mb-0' : 'mb-4'}`}>
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Group Size Over Time</h3>
                             <button
                               onClick={() => setChartCollapsed({...chartCollapsed, groupSize: !chartCollapsed.groupSize})}
@@ -2455,8 +2455,8 @@ const CompletePRSApp = () => {
                         </div>
 
                         {/* Chart 2: Shot Distribution Plot */}
-                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-                          <div className="flex justify-between items-center mb-4">
+                        <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm ${chartCollapsed.shotDistribution ? 'p-4' : 'p-6'}`}>
+                          <div className={`flex justify-between items-center ${chartCollapsed.shotDistribution ? 'mb-0' : 'mb-4'}`}>
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Shot Distribution</h3>
                             <button
                               onClick={() => setChartCollapsed({...chartCollapsed, shotDistribution: !chartCollapsed.shotDistribution})}
@@ -2530,8 +2530,8 @@ const CompletePRSApp = () => {
                         </div>
 
                         {/* Chart 3: Performance by Configuration */}
-                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 lg:col-span-2">
-                          <div className="flex justify-between items-center mb-4">
+                        <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm ${chartCollapsed.performance ? 'p-4' : 'p-6'} lg:col-span-2`}>
+                          <div className={`flex justify-between items-center ${chartCollapsed.performance ? 'mb-0' : 'mb-4'}`}>
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Performance by Configuration</h3>
                             <div className="flex items-center gap-2">
                               <select
@@ -2895,8 +2895,9 @@ const CompletePRSApp = () => {
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Distance</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Shots</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Best Group</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">POI V/H (MOA)</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">POI V/H (in)</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Velocity</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
                               </tr>
                             </thead>
                             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -2912,16 +2913,15 @@ const CompletePRSApp = () => {
                                   .map(t => {
                                     const poiVertical = -t.stats.groupCenterYInches;
                                     const poiHorizontal = t.stats.groupCenterXInches;
-                                    const distance = session.distance || 100;
                                     return {
-                                      verticalMOA: (poiVertical * 95.5) / distance,
-                                      horizontalMOA: (poiHorizontal * 95.5) / distance
+                                      verticalInches: poiVertical,
+                                      horizontalInches: poiHorizontal
                                     };
                                   });
                                 const avgPOI = targetPOIs.length > 0
                                   ? {
-                                      verticalMOA: targetPOIs.reduce((sum, p) => sum + p.verticalMOA, 0) / targetPOIs.length,
-                                      horizontalMOA: targetPOIs.reduce((sum, p) => sum + p.horizontalMOA, 0) / targetPOIs.length
+                                      verticalInches: targetPOIs.reduce((sum, p) => sum + p.verticalInches, 0) / targetPOIs.length,
+                                      horizontalInches: targetPOIs.reduce((sum, p) => sum + p.horizontalInches, 0) / targetPOIs.length
                                     }
                                   : null;
 
@@ -2936,11 +2936,30 @@ const CompletePRSApp = () => {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                       {avgPOI
-                                        ? `↕${avgPOI.verticalMOA >= 0 ? '+' : ''}${avgPOI.verticalMOA.toFixed(2)} / ↔${avgPOI.horizontalMOA >= 0 ? '+' : ''}${avgPOI.horizontalMOA.toFixed(2)}`
+                                        ? `↕${avgPOI.verticalInches >= 0 ? '+' : ''}${avgPOI.verticalInches.toFixed(2)}" / ↔${avgPOI.horizontalInches >= 0 ? '+' : ''}${avgPOI.horizontalInches.toFixed(2)}"`
                                         : 'N/A'}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                       {session.chronoData ? `${session.chronoData.average.toFixed(0)} fps` : 'N/A'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                      <button
+                                        onClick={async () => {
+                                          if (window.confirm(`Delete session "${session.name}"? This cannot be undone.`)) {
+                                            try {
+                                              await deleteSession(user.uid, session.id);
+                                              const updatedSessions = await getSessions(user.uid);
+                                              setSessions(updatedSessions);
+                                            } catch (error) {
+                                              console.error('Error deleting session:', error);
+                                              alert('Failed to delete session');
+                                            }
+                                          }
+                                        }}
+                                        className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
                                     </td>
                                   </tr>
                                 );
