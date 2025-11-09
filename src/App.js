@@ -718,6 +718,69 @@ const CompletePRSApp = () => {
     });
   };
 
+  // Save training image for OpenCV improvement
+  const saveTrainingImage = async (target, imageUrl) => {
+    try {
+      // Create canvas to extract target region
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = imageUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      const currentX = target.adjustedX ?? target.x;
+      const currentY = target.adjustedY ?? target.y;
+      const currentRadius = target.adjustedRadius || target.radius;
+
+      // Crop to target with some padding
+      const padding = currentRadius * 0.5;
+      const size = (currentRadius + padding) * 2;
+      canvas.width = size;
+      canvas.height = size;
+
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(
+        img,
+        currentX - currentRadius - padding,
+        currentY - currentRadius - padding,
+        size,
+        size,
+        0,
+        0,
+        size,
+        size
+      );
+
+      // Convert to blob and save to localStorage as training data
+      canvas.toBlob((blob) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64data = reader.result;
+          const trainingImages = JSON.parse(localStorage.getItem('opencv_training_images') || '[]');
+          trainingImages.push({
+            timestamp: Date.now(),
+            shots: target.shots.length,
+            diameter: target.diameterInches,
+            image: base64data
+          });
+          // Keep only last 50 training images to avoid storage issues
+          if (trainingImages.length > 50) {
+            trainingImages.shift();
+          }
+          localStorage.setItem('opencv_training_images', JSON.stringify(trainingImages));
+          console.log('Training image saved. Total:', trainingImages.length);
+        };
+        reader.readAsDataURL(blob);
+      }, 'image/jpeg', 0.8);
+    } catch (error) {
+      console.error('Error saving training image:', error);
+    }
+  };
+
   // Handle target selection click - SIMPLIFIED: just place numbered markers
   const handleTargetClick = (e) => {
     if (!targetDiameter || parseFloat(targetDiameter) <= 0) {
@@ -834,6 +897,13 @@ const CompletePRSApp = () => {
           stats: calculateGroupStats(target.shots, finalX, finalY, target.pixelsPerInch)
         };
       });
+
+      // Save training images for OpenCV improvement
+      for (const target of selectedTargets) {
+        if (target.shots && target.shots.length > 0) {
+          await saveTrainingImage(target, uploadedImage);
+        }
+      }
 
       const sessionToSave = {
         ...sessionData,
@@ -1247,16 +1317,16 @@ const CompletePRSApp = () => {
             {/* Progress indicator */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
               <div className={`flex items-center ${isMobile ? 'justify-center overflow-x-auto' : 'justify-between'}`}>
-                {['upload', 'setup', 'select-targets', 'mark-shots', 'review'].map((step, index) => (
+                {['upload', 'setup', 'select-targets', 'adjust-targets', 'mark-shots', 'review'].map((step, index) => (
                   <div key={step} className="flex items-center">
                     <div className={`flex items-center justify-center ${isMobile ? 'w-7 h-7' : 'w-8 h-8'} rounded-full ${
                       captureStep === step
                         ? 'bg-blue-600 text-white'
-                        : index < ['upload', 'setup', 'select-targets', 'mark-shots', 'review'].indexOf(captureStep)
+                        : index < ['upload', 'setup', 'select-targets', 'adjust-targets', 'mark-shots', 'review'].indexOf(captureStep)
                           ? 'bg-green-600 text-white'
                           : 'bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
                     }`}>
-                      {index < ['upload', 'setup', 'select-targets', 'mark-shots', 'review'].indexOf(captureStep)
+                      {index < ['upload', 'setup', 'select-targets', 'adjust-targets', 'mark-shots', 'review'].indexOf(captureStep)
                         ? <CheckCircle className={`${isMobile ? 'h-4 w-4' : 'h-5 w-5'}`} />
                         : index + 1
                       }
@@ -1582,24 +1652,316 @@ const CompletePRSApp = () => {
                     <button
                       onClick={() => {
                         setCurrentEditingTarget(selectedTargets[0]);
-                        setCaptureStep('mark-shots');
+                        setCaptureStep('adjust-targets');
                       }}
                       disabled={selectedTargets.length === 0}
                       className="bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:dark:bg-gray-600 text-white px-6 py-2 rounded-lg transition-colors"
                     >
-                      Continue to Shot Marking
+                      Continue to Adjust Targets
                     </button>
                   </div>
                 </div>
               </div>
             )}
 
+            {/* Adjust Targets Step - Resize and reposition targets */}
+            {captureStep === 'adjust-targets' && selectedTargets.length > 0 && (
+              <div className="space-y-6">
+                <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+                  <h3 className="font-medium text-blue-900 dark:text-blue-200 mb-2">📐 Adjust Target Size & Position</h3>
+                  <p className="text-sm text-blue-800 dark:text-blue-300">
+                    {isMobile
+                      ? <><strong>Two-finger pinch:</strong> resize target • <strong>Drag circle:</strong> reposition</>
+                      : <><strong>Drag circle edge:</strong> reposition • <strong>Drag corner handles:</strong> resize</>
+                    }
+                  </p>
+                </div>
+
+                <div className={`grid grid-cols-1 ${isMobile ? '' : 'lg:grid-cols-2'} gap-6`}>
+                  {selectedTargets.map((target, index) => {
+                    const currentX = target.adjustedX ?? target.x;
+                    const currentY = target.adjustedY ?? target.y;
+                    const currentRadius = target.adjustedRadius || target.radius;
+                    const cropSize = currentRadius * 10;
+                    const cropX = currentX - currentRadius * 5;
+                    const cropY = currentY - currentRadius * 5;
+
+                    return (
+                      <div key={target.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
+                        <div className="flex justify-between items-center mb-3">
+                          <h4 className="font-medium text-lg text-gray-900 dark:text-white">Target {index + 1}</h4>
+                          <div className="flex items-center space-x-2">
+                            {(target.adjustedX !== null || target.adjustedY !== null || target.adjustedRadius !== null) && (
+                              <span className="text-xs text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900 px-2 py-1 rounded">Adjusted</span>
+                            )}
+                            <button
+                              onClick={() => {
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? {
+                                        ...t,
+                                        adjustedX: null,
+                                        adjustedY: null,
+                                        adjustedRadius: null,
+                                        pixelsPerInch: (target.radius * 2) / target.diameterInches
+                                      }
+                                    : t
+                                ));
+                              }}
+                              className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors text-gray-900 dark:text-white"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        </div>
+
+                        <div
+                          className="relative bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden mb-4"
+                          style={{ paddingBottom: '100%', touchAction: 'none' }}
+                          onMouseDown={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const clickX = e.clientX - rect.left;
+                            const clickY = e.clientY - rect.top;
+                            const relativeX = clickX / rect.width;
+                            const relativeY = clickY / rect.height;
+                            const imageX = cropX + (relativeX * cropSize);
+                            const imageY = cropY + (relativeY * cropSize);
+
+                            // Check resize handles first
+                            const handleHitSize = 30;
+                            const handles = [
+                              { name: 'nw', x: currentX - currentRadius, y: currentY - currentRadius },
+                              { name: 'ne', x: currentX + currentRadius, y: currentY - currentRadius },
+                              { name: 'se', x: currentX + currentRadius, y: currentY + currentRadius },
+                              { name: 'sw', x: currentX - currentRadius, y: currentY + currentRadius }
+                            ];
+
+                            for (let handle of handles) {
+                              const distFromHandle = Math.sqrt(
+                                Math.pow(imageX - handle.x, 2) + Math.pow(imageY - handle.y, 2)
+                              );
+                              if (distFromHandle <= handleHitSize) {
+                                setIsResizing(true);
+                                setDragTargetId(target.id);
+                                setResizeHandle(handle.name);
+                                setDragStart({
+                                  x: imageX,
+                                  y: imageY,
+                                  startRadius: currentRadius,
+                                  startX: currentX,
+                                  startY: currentY
+                                });
+                                e.preventDefault();
+                                e.stopPropagation();
+                                return;
+                              }
+                            }
+
+                            // Check if clicking on circle edge for dragging
+                            const distFromCenter = Math.sqrt(
+                              Math.pow(imageX - currentX, 2) + Math.pow(imageY - currentY, 2)
+                            );
+                            const distFromPerimeter = Math.abs(distFromCenter - currentRadius);
+                            const dragThreshold = 30;
+
+                            if (distFromPerimeter <= dragThreshold) {
+                              setIsDragging(true);
+                              setDragTargetId(target.id);
+                              setDragStart({ x: imageX - currentX, y: imageY - currentY });
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }
+                          }}
+                          onMouseMove={(e) => {
+                            if (!isDragging && !isResizing) return;
+                            if (dragTargetId !== target.id) return;
+
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const clickX = e.clientX - rect.left;
+                            const clickY = e.clientY - rect.top;
+                            const relativeX = clickX / rect.width;
+                            const relativeY = clickY / rect.height;
+                            const imageX = cropX + (relativeX * cropSize);
+                            const imageY = cropY + (relativeY * cropSize);
+
+                            if (dragUpdateRef.current) {
+                              cancelAnimationFrame(dragUpdateRef.current);
+                            }
+
+                            dragUpdateRef.current = requestAnimationFrame(() => {
+                              if (isDragging) {
+                                const newX = imageX - dragStart.x;
+                                const newY = imageY - dragStart.y;
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? { ...t, adjustedX: newX, adjustedY: newY }
+                                    : t
+                                ));
+                              } else if (isResizing) {
+                                const deltaX = imageX - dragStart.x;
+                                const deltaY = imageY - dragStart.y;
+                                const dragDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                                const scalingFactor = 0.3;
+
+                                let radiusChange = dragDistance * scalingFactor;
+                                if (resizeHandle === 'nw' || resizeHandle === 'sw') {
+                                  radiusChange = deltaX < 0 ? dragDistance * scalingFactor : -dragDistance * scalingFactor;
+                                } else {
+                                  radiusChange = deltaX > 0 ? dragDistance * scalingFactor : -dragDistance * scalingFactor;
+                                }
+
+                                const newRadius = Math.max(10, dragStart.startRadius + radiusChange);
+                                const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
+
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? { ...t, adjustedRadius: newRadius, pixelsPerInch: newPixelsPerInch }
+                                    : t
+                                ));
+                              }
+                            });
+                          }}
+                          onMouseUp={() => {
+                            if (dragUpdateRef.current) {
+                              cancelAnimationFrame(dragUpdateRef.current);
+                              dragUpdateRef.current = null;
+                            }
+                            setIsDragging(false);
+                            setIsResizing(false);
+                            setDragTargetId(null);
+                            setResizeHandle(null);
+                          }}
+                          onMouseLeave={() => {
+                            if (dragUpdateRef.current) {
+                              cancelAnimationFrame(dragUpdateRef.current);
+                              dragUpdateRef.current = null;
+                            }
+                            setIsDragging(false);
+                            setIsResizing(false);
+                            setDragTargetId(null);
+                            setResizeHandle(null);
+                          }}
+                          onTouchStart={(e) => {
+                            if (e.touches.length === 2) {
+                              e.preventDefault();
+                              const touch1 = e.touches[0];
+                              const touch2 = e.touches[1];
+                              const distance = Math.sqrt(
+                                Math.pow(touch2.clientX - touch1.clientX, 2) +
+                                Math.pow(touch2.clientY - touch1.clientY, 2)
+                              );
+                              setIsPinching(true);
+                              setDragTargetId(target.id);
+                              setInitialPinchDistance(distance);
+                              setInitialPinchRadius(currentRadius);
+                            }
+                          }}
+                          onTouchMove={(e) => {
+                            if (isPinching && e.touches.length === 2 && dragTargetId === target.id) {
+                              e.preventDefault();
+                              const touch1 = e.touches[0];
+                              const touch2 = e.touches[1];
+                              const distance = Math.sqrt(
+                                Math.pow(touch2.clientX - touch1.clientX, 2) +
+                                Math.pow(touch2.clientY - touch1.clientY, 2)
+                              );
+                              const scale = distance / initialPinchDistance;
+                              const newRadius = Math.max(10, initialPinchRadius * scale);
+                              const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
+
+                              setSelectedTargets(prev => prev.map(t =>
+                                t.id === target.id
+                                  ? { ...t, adjustedRadius: newRadius, pixelsPerInch: newPixelsPerInch }
+                                  : t
+                              ));
+                            }
+                          }}
+                          onTouchEnd={() => {
+                            setIsPinching(false);
+                            setDragTargetId(null);
+                          }}
+                        >
+                          <img
+                            src={uploadedImage}
+                            alt="Target adjustment"
+                            className="absolute inset-0 w-full h-full object-cover"
+                            style={{
+                              objectPosition: `${(cropX / (uploadedImage ? 1 : 1)) * -100}% ${(cropY / (uploadedImage ? 1 : 1)) * -100}%`,
+                              transform: `scale(${uploadedImage ? (new Image().src = uploadedImage, 1) : 1})`,
+                              objectFit: 'none',
+                              width: '100%',
+                              height: '100%'
+                            }}
+                            onLoad={(e) => {
+                              const img = e.target;
+                              const scaleX = img.naturalWidth / cropSize;
+                              const scaleY = img.naturalHeight / cropSize;
+                              e.target.style.transform = `scale(${Math.max(scaleX, scaleY)})`;
+                              e.target.style.objectPosition = `${-cropX * 100 / img.naturalWidth}% ${-cropY * 100 / img.naturalHeight}%`;
+                            }}
+                          />
+
+                          <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                            <circle
+                              cx="50%"
+                              cy="50%"
+                              r={`${(currentRadius / cropSize) * 100}%`}
+                              fill="none"
+                              stroke="lime"
+                              strokeWidth="3"
+                              opacity="0.8"
+                            />
+                            {/* Corner resize handles */}
+                            {['nw', 'ne', 'se', 'sw'].map(pos => {
+                              const angle = { nw: 225, ne: 315, se: 45, sw: 135 }[pos];
+                              const rad = (angle * Math.PI) / 180;
+                              const hx = 50 + (currentRadius / cropSize) * 100 * Math.cos(rad);
+                              const hy = 50 + (currentRadius / cropSize) * 100 * Math.sin(rad);
+                              return (
+                                <g key={pos}>
+                                  <circle cx={`${hx}%`} cy={`${hy}%`} r="6" fill="white" stroke="lime" strokeWidth="2" style={{ pointerEvents: 'stroke' }} />
+                                </g>
+                              );
+                            })}
+                          </svg>
+                        </div>
+
+                        <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                          <div>Size: {target.diameterInches}" diameter</div>
+                          <div>Pixels per inch: {currentRadius ? ((currentRadius * 2) / target.diameterInches).toFixed(2) : 'N/A'}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex justify-between">
+                  <button
+                    onClick={() => setCaptureStep('select-targets')}
+                    className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white px-6 py-2 rounded-lg transition-colors"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCurrentEditingTarget(selectedTargets[0]);
+                      setCaptureStep('mark-shots');
+                    }}
+                    className="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-lg transition-colors"
+                  >
+                    Continue to Mark Shots
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Mark Shots Step - Simplified to only mark bullet holes */}
             {captureStep === 'mark-shots' && selectedTargets.length > 0 && (
               <div className="space-y-6">
                 <div className="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
-                  <h3 className="font-medium text-yellow-900 dark:text-yellow-200 mb-2">🎯 Adjust Target & Mark Shot Holes</h3>
+                  <h3 className="font-medium text-yellow-900 dark:text-yellow-200 mb-2">🎯 Mark Shot Holes</h3>
                   <p className="text-sm text-yellow-800 dark:text-yellow-300">
-                    <strong>Drag the circle</strong> to reposition • <strong>Drag corner handles</strong> to resize • <strong>Click anywhere</strong> to mark shot holes
+                    <strong>Click on each bullet hole</strong> to mark it • <strong>Drag markers</strong> to adjust position • <strong>Use Auto-Detect</strong> for automatic detection
                   </p>
                 </div>
 
@@ -1690,190 +2052,87 @@ const CompletePRSApp = () => {
                           className="relative bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden mb-4"
                           style={{ paddingBottom: '100%', touchAction: 'none' }}
                           onMouseDown={(e) => {
-                            setJustFinishedDragging(false); // Reset flag on new interaction
+                            setJustFinishedDragging(false);
 
                             const rect = e.currentTarget.getBoundingClientRect();
                             const clickX = e.clientX - rect.left;
                             const clickY = e.clientY - rect.top;
                             const relativeX = clickX / rect.width;
                             const relativeY = clickY / rect.height;
-
-                            // Convert to image coordinates
                             const imageX = cropX + (relativeX * cropSize);
                             const imageY = cropY + (relativeY * cropSize);
 
-                            // Check if clicking on a resize handle FIRST (higher priority)
-                            const handleHitSize = 25; // Reduced hit area for better shot marking access
-                            const handles = [
-                              { name: 'nw', x: currentX - currentRadius, y: currentY - currentRadius },
-                              { name: 'ne', x: currentX + currentRadius, y: currentY - currentRadius },
-                              { name: 'se', x: currentX + currentRadius, y: currentY + currentRadius },
-                              { name: 'sw', x: currentX - currentRadius, y: currentY + currentRadius }
-                            ];
-
-                            for (let handle of handles) {
-                              const distFromHandle = Math.sqrt(
-                                Math.pow(imageX - handle.x, 2) + Math.pow(imageY - handle.y, 2)
+                            // Check if clicking on existing shot marker to drag it
+                            const clickedShot = target.shots?.find(shot => {
+                              const distFromShot = Math.sqrt(
+                                Math.pow(imageX - shot.x, 2) + Math.pow(imageY - shot.y, 2)
                               );
-                              if (distFromHandle <= handleHitSize) {
-                                setIsResizing(true);
-                                setDragTargetId(target.id);
-                                setResizeHandle(handle.name);
-                                // Store start position and radius for 1:1 scaling
-                                setDragStart({
-                                  x: imageX,
-                                  y: imageY,
-                                  startRadius: currentRadius,
-                                  startX: currentX,
-                                  startY: currentY
-                                });
-                                e.preventDefault();
-                                e.stopPropagation();
-                                return;
-                              }
-                            }
+                              return distFromShot <= 15; // 15px hit area for shot markers
+                            });
 
-                            // Check if clicking NEAR the circle perimeter (for dragging)
-                            // Only detect drag on the outline/stroke, NOT in the center
-                            const distFromCenter = Math.sqrt(
-                              Math.pow(imageX - currentX, 2) + Math.pow(imageY - currentY, 2)
-                            );
-
-                            // Calculate distance from the perimeter (how far from the outline)
-                            const distFromPerimeter = Math.abs(distFromCenter - currentRadius);
-                            const dragThreshold = 25; // pixels - allow drag within 25px of the outline (good for mobile)
-
-                            if (distFromPerimeter <= dragThreshold) {
-                              // Clicking near the perimeter - allow drag
-                              setIsDragging(true);
-                              setDragTargetId(target.id);
-                              setDragStart({ x: imageX - currentX, y: imageY - currentY });
+                            if (clickedShot) {
+                              setDraggingShotId(clickedShot.id);
                               e.preventDefault();
                               e.stopPropagation();
                               return;
                             }
-                            // If clicking in center (far from perimeter), allow click to pass through for shot marking
+
+                            // Otherwise, clicking marks a new shot (handled by onClick)
                           }}
                           onMouseMove={(e) => {
-                            if (!isDragging && !isResizing && !draggingShotId) return;
-                            if (dragTargetId !== target.id && !draggingShotId) return;
+                            if (!draggingShotId) return;
 
-                            // Capture event data immediately (event object becomes stale in async callbacks)
                             const rect = e.currentTarget.getBoundingClientRect();
                             const clickX = e.clientX - rect.left;
                             const clickY = e.clientY - rect.top;
                             const relativeX = clickX / rect.width;
                             const relativeY = clickY / rect.height;
-
                             const imageX = cropX + (relativeX * cropSize);
                             const imageY = cropY + (relativeY * cropSize);
 
-                            // Cancel previous frame update if still pending
                             if (dragUpdateRef.current) {
                               cancelAnimationFrame(dragUpdateRef.current);
                             }
 
-                            // Use requestAnimationFrame for smooth, throttled updates
                             dragUpdateRef.current = requestAnimationFrame(() => {
-                              if (draggingShotId) {
-                                // Update shot position
-                                setSelectedTargets(prev => prev.map(t =>
-                                  t.id === target.id
-                                    ? {
-                                        ...t,
-                                        shots: t.shots.map(s =>
-                                          s.id === draggingShotId
-                                            ? { ...s, x: imageX, y: imageY }
-                                            : s
-                                        )
-                                      }
-                                    : t
-                                ));
-                              } else if (isDragging) {
-                                // Update circle position
-                                const newX = imageX - dragStart.x;
-                                const newY = imageY - dragStart.y;
-
-                                setSelectedTargets(prev => prev.map(t =>
-                                  t.id === target.id
-                                    ? { ...t, adjustedX: newX, adjustedY: newY }
-                                    : t
-                                ));
-                              } else if (isResizing) {
-                                // Reduced scaling sensitivity: 0.3:1 ratio (much slower than before)
-                                const deltaX = imageX - dragStart.x;
-                                const deltaY = imageY - dragStart.y;
-
-                                // Calculate diagonal distance moved
-                                const dragDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-                                // Apply 0.3:1 scaling ratio (mouse moves 10px = radius changes 3px)
-                                const scalingFactor = 0.3;
-
-                                // Determine direction based on which handle
-                                let radiusChange = dragDistance * scalingFactor;
-                                if (resizeHandle === 'nw' || resizeHandle === 'sw') {
-                                  // Left handles: moving left = bigger, right = smaller
-                                  radiusChange = deltaX < 0 ? dragDistance * scalingFactor : -dragDistance * scalingFactor;
-                                } else {
-                                  // Right handles: moving right = bigger, left = smaller
-                                  radiusChange = deltaX > 0 ? dragDistance * scalingFactor : -dragDistance * scalingFactor;
-                                }
-
-                                const newRadius = Math.max(10, dragStart.startRadius + radiusChange);
-                                const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
-
-                                setSelectedTargets(prev => prev.map(t =>
-                                  t.id === target.id
-                                    ? {
-                                        ...t,
-                                        adjustedRadius: newRadius,
-                                        pixelsPerInch: newPixelsPerInch
-                                      }
-                                    : t
-                                ));
-                              }
+                              setSelectedTargets(prev => prev.map(t =>
+                                t.id === target.id
+                                  ? {
+                                      ...t,
+                                      shots: t.shots.map(s =>
+                                        s.id === draggingShotId
+                                          ? { ...s, x: imageX, y: imageY }
+                                          : s
+                                      )
+                                    }
+                                  : t
+                              ));
                             });
                           }}
                           onMouseUp={() => {
-                            // Cancel any pending animation frame
                             if (dragUpdateRef.current) {
                               cancelAnimationFrame(dragUpdateRef.current);
                               dragUpdateRef.current = null;
                             }
 
-                            if (isDragging || isResizing || draggingShotId) {
-                              setJustFinishedDragging(true); // Flag to prevent shot marking
+                            if (draggingShotId) {
+                              setJustFinishedDragging(true);
                             }
-                            setIsDragging(false);
-                            setIsResizing(false);
-                            setDragTargetId(null);
-                            setResizeHandle(null);
                             setDraggingShotId(null);
                           }}
                           onMouseLeave={() => {
-                            // Cancel any pending animation frame
                             if (dragUpdateRef.current) {
                               cancelAnimationFrame(dragUpdateRef.current);
                               dragUpdateRef.current = null;
                             }
-
-                            if (isDragging || isResizing || draggingShotId) {
-                              setJustFinishedDragging(true);
-                            }
-                            setIsDragging(false);
-                            setIsResizing(false);
-                            setDragTargetId(null);
-                            setResizeHandle(null);
                             setDraggingShotId(null);
                           }}
                           onClick={(e) => {
-                            // Prevent shot marking if we just finished dragging/resizing
+                            // Prevent shot marking if we just finished dragging a shot
                             if (justFinishedDragging) {
                               setJustFinishedDragging(false);
                               return;
                             }
-                            if (isDragging || isResizing) return;
 
                             const rect = e.currentTarget.getBoundingClientRect();
                             const relativeX = (e.clientX - rect.left) / rect.width;
