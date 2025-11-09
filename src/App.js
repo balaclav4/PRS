@@ -528,6 +528,145 @@ const CompletePRSApp = () => {
     };
   };
 
+  // Auto-detect bullet holes using OpenCV
+  const detectBulletHoles = async (target, imageUrl) => {
+    return new Promise((resolve, reject) => {
+      // Check if OpenCV is loaded
+      if (!window.cv) {
+        reject(new Error('OpenCV is not loaded yet. Please wait and try again.'));
+        return;
+      }
+
+      const cv = window.cv;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      img.onload = () => {
+        try {
+          // Load image into canvas
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+
+          // Get target region coordinates
+          const currentX = target.adjustedX ?? target.x;
+          const currentY = target.adjustedY ?? target.y;
+          const currentRadius = target.adjustedRadius || target.radius;
+
+          // Create region of interest (ROI) around target with some padding
+          const padding = currentRadius * 0.2;
+          const roiX = Math.max(0, Math.floor(currentX - currentRadius - padding));
+          const roiY = Math.max(0, Math.floor(currentY - currentRadius - padding));
+          const roiWidth = Math.min(img.width - roiX, Math.ceil((currentRadius + padding) * 2));
+          const roiHeight = Math.min(img.height - roiY, Math.ceil((currentRadius + padding) * 2));
+
+          // Load full image into OpenCV
+          let src = cv.imread(canvas);
+          let roi = src.roi(new cv.Rect(roiX, roiY, roiWidth, roiHeight));
+          let gray = new cv.Mat();
+          let blurred = new cv.Mat();
+          let thresh = new cv.Mat();
+          let contours = new cv.MatVector();
+          let hierarchy = new cv.Mat();
+
+          // Convert to grayscale
+          cv.cvtColor(roi, gray, cv.COLOR_RGBA2GRAY);
+
+          // Apply Gaussian blur to reduce noise
+          cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+
+          // Apply adaptive threshold to handle varying lighting
+          cv.adaptiveThreshold(
+            blurred,
+            thresh,
+            255,
+            cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv.THRESH_BINARY_INV,
+            15,
+            5
+          );
+
+          // Apply morphological operations to clean up
+          let kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3));
+          cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, kernel);
+          cv.morphologyEx(thresh, thresh, cv.MORPH_OPEN, kernel);
+
+          // Find contours
+          cv.findContours(
+            thresh,
+            contours,
+            hierarchy,
+            cv.RETR_EXTERNAL,
+            cv.CHAIN_APPROX_SIMPLE
+          );
+
+          // Analyze contours to find bullet holes
+          const detectedShots = [];
+          const minArea = Math.PI * Math.pow(target.pixelsPerInch * 0.05, 2); // Min ~0.05" diameter
+          const maxArea = Math.PI * Math.pow(target.pixelsPerInch * 0.8, 2); // Max ~0.8" diameter
+
+          for (let i = 0; i < contours.size(); i++) {
+            const contour = contours.get(i);
+            const area = cv.contourArea(contour);
+
+            // Filter by area
+            if (area >= minArea && area <= maxArea) {
+              // Calculate circularity
+              const perimeter = cv.arcLength(contour, true);
+              const circularity = (4 * Math.PI * area) / (perimeter * perimeter);
+
+              // Accept if reasonably circular (0.4-1.0 to handle irregular holes)
+              if (circularity > 0.4) {
+                // Get center of contour
+                const moments = cv.moments(contour);
+                if (moments.m00 !== 0) {
+                  const cx = moments.m10 / moments.m00;
+                  const cy = moments.m01 / moments.m00;
+
+                  // Convert back to full image coordinates
+                  const shotX = roiX + cx;
+                  const shotY = roiY + cy;
+
+                  // Check if shot is within the target circle
+                  const distFromCenter = Math.sqrt(
+                    Math.pow(shotX - currentX, 2) + Math.pow(shotY - currentY, 2)
+                  );
+
+                  if (distFromCenter <= currentRadius) {
+                    detectedShots.push({
+                      id: Date.now() + i,
+                      x: shotX,
+                      y: shotY
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          // Clean up
+          src.delete();
+          roi.delete();
+          gray.delete();
+          blurred.delete();
+          thresh.delete();
+          contours.delete();
+          hierarchy.delete();
+          kernel.delete();
+
+          resolve(detectedShots);
+        } catch (error) {
+          reject(error);
+        }
+      };
+
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = imageUrl;
+    });
+  };
+
   // Handle target selection click - SIMPLIFIED: just place numbered markers
   const handleTargetClick = (e) => {
     if (!targetDiameter || parseFloat(targetDiameter) <= 0) {
@@ -1430,6 +1569,51 @@ const CompletePRSApp = () => {
                             {(target.adjustedX !== null || target.adjustedY !== null || target.adjustedRadius !== null) && (
                               <span className="text-xs text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900 px-2 py-1 rounded">Adjusted</span>
                             )}
+            <button
+                              onClick={async () => {
+                                if (!window.cv) {
+                                  alert('OpenCV is still loading. Please wait a moment and try again.');
+                                  return;
+                                }
+                                try {
+                                  const detectedShots = await detectBulletHoles(target, uploadedImage);
+                                  if (detectedShots.length === 0) {
+                                    alert('No bullet holes detected. Try adjusting the target circle or mark shots manually.');
+                                  } else {
+                                    setSelectedTargets(prev => prev.map(t =>
+                                      t.id === target.id
+                                        ? { ...t, shots: [...t.shots, ...detectedShots] }
+                                        : t
+                                    ));
+                                    alert(`Detected ${detectedShots.length} bullet hole(s)!`);
+                                  }
+                                } catch (error) {
+                                  console.error('Detection error:', error);
+                                  alert(`Error detecting bullet holes: ${error.message}`);
+                                }
+                              }}
+                              className="px-3 py-1 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors"
+                              title="Automatically detect bullet holes using computer vision"
+                            >
+                              Auto-Detect
+                            </button>
+                            {target.shots && target.shots.length > 0 && (
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Clear all ${target.shots.length} shot(s) from this target?`)) {
+                                    setSelectedTargets(prev => prev.map(t =>
+                                      t.id === target.id
+                                        ? { ...t, shots: [] }
+                                        : t
+                                    ));
+                                  }
+                                }}
+                                className="px-3 py-1 text-sm bg-red-500 hover:bg-red-600 text-white rounded transition-colors"
+                                title="Clear all shots from this target"
+                              >
+                                Clear Shots
+                              </button>
+                            )}
                             <button
                               onClick={() => {
                                 setSelectedTargets(prev => prev.map(t =>
@@ -1979,7 +2163,7 @@ const CompletePRSApp = () => {
                                 const shotDisplayX = shot.x - cropX;
                                 const shotDisplayY = shot.y - cropY;
 
-                                // Calculate shot marker size based on caliber (half bullet diameter)
+                                // Calculate shot marker size based on caliber (half bullet diameter, then halved again for display)
                                 const rifle = equipment.rifles.find(r => r.name === sessionData.rifle);
                                 let bulletDiameterInches = 0.308; // Default .308
                                 if (rifle?.caliber) {
@@ -1995,7 +2179,8 @@ const CompletePRSApp = () => {
                                     }
                                   }
                                 }
-                                const markerRadius = Math.max(4, (bulletDiameterInches / 2) * target.pixelsPerInch);
+                                // Reduced to half diameter (quarter of original full bullet diameter)
+                                const markerRadius = Math.max(2, (bulletDiameterInches / 4) * target.pixelsPerInch);
 
                                 if (shotDisplayX >= 0 && shotDisplayX <= cropSize &&
                                     shotDisplayY >= 0 && shotDisplayY <= cropSize) {
