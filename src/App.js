@@ -26,7 +26,8 @@ import Auth from './components/Auth';
 import {
   addSession, getSessions, deleteSession,
   addRifle, getRifles, deleteRifle,
-  addLoad, getLoads, deleteLoad
+  addLoad, getLoads, deleteLoad,
+  addTrainingImage, getTrainingDataCount
 } from './services/firestore';
 
 const CompletePRSApp = () => {
@@ -718,7 +719,7 @@ const CompletePRSApp = () => {
     });
   };
 
-  // Save training image for OpenCV improvement
+  // Save training image for OpenCV improvement (to Firebase for shared ML training)
   const saveTrainingImage = async (target, imageUrl) => {
     try {
       // Create canvas to extract target region
@@ -755,29 +756,24 @@ const CompletePRSApp = () => {
         size
       );
 
-      // Convert to blob and save to localStorage as training data
-      canvas.toBlob((blob) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64data = reader.result;
-          const trainingImages = JSON.parse(localStorage.getItem('opencv_training_images') || '[]');
-          trainingImages.push({
-            timestamp: Date.now(),
+      // Convert to blob and upload to Firebase
+      canvas.toBlob(async (blob) => {
+        try {
+          const trainingId = await addTrainingImage(blob, {
             shots: target.shots.length,
-            diameter: target.diameterInches,
-            image: base64data
+            diameter: target.diameterInches
           });
-          // Keep only last 50 training images to avoid storage issues
-          if (trainingImages.length > 50) {
-            trainingImages.shift();
+          if (trainingId) {
+            console.log('Training image uploaded to shared database:', trainingId);
           }
-          localStorage.setItem('opencv_training_images', JSON.stringify(trainingImages));
-          console.log('Training image saved. Total:', trainingImages.length);
-        };
-        reader.readAsDataURL(blob);
+        } catch (error) {
+          console.error('Error uploading training image:', error);
+          // Silent fail - don't disrupt user flow
+        }
       }, 'image/jpeg', 0.8);
     } catch (error) {
       console.error('Error saving training image:', error);
+      // Silent fail - training data is optional
     }
   };
 

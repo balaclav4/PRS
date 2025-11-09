@@ -8,9 +8,11 @@ import {
   deleteDoc,
   query,
   orderBy,
+  limit,
   serverTimestamp
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase';
 
 // ============================================================================
 // SESSIONS
@@ -304,5 +306,81 @@ export const getUserProfile = async (userId) => {
   } catch (error) {
     console.error('Error getting user profile:', error);
     throw error;
+  }
+};
+
+// ============================================================================
+// TRAINING DATA (Shared across all users for ML improvements)
+// ============================================================================
+
+/**
+ * Upload training image and metadata
+ * This is anonymous and shared across all users to improve OpenCV detection
+ * @param {Blob} imageBlob - The cropped target image blob
+ * @param {object} metadata - Training metadata (shots, diameter, etc.)
+ * @returns {Promise<string>} - The training data ID
+ */
+export const addTrainingImage = async (imageBlob, metadata) => {
+  try {
+    // Generate unique ID for this training sample
+    const trainingId = `training_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Upload image to Firebase Storage
+    const storageRef = ref(storage, `training-images/${trainingId}.jpg`);
+    await uploadBytes(storageRef, imageBlob);
+    const imageUrl = await getDownloadURL(storageRef);
+
+    // Save metadata to Firestore (shared collection, not user-specific)
+    const trainingRef = collection(db, 'training-data');
+    const docRef = await addDoc(trainingRef, {
+      imageUrl,
+      storagePath: `training-images/${trainingId}.jpg`,
+      shots: metadata.shots || 0,
+      targetDiameter: metadata.diameter || 0,
+      timestamp: serverTimestamp(),
+      version: 1 // For future schema changes
+    });
+
+    return docRef.id;
+  } catch (error) {
+    console.error('Error adding training image:', error);
+    // Don't throw - training data is optional, shouldn't break user flow
+    return null;
+  }
+};
+
+/**
+ * Get training data for model training
+ * @param {number} maxCount - Maximum number of training samples to retrieve
+ * @returns {Promise<Array>} - Array of training data objects
+ */
+export const getTrainingData = async (maxCount = 100) => {
+  try {
+    const trainingRef = collection(db, 'training-data');
+    const q = query(trainingRef, orderBy('timestamp', 'desc'), limit(maxCount));
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error('Error getting training data:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get count of training images available
+ * @returns {Promise<number>} - Count of training samples
+ */
+export const getTrainingDataCount = async () => {
+  try {
+    const trainingRef = collection(db, 'training-data');
+    const snapshot = await getDocs(trainingRef);
+    return snapshot.size;
+  } catch (error) {
+    console.error('Error getting training data count:', error);
+    return 0;
   }
 };
