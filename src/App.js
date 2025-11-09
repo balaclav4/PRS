@@ -97,6 +97,7 @@ const CompletePRSApp = () => {
 
   // Analytics chart settings
   const [performanceMetric, setPerformanceMetric] = useState('velocity'); // 'velocity', 'groupSize', 'totalRounds', 'avgPOI'
+  const [poiUnit, setPoiUnit] = useState('inches'); // 'inches', 'moa', 'mils'
   const [chartCollapsed, setChartCollapsed] = useState({
     groupSize: false,
     shotDistribution: false,
@@ -528,7 +529,7 @@ const CompletePRSApp = () => {
     };
   };
 
-  // Auto-detect bullet holes using OpenCV
+  // Auto-detect bullet holes using OpenCV with improved multi-strategy detection
   const detectBulletHoles = async (target, imageUrl) => {
     return new Promise((resolve, reject) => {
       // Check if OpenCV is loaded
@@ -555,8 +556,8 @@ const CompletePRSApp = () => {
           const currentY = target.adjustedY ?? target.y;
           const currentRadius = target.adjustedRadius || target.radius;
 
-          // Create region of interest (ROI) around target with some padding
-          const padding = currentRadius * 0.2;
+          // Create region of interest (ROI) around target with padding
+          const padding = currentRadius * 0.3;
           const roiX = Math.max(0, Math.floor(currentX - currentRadius - padding));
           const roiY = Math.max(0, Math.floor(currentY - currentRadius - padding));
           const roiWidth = Math.min(img.width - roiX, Math.ceil((currentRadius + padding) * 2));
@@ -566,97 +567,147 @@ const CompletePRSApp = () => {
           let src = cv.imread(canvas);
           let roi = src.roi(new cv.Rect(roiX, roiY, roiWidth, roiHeight));
           let gray = new cv.Mat();
-          let blurred = new cv.Mat();
-          let thresh = new cv.Mat();
-          let contours = new cv.MatVector();
-          let hierarchy = new cv.Mat();
+          let detectedShots = [];
 
           // Convert to grayscale
           cv.cvtColor(roi, gray, cv.COLOR_RGBA2GRAY);
 
-          // Apply Gaussian blur to reduce noise
-          cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+          // Strategy 1: Hough Circle Transform (best for clean circular holes)
+          try {
+            let circles = new cv.Mat();
+            const minRadius = Math.max(2, Math.floor(target.pixelsPerInch * 0.05));
+            const maxRadius = Math.max(minRadius + 1, Math.floor(target.pixelsPerInch * 0.5));
 
-          // Apply adaptive threshold to handle varying lighting
-          cv.adaptiveThreshold(
-            blurred,
-            thresh,
-            255,
-            cv.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv.THRESH_BINARY_INV,
-            15,
-            5
-          );
+            cv.HoughCircles(
+              gray,
+              circles,
+              cv.HOUGH_GRADIENT,
+              1,
+              minRadius * 2, // min distance between circles
+              100, // Canny high threshold
+              30,  // accumulator threshold (lower = more permissive)
+              minRadius,
+              maxRadius
+            );
 
-          // Apply morphological operations to clean up
-          let kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3));
-          cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, kernel);
-          cv.morphologyEx(thresh, thresh, cv.MORPH_OPEN, kernel);
+            for (let i = 0; i < circles.cols; i++) {
+              const x = circles.data32F[i * 3];
+              const y = circles.data32F[i * 3 + 1];
+              const shotX = roiX + x;
+              const shotY = roiY + y;
 
-          // Find contours
-          cv.findContours(
-            thresh,
-            contours,
-            hierarchy,
-            cv.RETR_EXTERNAL,
-            cv.CHAIN_APPROX_SIMPLE
-          );
+              const distFromCenter = Math.sqrt(
+                Math.pow(shotX - currentX, 2) + Math.pow(shotY - currentY, 2)
+              );
 
-          // Analyze contours to find bullet holes
-          const detectedShots = [];
-          const minArea = Math.PI * Math.pow(target.pixelsPerInch * 0.05, 2); // Min ~0.05" diameter
-          const maxArea = Math.PI * Math.pow(target.pixelsPerInch * 0.8, 2); // Max ~0.8" diameter
+              if (distFromCenter <= currentRadius) {
+                detectedShots.push({ x: shotX, y: shotY });
+              }
+            }
+            circles.delete();
+          } catch (e) {
+            console.warn('Hough circles failed:', e);
+          }
 
-          for (let i = 0; i < contours.size(); i++) {
-            const contour = contours.get(i);
-            const area = cv.contourArea(contour);
+          // Strategy 2: Contour-based detection (handles irregular holes)
+          try {
+            let blurred = new cv.Mat();
+            let thresh = new cv.Mat();
+            let contours = new cv.MatVector();
+            let hierarchy = new cv.Mat();
 
-            // Filter by area
-            if (area >= minArea && area <= maxArea) {
-              // Calculate circularity
-              const perimeter = cv.arcLength(contour, true);
-              const circularity = (4 * Math.PI * area) / (perimeter * perimeter);
+            // Bilateral filter preserves edges while reducing noise
+            cv.bilateralFilter(gray, blurred, 9, 75, 75);
 
-              // Accept if reasonably circular (0.4-1.0 to handle irregular holes)
-              if (circularity > 0.4) {
-                // Get center of contour
-                const moments = cv.moments(contour);
-                if (moments.m00 !== 0) {
-                  const cx = moments.m10 / moments.m00;
-                  const cy = moments.m01 / moments.m00;
+            // Try adaptive thresholding
+            cv.adaptiveThreshold(
+              blurred,
+              thresh,
+              255,
+              cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+              cv.THRESH_BINARY_INV,
+              21,
+              8
+            );
 
-                  // Convert back to full image coordinates
-                  const shotX = roiX + cx;
-                  const shotY = roiY + cy;
+            // Morphological operations
+            let kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3));
+            cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, kernel);
+            cv.morphologyEx(thresh, thresh, cv.MORPH_OPEN, kernel);
 
-                  // Check if shot is within the target circle
-                  const distFromCenter = Math.sqrt(
-                    Math.pow(shotX - currentX, 2) + Math.pow(shotY - currentY, 2)
-                  );
+            // Find contours
+            cv.findContours(
+              thresh,
+              contours,
+              hierarchy,
+              cv.RETR_EXTERNAL,
+              cv.CHAIN_APPROX_SIMPLE
+            );
 
-                  if (distFromCenter <= currentRadius) {
-                    detectedShots.push({
-                      id: Date.now() + i,
-                      x: shotX,
-                      y: shotY
-                    });
+            const minArea = Math.PI * Math.pow(target.pixelsPerInch * 0.04, 2);
+            const maxArea = Math.PI * Math.pow(target.pixelsPerInch * 0.7, 2);
+
+            for (let i = 0; i < contours.size(); i++) {
+              const contour = contours.get(i);
+              const area = cv.contourArea(contour);
+
+              if (area >= minArea && area <= maxArea) {
+                const perimeter = cv.arcLength(contour, true);
+                const circularity = (4 * Math.PI * area) / (perimeter * perimeter);
+
+                // Accept circular-ish shapes (0.3-1.0 for irregular/touching holes)
+                if (circularity > 0.3) {
+                  const moments = cv.moments(contour);
+                  if (moments.m00 !== 0) {
+                    const cx = moments.m10 / moments.m00;
+                    const cy = moments.m01 / moments.m00;
+                    const shotX = roiX + cx;
+                    const shotY = roiY + cy;
+
+                    const distFromCenter = Math.sqrt(
+                      Math.pow(shotX - currentX, 2) + Math.pow(shotY - currentY, 2)
+                    );
+
+                    if (distFromCenter <= currentRadius) {
+                      detectedShots.push({ x: shotX, y: shotY });
+                    }
                   }
                 }
               }
             }
+
+            blurred.delete();
+            thresh.delete();
+            contours.delete();
+            hierarchy.delete();
+            kernel.delete();
+          } catch (e) {
+            console.warn('Contour detection failed:', e);
           }
+
+          // Remove duplicates (shots detected by both strategies)
+          const uniqueShots = [];
+          const mergeDistance = target.pixelsPerInch * 0.1; // Merge within 0.1"
+
+          detectedShots.forEach(shot => {
+            const isDuplicate = uniqueShots.some(existing =>
+              Math.sqrt(Math.pow(shot.x - existing.x, 2) + Math.pow(shot.y - existing.y, 2)) < mergeDistance
+            );
+            if (!isDuplicate) {
+              uniqueShots.push({
+                id: Date.now() + uniqueShots.length,
+                x: shot.x,
+                y: shot.y
+              });
+            }
+          });
 
           // Clean up
           src.delete();
           roi.delete();
           gray.delete();
-          blurred.delete();
-          thresh.delete();
-          contours.delete();
-          hierarchy.delete();
-          kernel.delete();
 
-          resolve(detectedShots);
+          resolve(uniqueShots);
         } catch (error) {
           reject(error);
         }
@@ -2544,17 +2595,19 @@ const CompletePRSApp = () => {
                       {/* Charts Section */}
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         {/* Chart 1: Group Size Over Time */}
+                        {!chartCollapsed.groupSize ? (
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
                           <div className="flex justify-between items-center mb-4">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Group Size Over Time</h3>
                             <button
                               onClick={() => setChartCollapsed({...chartCollapsed, groupSize: !chartCollapsed.groupSize})}
                               className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                              title="Minimize chart"
                             >
-                              {chartCollapsed.groupSize ? '▼' : '▲'}
+                              ▲
                             </button>
                           </div>
-                          {!chartCollapsed.groupSize && (() => {
+                          {(() => {
                             const sessionsWithData = report.filteredSessions
                               .map(s => ({
                                 date: new Date(s.date),
@@ -2638,19 +2691,35 @@ const CompletePRSApp = () => {
                             );
                           })()}
                         </div>
+                        ) : (
+                          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
+                            <div className="flex justify-between items-center">
+                              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Group Size Over Time</h3>
+                              <button
+                                onClick={() => setChartCollapsed({...chartCollapsed, groupSize: !chartCollapsed.groupSize})}
+                                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                                title="Expand chart"
+                              >
+                                ▼
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         {/* Chart 2: Shot Distribution Plot */}
+                        {!chartCollapsed.shotDistribution ? (
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
                           <div className="flex justify-between items-center mb-4">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Shot Distribution</h3>
                             <button
                               onClick={() => setChartCollapsed({...chartCollapsed, shotDistribution: !chartCollapsed.shotDistribution})}
                               className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                              title="Minimize chart"
                             >
-                              {chartCollapsed.shotDistribution ? '▼' : '▲'}
+                              ▲
                             </button>
                           </div>
-                          {!chartCollapsed.shotDistribution && (() => {
+                          {(() => {
                             const allShots = [];
                             report.filteredSessions.forEach(session => {
                               session.targets.forEach(target => {
@@ -2713,8 +2782,23 @@ const CompletePRSApp = () => {
                             );
                           })()}
                         </div>
+                        ) : (
+                          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
+                            <div className="flex justify-between items-center">
+                              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Shot Distribution</h3>
+                              <button
+                                onClick={() => setChartCollapsed({...chartCollapsed, shotDistribution: !chartCollapsed.shotDistribution})}
+                                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                                title="Expand chart"
+                              >
+                                ▼
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         {/* Chart 3: Performance by Configuration */}
+                        {!chartCollapsed.performance ? (
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 lg:col-span-2">
                           <div className="flex justify-between items-center mb-4">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Performance by Configuration</h3>
@@ -2732,12 +2816,13 @@ const CompletePRSApp = () => {
                               <button
                                 onClick={() => setChartCollapsed({...chartCollapsed, performance: !chartCollapsed.performance})}
                                 className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                                title="Minimize chart"
                               >
-                                {chartCollapsed.performance ? '▼' : '▲'}
+                                ▲
                               </button>
                             </div>
                           </div>
-                          {!chartCollapsed.performance && (() => {
+                          {(() => {
                             const configStats = {};
                             report.filteredSessions.forEach(session => {
                               const configKey = `${session.rifle} + ${session.load}${session.silencer ? ' (Silencer)' : ''}`;
@@ -2872,6 +2957,20 @@ const CompletePRSApp = () => {
                             );
                           })()}
                         </div>
+                        ) : (
+                          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 lg:col-span-2">
+                            <div className="flex justify-between items-center">
+                              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Performance by Configuration</h3>
+                              <button
+                                onClick={() => setChartCollapsed({...chartCollapsed, performance: !chartCollapsed.performance})}
+                                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                                title="Expand chart"
+                              >
+                                ▼
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Group Details Toggle */}
@@ -3080,8 +3179,22 @@ const CompletePRSApp = () => {
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Distance</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Shots</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Best Group</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">POI V/H (MOA)</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                  <div className="flex items-center gap-2">
+                                    POI V/H
+                                    <select
+                                      value={poiUnit}
+                                      onChange={(e) => setPoiUnit(e.target.value)}
+                                      className="text-xs bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-900 dark:text-white"
+                                    >
+                                      <option value="inches">IN</option>
+                                      <option value="moa">MOA</option>
+                                      <option value="mils">MILS</option>
+                                    </select>
+                                  </div>
+                                </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Velocity</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
                               </tr>
                             </thead>
                             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -3099,14 +3212,22 @@ const CompletePRSApp = () => {
                                     const poiHorizontal = t.stats.groupCenterXInches;
                                     const distance = session.distance || 100;
                                     return {
+                                      verticalInches: poiVertical,
+                                      horizontalInches: poiHorizontal,
                                       verticalMOA: (poiVertical * 95.5) / distance,
-                                      horizontalMOA: (poiHorizontal * 95.5) / distance
+                                      horizontalMOA: (poiHorizontal * 95.5) / distance,
+                                      verticalMils: (poiVertical * 27.78) / distance,
+                                      horizontalMils: (poiHorizontal * 27.78) / distance
                                     };
                                   });
                                 const avgPOI = targetPOIs.length > 0
                                   ? {
+                                      verticalInches: targetPOIs.reduce((sum, p) => sum + p.verticalInches, 0) / targetPOIs.length,
+                                      horizontalInches: targetPOIs.reduce((sum, p) => sum + p.horizontalInches, 0) / targetPOIs.length,
                                       verticalMOA: targetPOIs.reduce((sum, p) => sum + p.verticalMOA, 0) / targetPOIs.length,
-                                      horizontalMOA: targetPOIs.reduce((sum, p) => sum + p.horizontalMOA, 0) / targetPOIs.length
+                                      horizontalMOA: targetPOIs.reduce((sum, p) => sum + p.horizontalMOA, 0) / targetPOIs.length,
+                                      verticalMils: targetPOIs.reduce((sum, p) => sum + p.verticalMils, 0) / targetPOIs.length,
+                                      horizontalMils: targetPOIs.reduce((sum, p) => sum + p.horizontalMils, 0) / targetPOIs.length
                                     }
                                   : null;
 
@@ -3120,12 +3241,49 @@ const CompletePRSApp = () => {
                                       {Math.min(...session.targets.map(t => t.stats?.sizeInches || Infinity)).toFixed(3)}"
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                      {avgPOI
-                                        ? `↕${avgPOI.verticalMOA >= 0 ? '+' : ''}${avgPOI.verticalMOA.toFixed(2)} / ↔${avgPOI.horizontalMOA >= 0 ? '+' : ''}${avgPOI.horizontalMOA.toFixed(2)}`
-                                        : 'N/A'}
+                                      {avgPOI ? (() => {
+                                        let vVal, hVal, precision, unit;
+                                        if (poiUnit === 'inches') {
+                                          vVal = avgPOI.verticalInches;
+                                          hVal = avgPOI.horizontalInches;
+                                          precision = 3;
+                                          unit = '"';
+                                        } else if (poiUnit === 'moa') {
+                                          vVal = avgPOI.verticalMOA;
+                                          hVal = avgPOI.horizontalMOA;
+                                          precision = 2;
+                                          unit = '';
+                                        } else {
+                                          vVal = avgPOI.verticalMils;
+                                          hVal = avgPOI.horizontalMils;
+                                          precision = 2;
+                                          unit = '';
+                                        }
+                                        return `↕${vVal >= 0 ? '+' : ''}${vVal.toFixed(precision)}${unit} / ↔${hVal >= 0 ? '+' : ''}${hVal.toFixed(precision)}${unit}`;
+                                      })() : 'N/A'}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                       {session.chronoData ? `${session.chronoData.average.toFixed(0)} fps` : 'N/A'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                      <button
+                                        onClick={async () => {
+                                          if (window.confirm(`Delete session "${session.name}"? This cannot be undone.`)) {
+                                            try {
+                                              await deleteSession(user.uid, session.id);
+                                              const updatedSessions = await getSessions(user.uid);
+                                              setSessions(updatedSessions);
+                                            } catch (error) {
+                                              console.error('Error deleting session:', error);
+                                              alert('Failed to delete session');
+                                            }
+                                          }
+                                        }}
+                                        className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
+                                        title="Delete session"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
                                     </td>
                                   </tr>
                                 );
