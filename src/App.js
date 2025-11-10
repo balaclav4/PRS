@@ -1877,45 +1877,47 @@ const CompletePRSApp = () => {
                             setDragTargetId(null);
                           }}
                         >
-                          <img
-                            src={uploadedImage}
-                            alt="Target adjustment"
-                            className="absolute inset-0 w-full h-full object-cover"
-                            style={{
-                              objectPosition: `${(cropX / (uploadedImage ? 1 : 1)) * -100}% ${(cropY / (uploadedImage ? 1 : 1)) * -100}%`,
-                              transform: `scale(${uploadedImage ? (new Image().src = uploadedImage, 1) : 1})`,
-                              objectFit: 'none',
-                              width: '100%',
-                              height: '100%'
-                            }}
-                            onLoad={(e) => {
-                              const img = e.target;
-                              const scaleX = img.naturalWidth / cropSize;
-                              const scaleY = img.naturalHeight / cropSize;
-                              e.target.style.transform = `scale(${Math.max(scaleX, scaleY)})`;
-                              e.target.style.objectPosition = `${-cropX * 100 / img.naturalWidth}% ${-cropY * 100 / img.naturalHeight}%`;
-                            }}
-                          />
+                          <svg
+                            className="absolute inset-0 w-full h-full"
+                            viewBox={`0 0 ${cropSize} ${cropSize}`}
+                            preserveAspectRatio="xMidYMid meet"
+                          >
+                            <image
+                              href={uploadedImage}
+                              x={-cropX}
+                              y={-cropY}
+                              width="100%"
+                              height="100%"
+                              preserveAspectRatio="none"
+                            />
 
-                          <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                            {/* Target circle */}
                             <circle
-                              cx="50%"
-                              cy="50%"
-                              r={`${(currentRadius / cropSize) * 100}%`}
+                              cx={currentX - cropX}
+                              cy={currentY - cropY}
+                              r={currentRadius}
                               fill="none"
                               stroke="lime"
                               strokeWidth="3"
                               opacity="0.8"
                             />
+
                             {/* Corner resize handles */}
                             {['nw', 'ne', 'se', 'sw'].map(pos => {
                               const angle = { nw: 225, ne: 315, se: 45, sw: 135 }[pos];
                               const rad = (angle * Math.PI) / 180;
-                              const hx = 50 + (currentRadius / cropSize) * 100 * Math.cos(rad);
-                              const hy = 50 + (currentRadius / cropSize) * 100 * Math.sin(rad);
+                              const hx = currentX - cropX + currentRadius * Math.cos(rad);
+                              const hy = currentY - cropY + currentRadius * Math.sin(rad);
                               return (
                                 <g key={pos}>
-                                  <circle cx={`${hx}%`} cy={`${hy}%`} r="6" fill="white" stroke="lime" strokeWidth="2" style={{ pointerEvents: 'stroke' }} />
+                                  <circle
+                                    cx={hx}
+                                    cy={hy}
+                                    r="8"
+                                    fill="white"
+                                    stroke="lime"
+                                    strokeWidth="2"
+                                  />
                                 </g>
                               );
                             })}
