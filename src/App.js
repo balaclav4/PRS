@@ -761,10 +761,17 @@ const CompletePRSApp = () => {
         try {
           const trainingId = await addTrainingImage(blob, {
             shots: target.shots.length,
-            diameter: target.diameterInches
+            diameter: target.diameterInches,
+            // Add target center coordinates for training target detection
+            centerX: currentRadius + padding, // Center in cropped image
+            centerY: currentRadius + padding,
+            radius: currentRadius,
+            // Original image dimensions for context
+            imageWidth: img.naturalWidth,
+            imageHeight: img.naturalHeight
           });
           if (trainingId) {
-            console.log('Training image uploaded to shared database:', trainingId);
+            console.log('Training image uploaded (target center + bullet holes):', trainingId);
           }
         } catch (error) {
           console.error('Error uploading training image:', error);
@@ -1723,14 +1730,18 @@ const CompletePRSApp = () => {
                             const imageX = cropX + (relativeX * cropSize);
                             const imageY = cropY + (relativeY * cropSize);
 
-                            // Check resize handles first
+                            // Check resize handles first (using angles to match rendered positions)
                             const handleHitSize = 30;
                             const handles = [
-                              { name: 'nw', x: currentX - currentRadius, y: currentY - currentRadius },
-                              { name: 'ne', x: currentX + currentRadius, y: currentY - currentRadius },
-                              { name: 'se', x: currentX + currentRadius, y: currentY + currentRadius },
-                              { name: 'sw', x: currentX - currentRadius, y: currentY + currentRadius }
-                            ];
+                              { name: 'nw', angle: 225 },
+                              { name: 'ne', angle: 315 },
+                              { name: 'se', angle: 45 },
+                              { name: 'sw', angle: 135 }
+                            ].map(h => ({
+                              name: h.name,
+                              x: currentX + currentRadius * Math.cos((h.angle * Math.PI) / 180),
+                              y: currentY + currentRadius * Math.sin((h.angle * Math.PI) / 180)
+                            }));
 
                             for (let handle of handles) {
                               const distFromHandle = Math.sqrt(
@@ -2386,7 +2397,7 @@ const CompletePRSApp = () => {
                               viewBox={`0 0 ${cropSize} ${cropSize}`}
                               style={{ pointerEvents: 'none' }}
                             >
-                              {/* Target circle - draggable outline (transparent fill so you can click through) */}
+                              {/* Target circle - static reference only, not adjustable */}
                               <circle
                                 cx={currentRadius * 5}
                                 cy={currentRadius * 5}
@@ -2394,55 +2405,8 @@ const CompletePRSApp = () => {
                                 fill="none"
                                 stroke="#22c55e"
                                 strokeWidth="4"
-                                style={{
-                                  pointerEvents: 'stroke',
-                                  cursor: isDragging && dragTargetId === target.id ? 'grabbing' : 'grab'
-                                }}
+                                style={{ pointerEvents: 'none' }}
                               />
-
-                              {/* Corner resize handles - Large and obvious for mobile */}
-                              {[
-                                { x: currentRadius * 5 - currentRadius, y: currentRadius * 5 - currentRadius, cursor: 'nwse-resize' }, // NW
-                                { x: currentRadius * 5 + currentRadius, y: currentRadius * 5 - currentRadius, cursor: 'nesw-resize' }, // NE
-                                { x: currentRadius * 5 + currentRadius, y: currentRadius * 5 + currentRadius, cursor: 'nwse-resize' }, // SE
-                                { x: currentRadius * 5 - currentRadius, y: currentRadius * 5 + currentRadius, cursor: 'nesw-resize' }  // SW
-                              ].map((handle, hi) => (
-                                <g key={hi}>
-                                  {/* Drop shadow for visibility */}
-                                  <rect
-                                    x={handle.x - 9}
-                                    y={handle.y - 9}
-                                    width="18"
-                                    height="18"
-                                    fill="rgba(0, 0, 0, 0.3)"
-                                    rx="3"
-                                    style={{ pointerEvents: 'none' }}
-                                  />
-                                  {/* Main handle */}
-                                  <rect
-                                    x={handle.x - 8}
-                                    y={handle.y - 8}
-                                    width="16"
-                                    height="16"
-                                    fill="white"
-                                    stroke="#3b82f6"
-                                    strokeWidth="2"
-                                    rx="3"
-                                    style={{
-                                      pointerEvents: 'all',
-                                      cursor: handle.cursor
-                                    }}
-                                  />
-                                  {/* Center dot for clarity */}
-                                  <circle
-                                    cx={handle.x}
-                                    cy={handle.y}
-                                    r="3"
-                                    fill="#3b82f6"
-                                    style={{ pointerEvents: 'none' }}
-                                  />
-                                </g>
-                              ))}
 
                               {/* Crosshair lines */}
                               <line
