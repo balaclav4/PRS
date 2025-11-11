@@ -558,12 +558,12 @@ const CompletePRSApp = () => {
           const currentY = target.adjustedY ?? target.y;
           const currentRadius = target.adjustedRadius || target.radius;
 
-          // Create region of interest (ROI) around target with padding
-          const padding = currentRadius * 0.3;
-          const roiX = Math.max(0, Math.floor(currentX - currentRadius - padding));
-          const roiY = Math.max(0, Math.floor(currentY - currentRadius - padding));
-          const roiWidth = Math.min(img.width - roiX, Math.ceil((currentRadius + padding) * 2));
-          const roiHeight = Math.min(img.height - roiY, Math.ceil((currentRadius + padding) * 2));
+          // Create LARGER region of interest (ROI) - search 3x radius to catch flyers
+          const searchRadius = currentRadius * 3;
+          const roiX = Math.max(0, Math.floor(currentX - searchRadius));
+          const roiY = Math.max(0, Math.floor(currentY - searchRadius));
+          const roiWidth = Math.min(img.width - roiX, Math.ceil(searchRadius * 2));
+          const roiHeight = Math.min(img.height - roiY, Math.ceil(searchRadius * 2));
 
           // Load full image into OpenCV
           let src = cv.imread(canvas);
@@ -602,7 +602,8 @@ const CompletePRSApp = () => {
                 Math.pow(shotX - currentX, 2) + Math.pow(shotY - currentY, 2)
               );
 
-              if (distFromCenter <= currentRadius) {
+              // Accept shots within search radius (not just inside target circle)
+              if (distFromCenter <= searchRadius) {
                 detectedShots.push({ x: shotX, y: shotY });
               }
             }
@@ -670,7 +671,8 @@ const CompletePRSApp = () => {
                       Math.pow(shotX - currentX, 2) + Math.pow(shotY - currentY, 2)
                     );
 
-                    if (distFromCenter <= currentRadius) {
+                    // Accept shots within search radius (not just inside target circle)
+                    if (distFromCenter <= searchRadius) {
                       detectedShots.push({ x: shotX, y: shotY });
                     }
                   }
@@ -2436,41 +2438,40 @@ const CompletePRSApp = () => {
                                 return null;
                               })}
                             </svg>
+
+                            {/* Drag-and-drop trash bin - overlay on image */}
+                            {target.shots.length > 0 && (
+                              <div
+                                id={`trash-${target.id}`}
+                                className={`absolute bottom-2 right-2 flex items-center justify-center p-3 rounded-lg border-2 border-dashed transition-all pointer-events-auto ${
+                                  draggingShotId && dragTargetId === target.id && isOverTrash
+                                    ? 'bg-red-100 dark:bg-red-900/90 border-red-500 scale-125'
+                                    : 'bg-gray-100/90 dark:bg-gray-700/90 border-gray-300 dark:border-gray-600'
+                                }`}
+                                title="Drag shots here to delete"
+                                style={{ zIndex: 10 }}
+                              >
+                                <Trash2 className={`h-5 w-5 ${
+                                  draggingShotId && dragTargetId === target.id && isOverTrash
+                                    ? 'text-red-600 dark:text-red-400'
+                                    : 'text-gray-500 dark:text-gray-400'
+                                }`} />
+                              </div>
+                            )}
                           </div>
                         </div>
-                        
-                        <div className="flex justify-between items-center">
-                          <div className="text-sm space-y-1 text-gray-900 dark:text-white">
-                            <p>Shots marked: {target.shots.length}</p>
-                            {target.shots.length >= 2 && (() => {
-                              const stats = calculateGroupStats(target.shots, currentX, currentY, target.pixelsPerInch);
-                              return (
-                                <>
-                                  <p>Group size: {stats.sizeInches.toFixed(3)}"</p>
-                                  <p>Mean radius: {stats.meanRadiusInches.toFixed(3)}"</p>
-                                </>
-                              );
-                            })()}
-                          </div>
 
-                          {/* Drag-and-drop trash bin */}
-                          {target.shots.length > 0 && (
-                            <div
-                              id={`trash-${target.id}`}
-                              className={`flex items-center justify-center p-4 rounded-lg border-2 border-dashed transition-all ${
-                                draggingShotId && dragTargetId === target.id && isOverTrash
-                                  ? 'bg-red-100 dark:bg-red-900 border-red-500 scale-110'
-                                  : 'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600'
-                              }`}
-                              title="Drag shots here to delete"
-                            >
-                              <Trash2 className={`h-6 w-6 ${
-                                draggingShotId && dragTargetId === target.id && isOverTrash
-                                  ? 'text-red-600 dark:text-red-400'
-                                  : 'text-gray-500 dark:text-gray-400'
-                              }`} />
-                            </div>
-                          )}
+                        <div className="text-sm space-y-1 text-gray-900 dark:text-white">
+                          <p>Shots marked: {target.shots.length}</p>
+                          {target.shots.length >= 2 && (() => {
+                            const stats = calculateGroupStats(target.shots, currentX, currentY, target.pixelsPerInch);
+                            return (
+                              <>
+                                <p>Group size: {stats.sizeInches.toFixed(3)}"</p>
+                                <p>Mean radius: {stats.meanRadiusInches.toFixed(3)}"</p>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     );
