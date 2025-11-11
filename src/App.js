@@ -347,29 +347,40 @@ const CompletePRSApp = () => {
     };
   };
 
-  // Get comparison data
+  // Get comparison data - using INDIVIDUAL SHOTS for proper statistical analysis
   const getComparisonData = () => {
     const groupsByLoad = {};
     const groupsByRifle = {};
     const groupsBySession = {};
-    
+
     sessions.forEach(session => {
       session.targets.forEach(target => {
         if (target.shots.length >= 2) {
           const stats = target.stats || calculateGroupStats(target.shots, target.x, target.y, target.pixelsPerInch);
-          
-          if (!groupsByLoad[session.load]) groupsByLoad[session.load] = [];
-          groupsByLoad[session.load].push(stats.sizeInches);
-          
-          if (!groupsByRifle[session.rifle]) groupsByRifle[session.rifle] = [];
-          groupsByRifle[session.rifle].push(stats.sizeInches);
-          
-          if (!groupsBySession[session.id]) groupsBySession[session.id] = { name: session.name, groups: [] };
+
+          // Store individual shot distances from center (more statistically valid)
+          const shotDistances = target.shots.map(shot => {
+            const dx = shot.x - target.x;
+            const dy = shot.y - target.y;
+            const distPx = Math.sqrt(dx * dx + dy * dy);
+            return distPx / target.pixelsPerInch; // Convert to inches
+          });
+
+          if (!groupsByLoad[session.load]) groupsByLoad[session.load] = { groups: [], shots: [] };
+          groupsByLoad[session.load].groups.push(stats.sizeInches);
+          groupsByLoad[session.load].shots.push(...shotDistances); // Add individual shots
+
+          if (!groupsByRifle[session.rifle]) groupsByRifle[session.rifle] = { groups: [], shots: [] };
+          groupsByRifle[session.rifle].groups.push(stats.sizeInches);
+          groupsByRifle[session.rifle].shots.push(...shotDistances);
+
+          if (!groupsBySession[session.id]) groupsBySession[session.id] = { name: session.name, groups: [], shots: [] };
           groupsBySession[session.id].groups.push(stats.sizeInches);
+          groupsBySession[session.id].shots.push(...shotDistances);
         }
       });
     });
-    
+
     return { groupsByLoad, groupsByRifle, groupsBySession };
   };
 
@@ -1826,29 +1837,38 @@ const CompletePRSApp = () => {
                               strokeWidth="2"
                             />
                           </svg>
-                        </div>
 
-                        {/* Size slider */}
-                        <div className="mb-4">
-                          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
-                            Target Size: {target.diameterInches}" ({((currentRadius * 2) / target.diameterInches).toFixed(1)} px/in)
-                          </label>
-                          <input
-                            type="range"
-                            min={Math.max(10, currentRadius * 0.5)}
-                            max={currentRadius * 2}
-                            value={currentRadius}
-                            onChange={(e) => {
-                              const newRadius = parseFloat(e.target.value);
-                              const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
-                              setSelectedTargets(prev => prev.map(t =>
-                                t.id === target.id
-                                  ? { ...t, adjustedRadius: newRadius, pixelsPerInch: newPixelsPerInch }
-                                  : t
-                              ));
-                            }}
-                            className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-lime-500"
-                          />
+                          {/* Vertical size slider - overlay on left side of image */}
+                          <div className="absolute left-2 top-1/2 -translate-y-1/2 flex flex-col items-center gap-2 pointer-events-auto" style={{ zIndex: 10 }}>
+                            <div className="bg-gray-100/90 dark:bg-gray-700/90 rounded-lg px-2 py-1 text-xs font-medium text-gray-900 dark:text-white shadow-lg">
+                              {target.diameterInches}"
+                            </div>
+                            <input
+                              type="range"
+                              orient="vertical"
+                              min={Math.max(10, target.radius * 0.5)}
+                              max={target.radius * 2}
+                              value={currentRadius}
+                              onChange={(e) => {
+                                const newRadius = parseFloat(e.target.value);
+                                const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? { ...t, adjustedRadius: newRadius, pixelsPerInch: newPixelsPerInch }
+                                    : t
+                                ));
+                              }}
+                              className="h-48 appearance-none bg-gray-200 dark:bg-gray-700 rounded-lg cursor-pointer accent-lime-500"
+                              style={{
+                                writingMode: 'bt-lr',
+                                WebkitAppearance: 'slider-vertical',
+                                width: '8px'
+                              }}
+                            />
+                            <div className="bg-gray-100/90 dark:bg-gray-700/90 rounded-lg px-2 py-1 text-xs font-medium text-gray-900 dark:text-white shadow-lg">
+                              {((currentRadius * 2) / target.diameterInches).toFixed(1)} px/in
+                            </div>
+                          </div>
                         </div>
 
                         <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
@@ -3273,14 +3293,14 @@ const CompletePRSApp = () => {
                           let groupA, groupB;
 
                           if (comparisonType === 'loads') {
-                            groupA = comparisonData.groupsByLoad[comparisonA];
-                            groupB = comparisonData.groupsByLoad[comparisonB];
+                            groupA = comparisonData.groupsByLoad[comparisonA]?.shots || [];
+                            groupB = comparisonData.groupsByLoad[comparisonB]?.shots || [];
                           } else if (comparisonType === 'rifles') {
-                            groupA = comparisonData.groupsByRifle[comparisonA];
-                            groupB = comparisonData.groupsByRifle[comparisonB];
+                            groupA = comparisonData.groupsByRifle[comparisonA]?.shots || [];
+                            groupB = comparisonData.groupsByRifle[comparisonB]?.shots || [];
                           } else {
-                            groupA = comparisonData.groupsBySession[comparisonA].groups;
-                            groupB = comparisonData.groupsBySession[comparisonB].groups;
+                            groupA = comparisonData.groupsBySession[comparisonA]?.shots || [];
+                            groupB = comparisonData.groupsBySession[comparisonB]?.shots || [];
                           }
 
                           const result = performTTest(groupA, groupB);
