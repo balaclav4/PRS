@@ -1686,9 +1686,12 @@ const CompletePRSApp = () => {
                     const currentX = target.adjustedX ?? target.x;
                     const currentY = target.adjustedY ?? target.y;
                     const currentRadius = target.adjustedRadius || target.radius;
-                    const cropSize = currentRadius * 10;
-                    const cropX = currentX - currentRadius * 5;
-                    const cropY = currentY - currentRadius * 5;
+
+                    // Use fixed crop region based on initial radius (stable viewBox)
+                    const initialRadius = target.radius;
+                    const cropSize = initialRadius * 10; // Fixed size
+                    const cropX = currentX - cropSize / 2; // Center on target
+                    const cropY = currentY - cropSize / 2;
 
                     return (
                       <div key={target.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
@@ -1787,8 +1790,8 @@ const CompletePRSApp = () => {
                               href={uploadedImage}
                               x={-cropX}
                               y={-cropY}
-                              width="100%"
-                              height="100%"
+                              width={target.imageWidth}
+                              height={target.imageHeight}
                               preserveAspectRatio="none"
                             />
 
