@@ -71,6 +71,7 @@ const CompletePRSApp = () => {
   // Shot dragging state
   const [draggingShotId, setDraggingShotId] = useState(null);
   const [shotDragOffset, setShotDragOffset] = useState({ x: 0, y: 0 });
+  const [isOverTrash, setIsOverTrash] = useState(false);
 
   const [sessionData, setSessionData] = useState({
     name: '',
@@ -1667,15 +1668,15 @@ const CompletePRSApp = () => {
               </div>
             )}
 
-            {/* Adjust Targets Step - Resize and reposition targets */}
+            {/* Adjust Targets Step - Click to center, slider to resize */}
             {captureStep === 'adjust-targets' && selectedTargets.length > 0 && (
               <div className="space-y-6">
                 <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
                   <h3 className="font-medium text-blue-900 dark:text-blue-200 mb-2">📐 Adjust Target Size & Position</h3>
                   <p className="text-sm text-blue-800 dark:text-blue-300">
                     {isMobile
-                      ? <><strong>Two-finger pinch:</strong> resize target • <strong>Drag circle:</strong> reposition</>
-                      : <><strong>Drag circle edge:</strong> reposition • <strong>Drag corner handles:</strong> resize</>
+                      ? <><strong>Click:</strong> center target • <strong>Two-finger pinch:</strong> resize • <strong>Use slider:</strong> fine-tune size</>
+                      : <><strong>Click:</strong> center target on click point • <strong>Use slider:</strong> adjust size</>
                     }
                   </p>
                 </div>
@@ -1719,9 +1720,10 @@ const CompletePRSApp = () => {
                         </div>
 
                         <div
-                          className="relative bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden mb-4"
+                          className="relative bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden mb-4 cursor-crosshair"
                           style={{ paddingBottom: '100%', touchAction: 'none' }}
-                          onMouseDown={(e) => {
+                          onClick={(e) => {
+                            // Click to center target on click point
                             const rect = e.currentTarget.getBoundingClientRect();
                             const clickX = e.clientX - rect.left;
                             const clickY = e.clientY - rect.top;
@@ -1730,123 +1732,11 @@ const CompletePRSApp = () => {
                             const imageX = cropX + (relativeX * cropSize);
                             const imageY = cropY + (relativeY * cropSize);
 
-                            // Check resize handles first (using angles to match rendered positions)
-                            const handleHitSize = 30;
-                            const handles = [
-                              { name: 'nw', angle: 225 },
-                              { name: 'ne', angle: 315 },
-                              { name: 'se', angle: 45 },
-                              { name: 'sw', angle: 135 }
-                            ].map(h => ({
-                              name: h.name,
-                              x: currentX + currentRadius * Math.cos((h.angle * Math.PI) / 180),
-                              y: currentY + currentRadius * Math.sin((h.angle * Math.PI) / 180)
-                            }));
-
-                            for (let handle of handles) {
-                              const distFromHandle = Math.sqrt(
-                                Math.pow(imageX - handle.x, 2) + Math.pow(imageY - handle.y, 2)
-                              );
-                              if (distFromHandle <= handleHitSize) {
-                                setIsResizing(true);
-                                setDragTargetId(target.id);
-                                setResizeHandle(handle.name);
-                                setDragStart({
-                                  x: imageX,
-                                  y: imageY,
-                                  startRadius: currentRadius,
-                                  startX: currentX,
-                                  startY: currentY
-                                });
-                                e.preventDefault();
-                                e.stopPropagation();
-                                return;
-                              }
-                            }
-
-                            // Check if clicking on circle edge for dragging
-                            const distFromCenter = Math.sqrt(
-                              Math.pow(imageX - currentX, 2) + Math.pow(imageY - currentY, 2)
-                            );
-                            const distFromPerimeter = Math.abs(distFromCenter - currentRadius);
-                            const dragThreshold = 30;
-
-                            if (distFromPerimeter <= dragThreshold) {
-                              setIsDragging(true);
-                              setDragTargetId(target.id);
-                              setDragStart({ x: imageX - currentX, y: imageY - currentY });
-                              e.preventDefault();
-                              e.stopPropagation();
-                            }
-                          }}
-                          onMouseMove={(e) => {
-                            if (!isDragging && !isResizing) return;
-                            if (dragTargetId !== target.id) return;
-
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            const clickX = e.clientX - rect.left;
-                            const clickY = e.clientY - rect.top;
-                            const relativeX = clickX / rect.width;
-                            const relativeY = clickY / rect.height;
-                            const imageX = cropX + (relativeX * cropSize);
-                            const imageY = cropY + (relativeY * cropSize);
-
-                            if (dragUpdateRef.current) {
-                              cancelAnimationFrame(dragUpdateRef.current);
-                            }
-
-                            dragUpdateRef.current = requestAnimationFrame(() => {
-                              if (isDragging) {
-                                const newX = imageX - dragStart.x;
-                                const newY = imageY - dragStart.y;
-                                setSelectedTargets(prev => prev.map(t =>
-                                  t.id === target.id
-                                    ? { ...t, adjustedX: newX, adjustedY: newY }
-                                    : t
-                                ));
-                              } else if (isResizing) {
-                                const deltaX = imageX - dragStart.x;
-                                const deltaY = imageY - dragStart.y;
-                                const dragDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-                                const scalingFactor = 0.3;
-
-                                let radiusChange = dragDistance * scalingFactor;
-                                if (resizeHandle === 'nw' || resizeHandle === 'sw') {
-                                  radiusChange = deltaX < 0 ? dragDistance * scalingFactor : -dragDistance * scalingFactor;
-                                } else {
-                                  radiusChange = deltaX > 0 ? dragDistance * scalingFactor : -dragDistance * scalingFactor;
-                                }
-
-                                const newRadius = Math.max(10, dragStart.startRadius + radiusChange);
-                                const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
-
-                                setSelectedTargets(prev => prev.map(t =>
-                                  t.id === target.id
-                                    ? { ...t, adjustedRadius: newRadius, pixelsPerInch: newPixelsPerInch }
-                                    : t
-                                ));
-                              }
-                            });
-                          }}
-                          onMouseUp={() => {
-                            if (dragUpdateRef.current) {
-                              cancelAnimationFrame(dragUpdateRef.current);
-                              dragUpdateRef.current = null;
-                            }
-                            setIsDragging(false);
-                            setIsResizing(false);
-                            setDragTargetId(null);
-                            setResizeHandle(null);
-                          }}
-                          onMouseLeave={() => {
-                            if (dragUpdateRef.current) {
-                              cancelAnimationFrame(dragUpdateRef.current);
-                              dragUpdateRef.current = null;
-                            }
-                            setIsDragging(false);
-                            setIsResizing(false);
-                            setDragTargetId(null);
-                            setResizeHandle(null);
+                            setSelectedTargets(prev => prev.map(t =>
+                              t.id === target.id
+                                ? { ...t, adjustedX: imageX, adjustedY: imageY }
+                                : t
+                            ));
                           }}
                           onTouchStart={(e) => {
                             if (e.touches.length === 2) {
@@ -1889,7 +1779,7 @@ const CompletePRSApp = () => {
                           }}
                         >
                           <svg
-                            className="absolute inset-0 w-full h-full"
+                            className="absolute inset-0 w-full h-full pointer-events-none"
                             viewBox={`0 0 ${cropSize} ${cropSize}`}
                             preserveAspectRatio="xMidYMid meet"
                           >
@@ -1913,31 +1803,52 @@ const CompletePRSApp = () => {
                               opacity="0.8"
                             />
 
-                            {/* Corner resize handles */}
-                            {['nw', 'ne', 'se', 'sw'].map(pos => {
-                              const angle = { nw: 225, ne: 315, se: 45, sw: 135 }[pos];
-                              const rad = (angle * Math.PI) / 180;
-                              const hx = currentX - cropX + currentRadius * Math.cos(rad);
-                              const hy = currentY - cropY + currentRadius * Math.sin(rad);
-                              return (
-                                <g key={pos}>
-                                  <circle
-                                    cx={hx}
-                                    cy={hy}
-                                    r="8"
-                                    fill="white"
-                                    stroke="lime"
-                                    strokeWidth="2"
-                                  />
-                                </g>
-                              );
-                            })}
+                            {/* Center crosshair */}
+                            <line
+                              x1={currentX - cropX - 15}
+                              y1={currentY - cropY}
+                              x2={currentX - cropX + 15}
+                              y2={currentY - cropY}
+                              stroke="lime"
+                              strokeWidth="2"
+                            />
+                            <line
+                              x1={currentX - cropX}
+                              y1={currentY - cropY - 15}
+                              x2={currentX - cropX}
+                              y2={currentY - cropY + 15}
+                              stroke="lime"
+                              strokeWidth="2"
+                            />
                           </svg>
                         </div>
 
+                        {/* Size slider */}
+                        <div className="mb-4">
+                          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+                            Target Size: {target.diameterInches}" ({((currentRadius * 2) / target.diameterInches).toFixed(1)} px/in)
+                          </label>
+                          <input
+                            type="range"
+                            min={Math.max(10, currentRadius * 0.5)}
+                            max={currentRadius * 2}
+                            value={currentRadius}
+                            onChange={(e) => {
+                              const newRadius = parseFloat(e.target.value);
+                              const newPixelsPerInch = (newRadius * 2) / target.diameterInches;
+                              setSelectedTargets(prev => prev.map(t =>
+                                t.id === target.id
+                                  ? { ...t, adjustedRadius: newRadius, pixelsPerInch: newPixelsPerInch }
+                                  : t
+                              ));
+                            }}
+                            className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-lime-500"
+                          />
+                        </div>
+
                         <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-                          <div>Size: {target.diameterInches}" diameter</div>
-                          <div>Pixels per inch: {currentRadius ? ((currentRadius * 2) / target.diameterInches).toFixed(2) : 'N/A'}</div>
+                          <div>Position: ({currentX.toFixed(0)}, {currentY.toFixed(0)})</div>
+                          <div>Radius: {currentRadius.toFixed(1)}px</div>
                         </div>
                       </div>
                     );
@@ -2091,6 +2002,18 @@ const CompletePRSApp = () => {
                           onMouseMove={(e) => {
                             if (!draggingShotId) return;
 
+                            // Check if mouse is over trash bin
+                            const trashEl = document.getElementById(`trash-${target.id}`);
+                            if (trashEl) {
+                              const trashRect = trashEl.getBoundingClientRect();
+                              const mouseX = e.clientX;
+                              const mouseY = e.clientY;
+                              const overTrash = mouseX >= trashRect.left && mouseX <= trashRect.right &&
+                                               mouseY >= trashRect.top && mouseY <= trashRect.bottom;
+                              setIsOverTrash(overTrash);
+                              setDragTargetId(target.id);
+                            }
+
                             const rect = e.currentTarget.getBoundingClientRect();
                             const clickX = e.clientX - rect.left;
                             const clickY = e.clientY - rect.top;
@@ -2125,9 +2048,20 @@ const CompletePRSApp = () => {
                             }
 
                             if (draggingShotId) {
-                              setJustFinishedDragging(true);
+                              // Check if dropped on trash - delete and renumber
+                              if (isOverTrash) {
+                                setSelectedTargets(prev => prev.map(t =>
+                                  t.id === target.id
+                                    ? { ...t, shots: t.shots.filter(s => s.id !== draggingShotId) }
+                                    : t
+                                ));
+                              } else {
+                                setJustFinishedDragging(true);
+                              }
+                              setIsOverTrash(false);
                             }
                             setDraggingShotId(null);
+                            setDragTargetId(null);
                           }}
                           onMouseLeave={() => {
                             if (dragUpdateRef.current) {
@@ -2135,6 +2069,8 @@ const CompletePRSApp = () => {
                               dragUpdateRef.current = null;
                             }
                             setDraggingShotId(null);
+                            setIsOverTrash(false);
+                            setDragTargetId(null);
                           }}
                           onClick={(e) => {
                             // Prevent shot marking if we just finished dragging a shot
@@ -2500,33 +2436,39 @@ const CompletePRSApp = () => {
                           </div>
                         </div>
                         
-                        <div className="text-sm space-y-1 text-gray-900 dark:text-white">
-                          <p>Shots marked: {target.shots.length}</p>
-                          {target.shots.length >= 2 && (() => {
-                            const stats = calculateGroupStats(target.shots, currentX, currentY, target.pixelsPerInch);
-                            return (
-                              <>
-                                <p>Group size: {stats.sizeInches.toFixed(3)}"</p>
-                                <p>Mean radius: {stats.meanRadiusInches.toFixed(3)}"</p>
-                              </>
-                            );
-                          })()}
-                        </div>
+                        <div className="flex justify-between items-center">
+                          <div className="text-sm space-y-1 text-gray-900 dark:text-white">
+                            <p>Shots marked: {target.shots.length}</p>
+                            {target.shots.length >= 2 && (() => {
+                              const stats = calculateGroupStats(target.shots, currentX, currentY, target.pixelsPerInch);
+                              return (
+                                <>
+                                  <p>Group size: {stats.sizeInches.toFixed(3)}"</p>
+                                  <p>Mean radius: {stats.meanRadiusInches.toFixed(3)}"</p>
+                                </>
+                              );
+                            })()}
+                          </div>
 
-                        {target.shots.length > 0 && (
-                          <button
-                            onClick={() => {
-                              setSelectedTargets(prev => prev.map(t =>
-                                t.id === target.id
-                                  ? { ...t, shots: t.shots.slice(0, -1) }
-                                  : t
-                              ));
-                            }}
-                            className="mt-2 text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
-                          >
-                            Remove last shot
-                          </button>
-                        )}
+                          {/* Drag-and-drop trash bin */}
+                          {target.shots.length > 0 && (
+                            <div
+                              id={`trash-${target.id}`}
+                              className={`flex items-center justify-center p-4 rounded-lg border-2 border-dashed transition-all ${
+                                draggingShotId && dragTargetId === target.id && isOverTrash
+                                  ? 'bg-red-100 dark:bg-red-900 border-red-500 scale-110'
+                                  : 'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600'
+                              }`}
+                              title="Drag shots here to delete"
+                            >
+                              <Trash2 className={`h-6 w-6 ${
+                                draggingShotId && dragTargetId === target.id && isOverTrash
+                                  ? 'text-red-600 dark:text-red-400'
+                                  : 'text-gray-500 dark:text-gray-400'
+                              }`} />
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
