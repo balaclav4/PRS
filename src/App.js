@@ -1839,15 +1839,20 @@ const CompletePRSApp = () => {
                           </svg>
 
                           {/* Vertical size slider - overlay on left side of image */}
-                          <div className="absolute left-2 top-1/2 -translate-y-1/2 flex flex-col items-center gap-2 pointer-events-auto" style={{ zIndex: 10 }}>
+                          <div
+                            className="absolute left-2 top-1/2 -translate-y-1/2 flex flex-col items-center gap-2 pointer-events-auto"
+                            style={{ zIndex: 10 }}
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                          >
                             <div className="bg-gray-100/90 dark:bg-gray-700/90 rounded-lg px-2 py-1 text-xs font-medium text-gray-900 dark:text-white shadow-lg">
                               {target.diameterInches}"
                             </div>
                             <input
                               type="range"
                               orient="vertical"
-                              min={Math.max(10, target.radius * 0.5)}
-                              max={target.radius * 2}
+                              min={Math.max(10, target.radius * 0.3)}
+                              max={target.radius * 5}
                               value={currentRadius}
                               onChange={(e) => {
                                 const newRadius = parseFloat(e.target.value);
@@ -1858,6 +1863,8 @@ const CompletePRSApp = () => {
                                     : t
                                 ));
                               }}
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
                               className="h-48 appearance-none bg-gray-200 dark:bg-gray-700 rounded-lg cursor-pointer accent-lime-500"
                               style={{
                                 writingMode: 'bt-lr',
