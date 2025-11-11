@@ -337,6 +337,12 @@ export const addTrainingImage = async (imageBlob, metadata) => {
       storagePath: `training-images/${trainingId}.jpg`,
       shots: metadata.shots || 0,
       targetDiameter: metadata.diameter || 0,
+      // Target center coordinates for training target detection
+      centerX: metadata.centerX || 0,
+      centerY: metadata.centerY || 0,
+      radius: metadata.radius || 0,
+      imageWidth: metadata.imageWidth || 0,
+      imageHeight: metadata.imageHeight || 0,
       timestamp: serverTimestamp(),
       version: 1 // For future schema changes
     });
