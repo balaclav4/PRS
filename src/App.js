@@ -18,15 +18,15 @@ import {
   Home, BarChart3, Settings, Save, X, Upload, ZoomIn, ZoomOut,
   Wind, Thermometer, Droplets, Calendar, Info, ChevronRight,
   CheckCircle, AlertCircle, TrendingUp, Award, FileText,
-  Clock, File, Smartphone, Moon, Sun
+  Clock, File, Smartphone, Moon, Sun, Pencil
 } from 'lucide-react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
 import Auth from './components/Auth';
 import {
   addSession, getSessions, deleteSession,
-  addRifle, getRifles, deleteRifle,
-  addLoad, getLoads, deleteLoad,
+  addRifle, getRifles, deleteRifle, updateRifle,
+  addLoad, getLoads, deleteLoad, updateLoad,
   addTrainingImage, getTrainingDataCount
 } from './services/firestore';
 
@@ -109,6 +109,8 @@ const CompletePRSApp = () => {
   // Equipment form state
   const [showAddRifle, setShowAddRifle] = useState(false);
   const [showAddLoad, setShowAddLoad] = useState(false);
+  const [editingRifle, setEditingRifle] = useState(null); // Rifle being edited (null = adding new)
+  const [editingLoad, setEditingLoad] = useState(null); // Load being edited (null = adding new)
   const [newRifle, setNewRifle] = useState({ name: '', caliber: '', barrel: '', twist: '', scope: '' });
   const [newLoad, setNewLoad] = useState({
     name: '', caliber: '', bullet: '', bulletWeight: '',
@@ -837,6 +839,7 @@ const CompletePRSApp = () => {
   };
 
   // Calculate group statistics
+  // Mean radius is calculated from the GROUP CENTER (centroid of shots), not the target center
   const calculateGroupStats = (shots, centerX, centerY, pixelsPerInch) => {
     if (shots.length === 0) return {
       size: 0,
@@ -845,9 +848,18 @@ const CompletePRSApp = () => {
       meanRadiusInches: 0,
       standardDev: 0,
       standardDevInches: 0,
+      groupCenterX: centerX,
+      groupCenterY: centerY,
+      groupCenterXInches: 0,
+      groupCenterYInches: 0,
       shotsRelativeToCenter: []
     };
-    
+
+    // First, calculate the group center (centroid of all shots)
+    const groupCenterX = shots.reduce((sum, shot) => sum + shot.x, 0) / shots.length;
+    const groupCenterY = shots.reduce((sum, shot) => sum + shot.y, 0) / shots.length;
+
+    // Shots relative to TARGET center (for POI calculations)
     const shotsRelativeToCenter = shots.map(shot => ({
       x: shot.x - centerX,
       y: shot.y - centerY,
@@ -856,15 +868,23 @@ const CompletePRSApp = () => {
       radius: Math.sqrt(Math.pow(shot.x - centerX, 2) + Math.pow(shot.y - centerY, 2)),
       radiusInches: Math.sqrt(Math.pow(shot.x - centerX, 2) + Math.pow(shot.y - centerY, 2)) / pixelsPerInch
     }));
-    
-    const meanRadius = shotsRelativeToCenter.reduce((sum, shot) => sum + shot.radius, 0) / shots.length;
+
+    // Calculate distances from GROUP CENTER (for mean radius - proper statistical measure)
+    const distancesFromGroupCenter = shots.map(shot =>
+      Math.sqrt(Math.pow(shot.x - groupCenterX, 2) + Math.pow(shot.y - groupCenterY, 2))
+    );
+
+    // Mean radius from group center (correct calculation)
+    const meanRadius = distancesFromGroupCenter.reduce((sum, d) => sum + d, 0) / shots.length;
     const meanRadiusInches = meanRadius / pixelsPerInch;
-    
-    const variance = shotsRelativeToCenter.reduce((sum, shot) => 
-      sum + Math.pow(shot.radius - meanRadius, 2), 0) / shots.length;
+
+    // Standard deviation of radii from mean radius
+    const variance = distancesFromGroupCenter.reduce((sum, d) =>
+      sum + Math.pow(d - meanRadius, 2), 0) / shots.length;
     const standardDev = Math.sqrt(variance);
     const standardDevInches = standardDev / pixelsPerInch;
-    
+
+    // Group size (extreme spread - max distance between any two shots)
     let maxDistance = 0;
     for (let i = 0; i < shots.length; i++) {
       for (let j = i + 1; j < shots.length; j++) {
@@ -874,10 +894,7 @@ const CompletePRSApp = () => {
         maxDistance = Math.max(maxDistance, distance);
       }
     }
-    
-    const groupCenterX = shots.reduce((sum, shot) => sum + shot.x, 0) / shots.length;
-    const groupCenterY = shots.reduce((sum, shot) => sum + shot.y, 0) / shots.length;
-    
+
     return {
       size: maxDistance,
       sizeInches: maxDistance / pixelsPerInch,
@@ -1070,7 +1087,7 @@ const CompletePRSApp = () => {
       <div className="max-w-7xl mx-auto px-4">
         <div className={`flex justify-between items-center ${isMobile ? 'h-14' : 'h-16'}`}>
           <div className="flex items-center space-x-2">
-            <Target className={`${isMobile ? 'h-6 w-6' : 'h-8 w-8'} text-blue-600 dark:text-blue-400`} />
+            <Target className={`${isMobile ? 'h-6 w-6' : 'h-8 w-8'} text-purple-600 dark:text-purple-400`} />
             <h1 className={`${isMobile ? 'text-lg' : 'text-xl'} font-bold text-gray-900 dark:text-white`}>PRS Precision</h1>
           </div>
           <div className="flex items-center space-x-2">
@@ -1087,7 +1104,7 @@ const CompletePRSApp = () => {
                     onClick={() => setActiveTab(id)}
                     className={`flex items-center ${isMobile ? 'space-x-1 px-2 py-1' : 'space-x-2 px-3 py-2'} rounded-md ${isMobile ? 'text-xs' : 'text-sm'} font-medium transition-colors ${
                       activeTab === id
-                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200'
+                        ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-200'
                         : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800'
                     }`}
                   >
@@ -1194,7 +1211,7 @@ const CompletePRSApp = () => {
                 alert('Invalid chrono data format');
               }
             }}
-            className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+            className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white px-4 py-2 rounded-lg"
           >
             Import
           </button>
@@ -1210,7 +1227,7 @@ const CompletePRSApp = () => {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors flex items-center justify-center">
         <div className="text-center">
-          <Target className="h-16 w-16 text-blue-600 dark:text-blue-400 mx-auto mb-4 animate-pulse" />
+          <Target className="h-16 w-16 text-purple-600 dark:text-purple-400 mx-auto mb-4 animate-pulse" />
           <p className="text-gray-600 dark:text-gray-300">Loading...</p>
         </div>
       </div>
@@ -1224,7 +1241,7 @@ const CompletePRSApp = () => {
         <Navigation />
         <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 64px)' }}>
           <div className="text-center">
-            <Target className="h-16 w-16 text-blue-600 dark:text-blue-400 mx-auto mb-4 animate-pulse" />
+            <Target className="h-16 w-16 text-purple-600 dark:text-purple-400 mx-auto mb-4 animate-pulse" />
             <p className="text-gray-600 dark:text-gray-300">Loading your data...</p>
           </div>
         </div>
@@ -1250,19 +1267,19 @@ const CompletePRSApp = () => {
         {/* Home Tab */}
         {activeTab === 'home' && (
           <div className="space-y-8">
-            <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg p-8 text-white">
+            <div className="bg-gradient-to-r from-purple-600 to-purple-800 rounded-lg p-8 text-white">
               <h2 className={`${isMobile ? 'text-2xl' : 'text-3xl'} font-bold mb-4`}>Precision Rifle Shooting Analytics</h2>
-              <p className={`${isMobile ? 'text-lg' : 'text-xl'} mb-6 text-blue-100`}>
+              <p className={`${isMobile ? 'text-lg' : 'text-xl'} mb-6 text-purple-100`}>
                 Upload target photos and track your shooting performance with precise measurements.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <button
                   onClick={() => setActiveTab('capture')}
-                  className="bg-white text-blue-600 px-6 py-3 rounded-lg font-medium hover:bg-blue-50 transition-colors"
+                  className="bg-white text-purple-600 px-6 py-3 rounded-lg font-medium hover:bg-purple-50 transition-colors"
                 >
                   Start New Session
                 </button>
-                <div className="flex items-center text-blue-100 text-sm">
+                <div className="flex items-center text-purple-100 text-sm">
                   <Smartphone className="h-4 w-4 mr-2" />
                   <span>iOS App Ready</span>
                 </div>
@@ -1272,7 +1289,7 @@ const CompletePRSApp = () => {
             <div className={`grid grid-cols-1 ${isMobile ? 'gap-4' : 'md:grid-cols-3 gap-6'}`}>
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors">
                 <div className="flex items-center mb-4">
-                  <Target className="h-8 w-8 text-blue-600 dark:text-blue-400 mr-3" />
+                  <Target className="h-8 w-8 text-purple-600 dark:text-purple-400 mr-3" />
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Total Sessions</h3>
                 </div>
                 <p className="text-3xl font-bold text-gray-900 dark:text-white">{sessions.length}</p>
@@ -1338,7 +1355,7 @@ const CompletePRSApp = () => {
                   <div key={step} className="flex items-center">
                     <div className={`flex items-center justify-center ${isMobile ? 'w-7 h-7' : 'w-8 h-8'} rounded-full ${
                       captureStep === step
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-purple-600 text-white'
                         : index < ['upload', 'setup', 'select-targets', 'adjust-targets', 'mark-shots', 'review'].indexOf(captureStep)
                           ? 'bg-green-600 text-white'
                           : 'bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
@@ -1371,7 +1388,7 @@ const CompletePRSApp = () => {
                   />
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                    className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
                   >
                     Choose Image
                   </button>
@@ -1393,7 +1410,7 @@ const CompletePRSApp = () => {
                         type="text"
                         value={sessionData.name}
                         onChange={(e) => setSessionData({...sessionData, name: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
                         placeholder="e.g., Range Day - Load Testing"
                       />
                     </div>
@@ -1404,7 +1421,7 @@ const CompletePRSApp = () => {
                         step="0.1"
                         value={targetDiameter}
                         onChange={(e) => setTargetDiameter(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
                         placeholder="e.g., 1.0"
                       />
                     </div>
@@ -1413,7 +1430,7 @@ const CompletePRSApp = () => {
                       <select
                         value={sessionData.rifle}
                         onChange={(e) => setSessionData({...sessionData, rifle: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:text-white"
                       >
                         <option value="">Select rifle</option>
                         {equipment.rifles.map(rifle => (
@@ -1426,7 +1443,7 @@ const CompletePRSApp = () => {
                       <select
                         value={sessionData.load}
                         onChange={(e) => setSessionData({...sessionData, load: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:text-white"
                       >
                         <option value="">Select load</option>
                         {equipment.loads.map(load => (
@@ -1440,7 +1457,7 @@ const CompletePRSApp = () => {
                         type="checkbox"
                         checked={sessionData.silencer}
                         onChange={(e) => setSessionData({...sessionData, silencer: e.target.checked})}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                        className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 dark:border-gray-600 rounded"
                       />
                       <label htmlFor="silencer-toggle" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
                         Silencer/Suppressor Used
@@ -1452,7 +1469,7 @@ const CompletePRSApp = () => {
                         type="number"
                         value={sessionData.distance}
                         onChange={(e) => setSessionData({...sessionData, distance: parseInt(e.target.value) || 0})}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
                       />
                     </div>
                     <div>
@@ -1461,26 +1478,26 @@ const CompletePRSApp = () => {
                         type="date"
                         value={sessionData.date}
                         onChange={(e) => setSessionData({...sessionData, date: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:text-white"
                       />
                     </div>
                   </div>
 
-                  <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900 rounded-lg border dark:border-blue-700">
+                  <div className="mt-6 p-4 bg-purple-50 dark:bg-purple-900 rounded-lg border dark:border-purple-700">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h4 className="text-sm font-medium text-blue-900 dark:text-blue-200">Chronograph Data</h4>
+                        <h4 className="text-sm font-medium text-purple-900 dark:text-purple-200">Chronograph Data</h4>
                         {sessionData.chronoData ? (
-                          <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                          <p className="text-sm text-purple-700 dark:text-purple-300 mt-1">
                             {sessionData.chronoData.count} shots • Avg: {sessionData.chronoData.average.toFixed(0)} fps • ES: {sessionData.chronoData.es.toFixed(0)} fps
                           </p>
                         ) : (
-                          <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">No chrono data imported</p>
+                          <p className="text-sm text-purple-700 dark:text-purple-300 mt-1">No chrono data imported</p>
                         )}
                       </div>
                       <button
                         onClick={() => setShowChronoImport(true)}
-                        className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium flex items-center"
+                        className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 text-sm font-medium flex items-center"
                       >
                         <Clock className="h-4 w-4 mr-1" />
                         {sessionData.chronoData ? 'Update' : 'Import'}
@@ -1566,7 +1583,7 @@ const CompletePRSApp = () => {
                         }
                         setCaptureStep('select-targets');
                       }}
-                      className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                      className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
                     >
                       Continue to Target Selection
                     </button>
@@ -1578,12 +1595,12 @@ const CompletePRSApp = () => {
             {captureStep === 'select-targets' && uploadedImage && (
               <div className="space-y-6">
                 {/* Simple Instructions */}
-                <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-                  <h3 className="font-medium text-blue-900 dark:text-blue-200 mb-2">📍 Mark Target Locations</h3>
-                  <p className="text-sm text-blue-800 dark:text-blue-300">
+                <div className="bg-purple-50 dark:bg-purple-900 border border-purple-200 dark:border-purple-700 rounded-lg p-4">
+                  <h3 className="font-medium text-purple-900 dark:text-purple-200 mb-2">📍 Mark Target Locations</h3>
+                  <p className="text-sm text-purple-800 dark:text-purple-300">
                     Click on each target to mark its location. They'll be numbered 1, 2, 3, etc.
                   </p>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
+                  <p className="text-xs text-purple-600 dark:text-purple-400 mt-2">
                     💡 Don't worry about perfect sizing - you'll adjust that on the next screen with drag handles!
                   </p>
                 </div>
@@ -1684,9 +1701,9 @@ const CompletePRSApp = () => {
             {/* Adjust Targets Step - Click to center, slider to resize */}
             {captureStep === 'adjust-targets' && selectedTargets.length > 0 && (
               <div className="space-y-6">
-                <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-                  <h3 className="font-medium text-blue-900 dark:text-blue-200 mb-2">📐 Adjust Target Size & Position</h3>
-                  <p className="text-sm text-blue-800 dark:text-blue-300">
+                <div className="bg-purple-50 dark:bg-purple-900 border border-purple-200 dark:border-purple-700 rounded-lg p-4">
+                  <h3 className="font-medium text-purple-900 dark:text-purple-200 mb-2">📐 Adjust Target Size & Position</h3>
+                  <p className="text-sm text-purple-800 dark:text-purple-300">
                     {isMobile
                       ? <><strong>Click:</strong> center target • <strong>Two-finger pinch:</strong> resize • <strong>Use slider:</strong> fine-tune size</>
                       : <><strong>Click:</strong> center target on click point • <strong>Use slider:</strong> adjust size</>
@@ -1957,7 +1974,7 @@ const CompletePRSApp = () => {
                                   alert(`Error detecting bullet holes: ${error.message}`);
                                 }
                               }}
-                              className="px-3 py-1 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors"
+                              className="px-3 py-1 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded transition-colors"
                               title="Automatically detect bullet holes using computer vision"
                             >
                               Auto-Detect
@@ -2514,7 +2531,7 @@ const CompletePRSApp = () => {
                   </button>
                   <button
                     onClick={() => setCaptureStep('review')}
-                    className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                    className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
                   >
                     Review Session
                   </button>
@@ -2597,7 +2614,7 @@ const CompletePRSApp = () => {
                       const stats = calculateGroupStats(target.shots, finalX, finalY, target.pixelsPerInch);
 
                       return (
-                        <div key={target.id} className="border-l-4 border-blue-500 dark:border-blue-400 pl-4">
+                        <div key={target.id} className="border-l-4 border-purple-500 dark:border-purple-400 pl-4">
                           <h4 className="font-medium text-gray-900 dark:text-white">Target {index + 1}</h4>
                           <div className={`grid ${isMobile ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-4'} gap-4 mt-2 text-sm`}>
                             <div>
@@ -2758,7 +2775,7 @@ const CompletePRSApp = () => {
                       <div className={`grid grid-cols-1 ${isMobile ? 'grid-cols-2 gap-4' : 'md:grid-cols-4 gap-6'}`}>
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
                           <div className="flex items-center mb-2">
-                            <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400 mr-2" />
+                            <FileText className="h-5 w-5 text-purple-600 dark:text-purple-400 mr-2" />
                             <p className="text-sm text-gray-600 dark:text-gray-300">Sessions</p>
                           </div>
                           <p className="text-2xl font-bold text-gray-900 dark:text-white">{report.aggregateStats.totalSessions}</p>
@@ -3173,7 +3190,7 @@ const CompletePRSApp = () => {
                           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Group Details</h3>
                           <button
                             onClick={() => setShowGroupDetails(!showGroupDetails)}
-                            className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
+                            className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 text-sm font-medium"
                           >
                             {showGroupDetails ? 'Hide Details' : 'Show Details'}
                           </button>
@@ -3291,7 +3308,7 @@ const CompletePRSApp = () => {
                         <button
                           onClick={() => setShowStatistics(true)}
                           disabled={!comparisonA || !comparisonB}
-                          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:dark:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                          className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 disabled:dark:bg-gray-600 text-white px-4 py-2 rounded-lg font-medium transition-colors"
                         >
                           Run Comparison
                         </button>
@@ -3496,7 +3513,7 @@ const CompletePRSApp = () => {
                 <p className="text-gray-600 dark:text-gray-300 mb-4">No sessions recorded yet</p>
                 <button
                   onClick={() => setActiveTab('capture')}
-                  className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                  className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
                 >
                   Start First Session
                 </button>
@@ -3516,7 +3533,7 @@ const CompletePRSApp = () => {
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Rifles</h3>
                   <button
                     onClick={() => setShowAddRifle(true)}
-                    className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                   >
                     Add Rifle
                   </button>
@@ -3525,29 +3542,47 @@ const CompletePRSApp = () => {
                 {equipment.rifles.length > 0 ? (
                   <div className="space-y-3">
                     {equipment.rifles.map((rifle, index) => (
-                      <div key={index} className="border-l-4 border-blue-500 dark:border-blue-400 pl-4 py-2 flex justify-between items-start">
+                      <div key={index} className="border-l-4 border-purple-500 dark:border-purple-400 pl-4 py-2 flex justify-between items-start">
                         <div className="flex-1">
                           <p className="font-medium text-gray-900 dark:text-white">{rifle.name}</p>
                           <p className="text-sm text-gray-600 dark:text-gray-300">{rifle.caliber} • {rifle.barrel} • {rifle.twist}</p>
                           <p className="text-sm text-gray-500 dark:text-gray-400">{rifle.scope}</p>
                         </div>
-                        <button
-                          onClick={async () => {
-                            if (window.confirm(`Delete rifle "${rifle.name}"? This cannot be undone.`)) {
-                              try {
-                                await deleteRifle(user.uid, rifle.id);
-                                const updatedRifles = await getRifles(user.uid);
-                                setEquipment(prev => ({ ...prev, rifles: updatedRifles }));
-                              } catch (error) {
-                                console.error('Error deleting rifle:', error);
-                                alert('Failed to delete rifle');
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => {
+                              setEditingRifle(rifle);
+                              setNewRifle({
+                                name: rifle.name || '',
+                                caliber: rifle.caliber || '',
+                                barrel: rifle.barrel || '',
+                                twist: rifle.twist || '',
+                                scope: rifle.scope || ''
+                              });
+                              setShowAddRifle(true);
+                            }}
+                            className="text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 p-1"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (window.confirm(`Delete rifle "${rifle.name}"? This cannot be undone.`)) {
+                                try {
+                                  await deleteRifle(user.uid, rifle.id);
+                                  const updatedRifles = await getRifles(user.uid);
+                                  setEquipment(prev => ({ ...prev, rifles: updatedRifles }));
+                                } catch (error) {
+                                  console.error('Error deleting rifle:', error);
+                                  alert('Failed to delete rifle');
+                                }
                               }
-                            }
-                          }}
-                          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                            }}
+                            className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -3561,7 +3596,7 @@ const CompletePRSApp = () => {
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Loads</h3>
                   <button
                     onClick={() => setShowAddLoad(true)}
-                    className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                    className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                   >
                     Add Load
                   </button>
@@ -3576,23 +3611,46 @@ const CompletePRSApp = () => {
                           <p className="text-sm text-gray-600 dark:text-gray-300">{load.caliber} • {load.bulletWeight} {load.bullet}</p>
                           <p className="text-sm text-gray-500 dark:text-gray-400">{load.charge} {load.powder} • OAL: {load.oal}</p>
                         </div>
-                        <button
-                          onClick={async () => {
-                            if (window.confirm(`Delete load "${load.name}"? This cannot be undone.`)) {
-                              try {
-                                await deleteLoad(user.uid, load.id);
-                                const updatedLoads = await getLoads(user.uid);
-                                setEquipment(prev => ({ ...prev, loads: updatedLoads }));
-                              } catch (error) {
-                                console.error('Error deleting load:', error);
-                                alert('Failed to delete load');
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => {
+                              setEditingLoad(load);
+                              setNewLoad({
+                                name: load.name || '',
+                                caliber: load.caliber || '',
+                                bullet: load.bullet || '',
+                                bulletWeight: load.bulletWeight || '',
+                                powder: load.powder || '',
+                                charge: load.charge || '',
+                                primer: load.primer || '',
+                                brass: load.brass || '',
+                                oal: load.oal || '',
+                                cbto: load.cbto || ''
+                              });
+                              setShowAddLoad(true);
+                            }}
+                            className="text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 p-1"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (window.confirm(`Delete load "${load.name}"? This cannot be undone.`)) {
+                                try {
+                                  await deleteLoad(user.uid, load.id);
+                                  const updatedLoads = await getLoads(user.uid);
+                                  setEquipment(prev => ({ ...prev, loads: updatedLoads }));
+                                } catch (error) {
+                                  console.error('Error deleting load:', error);
+                                  alert('Failed to delete load');
+                                }
                               }
-                            }
-                          }}
-                          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                            }}
+                            className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -3603,22 +3661,22 @@ const CompletePRSApp = () => {
             </div>
 
             {/* iOS App Integration Info */}
-            <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-6">
+            <div className="bg-purple-50 dark:bg-purple-900 border border-purple-200 dark:border-purple-700 rounded-lg p-6">
               <div className="flex items-start">
-                <Smartphone className="h-6 w-6 text-blue-600 dark:text-blue-400 mr-3 mt-1" />
+                <Smartphone className="h-6 w-6 text-purple-600 dark:text-purple-400 mr-3 mt-1" />
                 <div>
-                  <h3 className="font-medium text-blue-900 dark:text-blue-200 mb-2">iOS App Integration</h3>
-                  <p className="text-sm text-blue-800 dark:text-blue-300 mb-3">
+                  <h3 className="font-medium text-purple-900 dark:text-purple-200 mb-2">iOS App Integration</h3>
+                  <p className="text-sm text-purple-800 dark:text-purple-300 mb-3">
                     This app is ready for iOS integration with the following API endpoints:
                   </p>
                   <div className="bg-white dark:bg-gray-800 bg-opacity-50 rounded p-3 font-mono text-xs">
-                    <p className="text-blue-700 dark:text-blue-400">POST /api/sessions - Save session data</p>
-                    <p className="text-blue-700 dark:text-blue-400">GET /api/sessions - Load all sessions</p>
-                    <p className="text-blue-700 dark:text-blue-400">POST /api/equipment - Save equipment</p>
-                    <p className="text-blue-700 dark:text-blue-400">GET /api/equipment - Load equipment</p>
-                    <p className="text-blue-700 dark:text-blue-400">GET /api/export?format=csv - Export data</p>
+                    <p className="text-purple-700 dark:text-purple-400">POST /api/sessions - Save session data</p>
+                    <p className="text-purple-700 dark:text-purple-400">GET /api/sessions - Load all sessions</p>
+                    <p className="text-purple-700 dark:text-purple-400">POST /api/equipment - Save equipment</p>
+                    <p className="text-purple-700 dark:text-purple-400">GET /api/equipment - Load equipment</p>
+                    <p className="text-purple-700 dark:text-purple-400">GET /api/export?format=csv - Export data</p>
                   </div>
-                  <p className="text-sm text-blue-800 dark:text-blue-300 mt-3">
+                  <p className="text-sm text-purple-800 dark:text-purple-300 mt-3">
                     All data is currently stored in-memory. Connect to a backend service for persistence.
                   </p>
                 </div>
@@ -3627,11 +3685,13 @@ const CompletePRSApp = () => {
           </div>
         )}
 
-        {/* Add Rifle Modal */}
+        {/* Add/Edit Rifle Modal */}
         {showAddRifle && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-              <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Add New Rifle</h3>
+              <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
+                {editingRifle ? 'Edit Rifle' : 'Add New Rifle'}
+              </h3>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Rifle Name*</label>
@@ -3688,6 +3748,7 @@ const CompletePRSApp = () => {
                 <button
                   onClick={() => {
                     setShowAddRifle(false);
+                    setEditingRifle(null);
                     setNewRifle({ name: '', caliber: '', barrel: '', twist: '', scope: '' });
                   }}
                   className="px-4 py-2 text-gray-700 dark:text-gray-200 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
@@ -3701,37 +3762,53 @@ const CompletePRSApp = () => {
                       return;
                     }
                     try {
-                      // Save to Firestore
-                      const rifleId = await addRifle(user.uid, newRifle);
+                      if (editingRifle) {
+                        // Update existing rifle in Firestore
+                        await updateRifle(user.uid, editingRifle.id, newRifle);
 
-                      // Update local state
-                      const rifleWithId = { id: rifleId, ...newRifle };
-                      setEquipment(prev => ({
-                        ...prev,
-                        rifles: [...prev.rifles, rifleWithId]
-                      }));
+                        // Update local state
+                        setEquipment(prev => ({
+                          ...prev,
+                          rifles: prev.rifles.map(r =>
+                            r.id === editingRifle.id ? { ...r, ...newRifle } : r
+                          )
+                        }));
+                      } else {
+                        // Add new rifle to Firestore
+                        const rifleId = await addRifle(user.uid, newRifle);
+
+                        // Update local state
+                        const rifleWithId = { id: rifleId, ...newRifle };
+                        setEquipment(prev => ({
+                          ...prev,
+                          rifles: [...prev.rifles, rifleWithId]
+                        }));
+                      }
 
                       setShowAddRifle(false);
+                      setEditingRifle(null);
                       setNewRifle({ name: '', caliber: '', barrel: '', twist: '', scope: '' });
                     } catch (error) {
-                      console.error('Error adding rifle:', error);
-                      alert('Failed to add rifle. Please try again.');
+                      console.error('Error saving rifle:', error);
+                      alert('Failed to save rifle. Please try again.');
                     }
                   }}
-                  className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                  className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white px-4 py-2 rounded-lg"
                 >
-                  Add Rifle
+                  {editingRifle ? 'Save Changes' : 'Add Rifle'}
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Add Load Modal */}
+        {/* Add/Edit Load Modal */}
         {showAddLoad && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-              <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Add New Load</h3>
+              <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
+                {editingLoad ? 'Edit Load' : 'Add New Load'}
+              </h3>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Load Name*</label>
@@ -3838,6 +3915,7 @@ const CompletePRSApp = () => {
                 <button
                   onClick={() => {
                     setShowAddLoad(false);
+                    setEditingLoad(null);
                     setNewLoad({
                       name: '', caliber: '', bullet: '', bulletWeight: '',
                       powder: '', charge: '', primer: '', brass: '', oal: '', cbto: ''
@@ -3854,29 +3932,43 @@ const CompletePRSApp = () => {
                       return;
                     }
                     try {
-                      // Save to Firestore
-                      const loadId = await addLoad(user.uid, newLoad);
+                      if (editingLoad) {
+                        // Update existing load in Firestore
+                        await updateLoad(user.uid, editingLoad.id, newLoad);
 
-                      // Update local state
-                      const loadWithId = { id: loadId, ...newLoad };
-                      setEquipment(prev => ({
-                        ...prev,
-                        loads: [...prev.loads, loadWithId]
-                      }));
+                        // Update local state
+                        setEquipment(prev => ({
+                          ...prev,
+                          loads: prev.loads.map(l =>
+                            l.id === editingLoad.id ? { ...l, ...newLoad } : l
+                          )
+                        }));
+                      } else {
+                        // Add new load to Firestore
+                        const loadId = await addLoad(user.uid, newLoad);
+
+                        // Update local state
+                        const loadWithId = { id: loadId, ...newLoad };
+                        setEquipment(prev => ({
+                          ...prev,
+                          loads: [...prev.loads, loadWithId]
+                        }));
+                      }
 
                       setShowAddLoad(false);
+                      setEditingLoad(null);
                       setNewLoad({
                         name: '', caliber: '', bullet: '', bulletWeight: '',
                         powder: '', charge: '', primer: '', brass: '', oal: '', cbto: ''
                       });
                     } catch (error) {
-                      console.error('Error adding load:', error);
-                      alert('Failed to add load. Please try again.');
+                      console.error('Error saving load:', error);
+                      alert('Failed to save load. Please try again.');
                     }
                   }}
-                  className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                  className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white px-4 py-2 rounded-lg"
                 >
-                  Add Load
+                  {editingLoad ? 'Save Changes' : 'Add Load'}
                 </button>
               </div>
             </div>
