@@ -123,6 +123,9 @@ const CompletePRSApp = () => {
   const [comparisonB, setComparisonB] = useState('');
   const [showStatistics, setShowStatistics] = useState(false);
   const [showGroupDetails, setShowGroupDetails] = useState(false);
+
+  // Session detail view state
+  const [viewingSession, setViewingSession] = useState(null); // Session being viewed/edited
   
   // Chrono data state
   const [showChronoImport, setShowChronoImport] = useState(false);
@@ -939,8 +942,24 @@ const CompletePRSApp = () => {
         }
       }
 
+      // Generate session name if not provided: "{Date} {Rifle}"
+      let sessionName = sessionData.name?.trim();
+      if (!sessionName) {
+        sessionName = `${sessionData.date} ${sessionData.rifle}`;
+      }
+
+      // Check for duplicate name and append number if needed
+      const existingNames = sessions.map(s => s.name.toLowerCase());
+      let finalName = sessionName;
+      let counter = 2;
+      while (existingNames.includes(finalName.toLowerCase())) {
+        finalName = `${sessionName} (${counter})`;
+        counter++;
+      }
+
       const sessionToSave = {
         ...sessionData,
+        name: finalName,
         targets: targetsWithStats
         // Note: Image not saved - only needed during capture, not for historical reference
       };
@@ -1405,13 +1424,15 @@ const CompletePRSApp = () => {
                   <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Session Setup</h3>
                   <div className={`grid grid-cols-1 ${isMobile ? '' : 'md:grid-cols-2'} gap-4`}>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Session Name*</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                        Session Name <span className="text-gray-400 font-normal">(optional)</span>
+                      </label>
                       <input
                         type="text"
                         value={sessionData.name}
                         onChange={(e) => setSessionData({...sessionData, name: e.target.value})}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
-                        placeholder="e.g., Range Day - Load Testing"
+                        placeholder="Auto: Date + Rifle if left blank"
                       />
                     </div>
                     <div>
@@ -1577,8 +1598,13 @@ const CompletePRSApp = () => {
                     </button>
                     <button
                       onClick={() => {
-                        if (!sessionData.name || !targetDiameter || !sessionData.rifle || !sessionData.load) {
-                          alert('Please fill in all required fields');
+                        if (!targetDiameter || !sessionData.rifle || !sessionData.load) {
+                          alert('Please fill in all required fields (Target Diameter, Rifle, and Load)');
+                          return;
+                        }
+                        // Check for duplicate name if one was provided
+                        if (sessionData.name && sessions.some(s => s.name.toLowerCase() === sessionData.name.toLowerCase())) {
+                          alert(`A session named "${sessionData.name}" already exists. Please choose a different name or leave it blank for auto-naming.`);
                           return;
                         }
                         setCaptureStep('select-targets');
@@ -3443,7 +3469,12 @@ const CompletePRSApp = () => {
                                   : null;
 
                                 return (
-                                  <tr key={session.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                  <tr
+                                    key={session.id}
+                                    className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                                    onDoubleClick={() => setViewingSession(session)}
+                                    title="Double-click to view details"
+                                  >
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{session.name}{session.silencer ? ' 🔇' : ''}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.date}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{session.distance || 100} yds</td>
@@ -3477,24 +3508,33 @@ const CompletePRSApp = () => {
                                       {session.chronoData ? `${session.chronoData.average.toFixed(0)} fps` : 'N/A'}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                      <button
-                                        onClick={async () => {
-                                          if (window.confirm(`Delete session "${session.name}"? This cannot be undone.`)) {
-                                            try {
-                                              await deleteSession(user.uid, session.id);
-                                              const updatedSessions = await getSessions(user.uid);
-                                              setSessions(updatedSessions);
-                                            } catch (error) {
-                                              console.error('Error deleting session:', error);
-                                              alert('Failed to delete session');
+                                      <div className="flex items-center space-x-1">
+                                        <button
+                                          onClick={() => setViewingSession(session)}
+                                          className="text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 p-1"
+                                          title="View session details"
+                                        >
+                                          <FileText className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                          onClick={async () => {
+                                            if (window.confirm(`Delete session "${session.name}"? This cannot be undone.`)) {
+                                              try {
+                                                await deleteSession(user.uid, session.id);
+                                                const updatedSessions = await getSessions(user.uid);
+                                                setSessions(updatedSessions);
+                                              } catch (error) {
+                                                console.error('Error deleting session:', error);
+                                                alert('Failed to delete session');
+                                              }
                                             }
-                                          }
-                                        }}
-                                        className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
-                                        title="Delete session"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </button>
+                                          }}
+                                          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
+                                          title="Delete session"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -3969,6 +4009,179 @@ const CompletePRSApp = () => {
                   className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700 text-white px-4 py-2 rounded-lg"
                 >
                   {editingLoad ? 'Save Changes' : 'Add Load'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Session Detail Modal */}
+        {viewingSession && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white">{viewingSession.name}</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    {viewingSession.date} • {viewingSession.rifle} • {viewingSession.load}
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {viewingSession.distance || 100} yds{viewingSession.silencer ? ' • Suppressed' : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setViewingSession(null)}
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              {/* Environmental Conditions */}
+              <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Conditions</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500 dark:text-gray-400">Temp:</span>
+                    <span className="ml-1 text-gray-900 dark:text-white">{viewingSession.temperature || 'N/A'}°F</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 dark:text-gray-400">Humidity:</span>
+                    <span className="ml-1 text-gray-900 dark:text-white">{viewingSession.humidity || 'N/A'}%</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 dark:text-gray-400">Wind:</span>
+                    <span className="ml-1 text-gray-900 dark:text-white">{viewingSession.windSpeed || 0} mph @ {viewingSession.windDirection || '12'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 dark:text-gray-400">Pressure:</span>
+                    <span className="ml-1 text-gray-900 dark:text-white">{viewingSession.pressure || 'N/A'} inHg</span>
+                  </div>
+                </div>
+                {viewingSession.chronoData && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Chronograph Data</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">Avg:</span>
+                        <span className="ml-1 text-gray-900 dark:text-white">{viewingSession.chronoData.average?.toFixed(0)} fps</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">ES:</span>
+                        <span className="ml-1 text-gray-900 dark:text-white">{viewingSession.chronoData.es?.toFixed(0)} fps</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">SD:</span>
+                        <span className="ml-1 text-gray-900 dark:text-white">{viewingSession.chronoData.sd?.toFixed(1)} fps</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 dark:text-gray-400">Shots:</span>
+                        <span className="ml-1 text-gray-900 dark:text-white">{viewingSession.chronoData.shots?.length || 0}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Target Statistics */}
+              <div>
+                <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Target Statistics</h4>
+                <div className="space-y-4">
+                  {viewingSession.targets.map((target, index) => {
+                    const stats = target.stats || {};
+                    const distance = viewingSession.distance || 100;
+
+                    // Convert to MOA
+                    const groupSizeMOA = stats.sizeInches ? (stats.sizeInches * 95.5) / distance : 0;
+                    const meanRadiusMOA = stats.meanRadiusInches ? (stats.meanRadiusInches * 95.5) / distance : 0;
+                    const stdDevMOA = stats.standardDevInches ? (stats.standardDevInches * 95.5) / distance : 0;
+
+                    return (
+                      <div key={index} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4">
+                        <div className="flex justify-between items-start mb-3">
+                          <h5 className="font-medium text-gray-900 dark:text-white">Target {index + 1}</h5>
+                          <span className="text-sm text-gray-500 dark:text-gray-400">{target.shots?.length || 0} shots</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                            <p className="text-gray-500 dark:text-gray-400 text-xs uppercase">Group Size</p>
+                            <p className="text-lg font-bold text-gray-900 dark:text-white">{stats.sizeInches?.toFixed(3) || 'N/A'}"</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{groupSizeMOA.toFixed(2)} MOA</p>
+                          </div>
+                          <div className="bg-purple-50 dark:bg-purple-900/30 p-3 rounded">
+                            <p className="text-purple-600 dark:text-purple-400 text-xs uppercase">Mean Radius</p>
+                            <p className="text-lg font-bold text-purple-700 dark:text-purple-300">{stats.meanRadiusInches?.toFixed(3) || 'N/A'}"</p>
+                            <p className="text-xs text-purple-500 dark:text-purple-400">{meanRadiusMOA.toFixed(2)} MOA</p>
+                          </div>
+                          <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                            <p className="text-gray-500 dark:text-gray-400 text-xs uppercase">Std Dev</p>
+                            <p className="text-lg font-bold text-gray-900 dark:text-white">{stats.standardDevInches?.toFixed(3) || 'N/A'}"</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{stdDevMOA.toFixed(2)} MOA</p>
+                          </div>
+                          <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                            <p className="text-gray-500 dark:text-gray-400 text-xs uppercase">POI Offset</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                              ↕{stats.groupCenterYInches ? (stats.groupCenterYInches >= 0 ? '+' : '') + (-stats.groupCenterYInches).toFixed(3) : 'N/A'}"
+                            </p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                              ↔{stats.groupCenterXInches ? (stats.groupCenterXInches >= 0 ? '+' : '') + stats.groupCenterXInches.toFixed(3) : 'N/A'}"
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Session Summary */}
+                {viewingSession.targets.length > 1 && (
+                  <div className="mt-6 p-4 bg-purple-50 dark:bg-purple-900/30 rounded-lg">
+                    <h4 className="text-sm font-medium text-purple-900 dark:text-purple-200 mb-3">Session Summary</h4>
+                    {(() => {
+                      const validTargets = viewingSession.targets.filter(t => t.stats && t.shots?.length >= 2);
+                      if (validTargets.length === 0) return <p className="text-sm text-gray-500">No valid targets</p>;
+
+                      const avgGroupSize = validTargets.reduce((sum, t) => sum + (t.stats.sizeInches || 0), 0) / validTargets.length;
+                      const avgMeanRadius = validTargets.reduce((sum, t) => sum + (t.stats.meanRadiusInches || 0), 0) / validTargets.length;
+                      const avgStdDev = validTargets.reduce((sum, t) => sum + (t.stats.standardDevInches || 0), 0) / validTargets.length;
+                      const bestGroup = Math.min(...validTargets.map(t => t.stats.sizeInches || Infinity));
+                      const distance = viewingSession.distance || 100;
+
+                      return (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <p className="text-purple-600 dark:text-purple-400 text-xs uppercase">Avg Group</p>
+                            <p className="font-bold text-purple-900 dark:text-purple-100">{avgGroupSize.toFixed(3)}"</p>
+                            <p className="text-xs text-purple-500">{((avgGroupSize * 95.5) / distance).toFixed(2)} MOA</p>
+                          </div>
+                          <div>
+                            <p className="text-purple-600 dark:text-purple-400 text-xs uppercase">Avg Mean Radius</p>
+                            <p className="font-bold text-purple-900 dark:text-purple-100">{avgMeanRadius.toFixed(3)}"</p>
+                            <p className="text-xs text-purple-500">{((avgMeanRadius * 95.5) / distance).toFixed(2)} MOA</p>
+                          </div>
+                          <div>
+                            <p className="text-purple-600 dark:text-purple-400 text-xs uppercase">Avg Std Dev</p>
+                            <p className="font-bold text-purple-900 dark:text-purple-100">{avgStdDev.toFixed(3)}"</p>
+                            <p className="text-xs text-purple-500">{((avgStdDev * 95.5) / distance).toFixed(2)} MOA</p>
+                          </div>
+                          <div>
+                            <p className="text-purple-600 dark:text-purple-400 text-xs uppercase">Best Group</p>
+                            <p className="font-bold text-purple-900 dark:text-purple-100">{bestGroup.toFixed(3)}"</p>
+                            <p className="text-xs text-purple-500">{((bestGroup * 95.5) / distance).toFixed(2)} MOA</p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={() => setViewingSession(null)}
+                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+                >
+                  Close
                 </button>
               </div>
             </div>
