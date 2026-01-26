@@ -97,11 +97,11 @@ const Auth = ({ user, onAuthStateChange }) => {
     <div className="max-w-md mx-auto mt-12">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 transition-colors">
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-purple-100 dark:bg-purple-900 rounded-full mb-4">
             {isLogin ? (
-              <LogIn className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+              <LogIn className="h-8 w-8 text-purple-600 dark:text-purple-400" />
             ) : (
-              <UserPlus className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+              <UserPlus className="h-8 w-8 text-purple-600 dark:text-purple-400" />
             )}
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
@@ -133,7 +133,7 @@ const Auth = ({ user, onAuthStateChange }) => {
                   type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="John Doe"
                 />
               </div>
@@ -151,7 +151,7 @@ const Auth = ({ user, onAuthStateChange }) => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 placeholder="you@example.com"
               />
             </div>
@@ -168,7 +168,7 @@ const Auth = ({ user, onAuthStateChange }) => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 placeholder={isLogin ? "Enter your password" : "At least 6 characters"}
               />
             </div>
@@ -186,7 +186,7 @@ const Auth = ({ user, onAuthStateChange }) => {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   placeholder="Confirm your password"
                 />
               </div>
@@ -200,7 +200,7 @@ const Auth = ({ user, onAuthStateChange }) => {
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+              className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 dark:border-gray-600 rounded"
             />
             <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
               Remember me (stay signed in)
@@ -210,7 +210,7 @@ const Auth = ({ user, onAuthStateChange }) => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+            className="w-full bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-600 text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
           >
             {loading ? (
               <span>Processing...</span>
@@ -233,7 +233,7 @@ const Auth = ({ user, onAuthStateChange }) => {
               setConfirmPassword('');
               setDisplayName('');
             }}
-            className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+            className="text-sm text-purple-600 dark:text-purple-400 hover:underline"
           >
             {isLogin
               ? "Don't have an account? Sign up"
@@ -241,8 +241,8 @@ const Auth = ({ user, onAuthStateChange }) => {
           </button>
         </div>
 
-        <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-          <p className="text-xs text-blue-800 dark:text-blue-300">
+        <div className="mt-6 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+          <p className="text-xs text-purple-800 dark:text-purple-300">
             <strong>Beta Access:</strong> Your data is private and isolated. Other users cannot see your sessions, rifles, or loads.
           </p>
         </div>
