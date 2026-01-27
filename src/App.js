@@ -29,6 +29,7 @@ import {
   addLoad, getLoads, deleteLoad, updateLoad,
   addTrainingImage, getTrainingDataCount
 } from './services/firestore';
+import * as XLSX from 'xlsx';
 
 const CompletePRSApp = () => {
   // Authentication state
@@ -307,39 +308,262 @@ const CompletePRSApp = () => {
     URL.revokeObjectURL(url);
   };
 
-  // Statistical t-test function
-  const performTTest = (group1, group2, paired = false) => {
-    if (group1.length === 0 || group2.length === 0) {
-      return null;
+  // Export filtered sessions to Excel
+  const exportFilteredSessionsToExcel = (filteredSessions) => {
+    if (!filteredSessions || filteredSessions.length === 0) {
+      alert('No sessions to export');
+      return;
     }
-    
+
+    // Create summary sheet data
+    const summaryData = filteredSessions.map(session => {
+      const validTargets = session.targets.filter(t => t.shots?.length >= 2 && t.stats);
+      const totalShots = session.targets.reduce((sum, t) => sum + (t.shots?.length || 0), 0);
+      const bestGroup = validTargets.length > 0
+        ? Math.min(...validTargets.map(t => t.stats.sizeInches))
+        : null;
+      const avgMeanRadius = validTargets.length > 0
+        ? validTargets.reduce((sum, t) => sum + t.stats.meanRadiusInches, 0) / validTargets.length
+        : null;
+      const avgStdDev = validTargets.length > 0
+        ? validTargets.reduce((sum, t) => sum + t.stats.standardDevInches, 0) / validTargets.length
+        : null;
+
+      return {
+        'Session Name': session.name,
+        'Date': session.date,
+        'Rifle': session.rifle,
+        'Load': session.load,
+        'Distance (yds)': session.distance || 100,
+        'Silencer': session.silencer ? 'Yes' : 'No',
+        'Targets': session.targets.length,
+        'Total Shots': totalShots,
+        'Best Group (in)': bestGroup?.toFixed(4) || 'N/A',
+        'Avg Mean Radius (in)': avgMeanRadius?.toFixed(4) || 'N/A',
+        'Avg Std Dev (in)': avgStdDev?.toFixed(4) || 'N/A',
+        'Temp (°F)': session.temperature || 'N/A',
+        'Humidity (%)': session.humidity || 'N/A',
+        'Wind (mph)': session.windSpeed || 0,
+        'Wind Dir': session.windDirection || 'N/A',
+        'Pressure (inHg)': session.pressure || 'N/A',
+        'Avg Velocity (fps)': session.chronoData?.average?.toFixed(0) || 'N/A',
+        'ES (fps)': session.chronoData?.es?.toFixed(0) || 'N/A',
+        'SD (fps)': session.chronoData?.sd?.toFixed(1) || 'N/A'
+      };
+    });
+
+    // Create detailed shot data sheet
+    const shotData = [];
+    filteredSessions.forEach(session => {
+      session.targets.forEach((target, targetIndex) => {
+        const stats = target.stats || {};
+        if (target.shots && target.shots.length > 0) {
+          target.shots.forEach((shot, shotIndex) => {
+            const xInches = (shot.x - target.x) / target.pixelsPerInch;
+            const yInches = (shot.y - target.y) / target.pixelsPerInch;
+            const radiusInches = Math.sqrt(xInches * xInches + yInches * yInches);
+
+            shotData.push({
+              'Session': session.name,
+              'Date': session.date,
+              'Rifle': session.rifle,
+              'Load': session.load,
+              'Distance': session.distance || 100,
+              'Target #': targetIndex + 1,
+              'Shot #': shotIndex + 1,
+              'X Offset (in)': xInches.toFixed(4),
+              'Y Offset (in)': yInches.toFixed(4),
+              'Radius (in)': radiusInches.toFixed(4),
+              'Group Size (in)': stats.sizeInches?.toFixed(4) || 'N/A',
+              'Mean Radius (in)': stats.meanRadiusInches?.toFixed(4) || 'N/A',
+              'Std Dev (in)': stats.standardDevInches?.toFixed(4) || 'N/A'
+            });
+          });
+        }
+      });
+    });
+
+    // Create workbook with multiple sheets
+    const wb = XLSX.utils.book_new();
+
+    const summaryWs = XLSX.utils.json_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'Session Summary');
+
+    if (shotData.length > 0) {
+      const shotWs = XLSX.utils.json_to_sheet(shotData);
+      XLSX.utils.book_append_sheet(wb, shotWs, 'Shot Details');
+    }
+
+    // Generate and download
+    const filename = `prs-filtered-sessions-${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, filename);
+  };
+
+  // Export single session to Excel
+  const exportSessionToExcel = (session) => {
+    if (!session) return;
+
+    const distance = session.distance || 100;
+
+    // Session info sheet
+    const sessionInfo = [{
+      'Session Name': session.name,
+      'Date': session.date,
+      'Rifle': session.rifle,
+      'Load': session.load,
+      'Distance (yds)': distance,
+      'Silencer': session.silencer ? 'Yes' : 'No',
+      'Temperature (°F)': session.temperature || 'N/A',
+      'Humidity (%)': session.humidity || 'N/A',
+      'Wind Speed (mph)': session.windSpeed || 0,
+      'Wind Direction': session.windDirection || 'N/A',
+      'Pressure (inHg)': session.pressure || 'N/A',
+      'Avg Velocity (fps)': session.chronoData?.average?.toFixed(0) || 'N/A',
+      'ES (fps)': session.chronoData?.es?.toFixed(0) || 'N/A',
+      'SD (fps)': session.chronoData?.sd?.toFixed(1) || 'N/A'
+    }];
+
+    // Target statistics sheet
+    const targetStats = session.targets.map((target, index) => {
+      const stats = target.stats || {};
+      const groupSizeMOA = stats.sizeInches ? (stats.sizeInches * 95.5) / distance : null;
+      const meanRadiusMOA = stats.meanRadiusInches ? (stats.meanRadiusInches * 95.5) / distance : null;
+      const stdDevMOA = stats.standardDevInches ? (stats.standardDevInches * 95.5) / distance : null;
+
+      return {
+        'Target #': index + 1,
+        'Shots': target.shots?.length || 0,
+        'Group Size (in)': stats.sizeInches?.toFixed(4) || 'N/A',
+        'Group Size (MOA)': groupSizeMOA?.toFixed(2) || 'N/A',
+        'Mean Radius (in)': stats.meanRadiusInches?.toFixed(4) || 'N/A',
+        'Mean Radius (MOA)': meanRadiusMOA?.toFixed(2) || 'N/A',
+        'Std Dev (in)': stats.standardDevInches?.toFixed(4) || 'N/A',
+        'Std Dev (MOA)': stdDevMOA?.toFixed(2) || 'N/A',
+        'POI Vertical (in)': stats.groupCenterYInches ? (-stats.groupCenterYInches).toFixed(4) : 'N/A',
+        'POI Horizontal (in)': stats.groupCenterXInches?.toFixed(4) || 'N/A'
+      };
+    });
+
+    // Shot details sheet
+    const shotDetails = [];
+    session.targets.forEach((target, targetIndex) => {
+      if (target.shots && target.shots.length > 0) {
+        target.shots.forEach((shot, shotIndex) => {
+          const xInches = (shot.x - target.x) / target.pixelsPerInch;
+          const yInches = (shot.y - target.y) / target.pixelsPerInch;
+          const radiusInches = Math.sqrt(xInches * xInches + yInches * yInches);
+
+          shotDetails.push({
+            'Target #': targetIndex + 1,
+            'Shot #': shotIndex + 1,
+            'X Offset (in)': xInches.toFixed(4),
+            'Y Offset (in)': yInches.toFixed(4),
+            'Radius from Target Center (in)': radiusInches.toFixed(4)
+          });
+        });
+      }
+    });
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+
+    const infoWs = XLSX.utils.json_to_sheet(sessionInfo);
+    XLSX.utils.book_append_sheet(wb, infoWs, 'Session Info');
+
+    const statsWs = XLSX.utils.json_to_sheet(targetStats);
+    XLSX.utils.book_append_sheet(wb, statsWs, 'Target Statistics');
+
+    if (shotDetails.length > 0) {
+      const shotsWs = XLSX.utils.json_to_sheet(shotDetails);
+      XLSX.utils.book_append_sheet(wb, shotsWs, 'Shot Details');
+    }
+
+    // Add chrono data if available
+    if (session.chronoData?.shots && session.chronoData.shots.length > 0) {
+      const chronoData = session.chronoData.shots.map((velocity, index) => ({
+        'Shot #': index + 1,
+        'Velocity (fps)': velocity
+      }));
+      const chronoWs = XLSX.utils.json_to_sheet(chronoData);
+      XLSX.utils.book_append_sheet(wb, chronoWs, 'Chronograph');
+    }
+
+    // Generate and download
+    const safeName = session.name.replace(/[^a-z0-9]/gi, '-').substring(0, 30);
+    const filename = `prs-session-${safeName}-${session.date}.xlsx`;
+    XLSX.writeFile(wb, filename);
+  };
+
+  // Statistical t-test function with error reporting
+  const performTTest = (group1, group2, paired = false) => {
+    // Check for empty groups
+    if (group1.length === 0 && group2.length === 0) {
+      return { error: 'Both groups have no data. Select groups with shot data to compare.' };
+    }
+    if (group1.length === 0) {
+      return { error: 'Group A has no data. Select a group with shot data.' };
+    }
+    if (group2.length === 0) {
+      return { error: 'Group B has no data. Select a group with shot data.' };
+    }
+
+    // Check for minimum sample size (need at least 2 per group for variance calculation)
+    if (group1.length < 2) {
+      return { error: `Group A has only ${group1.length} shot(s). T-test requires at least 2 shots per group.` };
+    }
+    if (group2.length < 2) {
+      return { error: `Group B has only ${group2.length} shot(s). T-test requires at least 2 shots per group.` };
+    }
+
+    // Warn about low sample sizes (less reliable results)
+    const lowSampleWarning = (group1.length < 5 || group2.length < 5)
+      ? `Note: Small sample sizes (A: ${group1.length}, B: ${group2.length}) may produce unreliable results. Consider collecting more data.`
+      : null;
+
     const mean1 = group1.reduce((sum, x) => sum + x, 0) / group1.length;
     const mean2 = group2.reduce((sum, x) => sum + x, 0) / group2.length;
-    
+
     if (paired && group1.length !== group2.length) {
-      return null;
+      return { error: 'Paired t-test requires equal sample sizes in both groups.' };
     }
-    
-    let tStat, df, pValue;
-    
+
+    let tStat, df;
+
     if (paired) {
       const differences = group1.map((x, i) => x - group2[i]);
       const meanDiff = differences.reduce((sum, d) => sum + d, 0) / differences.length;
       const variance = differences.reduce((sum, d) => sum + Math.pow(d - meanDiff, 2), 0) / (differences.length - 1);
+      if (variance === 0) {
+        return { error: 'Cannot perform t-test: no variance in differences between groups.' };
+      }
       const stdError = Math.sqrt(variance / differences.length);
       tStat = meanDiff / stdError;
       df = differences.length - 1;
     } else {
       const var1 = group1.reduce((sum, x) => sum + Math.pow(x - mean1, 2), 0) / (group1.length - 1);
       const var2 = group2.reduce((sum, x) => sum + Math.pow(x - mean2, 2), 0) / (group2.length - 1);
+
+      // Check for zero variance
+      if (var1 === 0 && var2 === 0) {
+        return { error: 'Cannot perform t-test: both groups have zero variance (all values are identical).' };
+      }
+
       const pooledSE = Math.sqrt(var1 / group1.length + var2 / group2.length);
+      if (pooledSE === 0) {
+        return { error: 'Cannot perform t-test: standard error is zero.' };
+      }
       tStat = (mean1 - mean2) / pooledSE;
       df = group1.length + group2.length - 2;
     }
-    
+
+    // Check for NaN results
+    if (isNaN(tStat) || !isFinite(tStat)) {
+      return { error: 'T-test calculation produced invalid results. Check your data for anomalies.' };
+    }
+
     const tCritical = 2.0;
     const significant = Math.abs(tStat) > tCritical;
-    
+
     return {
       mean1: mean1.toFixed(4),
       mean2: mean2.toFixed(4),
@@ -348,7 +572,8 @@ const CompletePRSApp = () => {
       significant,
       pValue: significant ? '< 0.05' : '> 0.05',
       n1: group1.length,
-      n2: group2.length
+      n2: group2.length,
+      warning: lowSampleWarning
     };
   };
 
@@ -2695,14 +2920,29 @@ const CompletePRSApp = () => {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className={`${isMobile ? 'text-xl' : 'text-2xl'} font-bold text-gray-900 dark:text-white`}>Performance Analytics</h2>
-              <button
-                onClick={exportToCSV}
-                className={`bg-green-600 hover:bg-green-700 text-white ${isMobile ? 'px-3 py-1.5 text-sm' : 'px-4 py-2'} rounded-lg font-medium transition-colors flex items-center`}
-                disabled={sessions.length === 0}
-              >
-                <Download className={`${isMobile ? 'h-4 w-4' : 'h-5 w-5'} mr-2`} />
-                Export CSV
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => {
+                    const report = generateAnalyticsReport();
+                    exportFilteredSessionsToExcel(report.filteredSessions);
+                  }}
+                  className={`bg-purple-600 hover:bg-purple-700 text-white ${isMobile ? 'px-3 py-1.5 text-sm' : 'px-4 py-2'} rounded-lg font-medium transition-colors flex items-center`}
+                  disabled={sessions.length === 0}
+                  title="Export filtered sessions to Excel"
+                >
+                  <Download className={`${isMobile ? 'h-4 w-4' : 'h-5 w-5'} mr-2`} />
+                  {isMobile ? 'Excel' : 'Export Excel'}
+                </button>
+                <button
+                  onClick={exportToCSV}
+                  className={`bg-green-600 hover:bg-green-700 text-white ${isMobile ? 'px-3 py-1.5 text-sm' : 'px-4 py-2'} rounded-lg font-medium transition-colors flex items-center`}
+                  disabled={sessions.length === 0}
+                  title="Export all sessions to CSV"
+                >
+                  <Download className={`${isMobile ? 'h-4 w-4' : 'h-5 w-5'} mr-2`} />
+                  {isMobile ? 'CSV' : 'Export CSV'}
+                </button>
+              </div>
             </div>
 
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
@@ -3355,10 +3595,17 @@ const CompletePRSApp = () => {
 
                           const result = performTTest(groupA, groupB);
 
-                          if (!result) {
+                          // Display error message if T-test failed
+                          if (result.error) {
                             return (
-                              <div className="mt-4 p-4 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg">
-                                <p className="text-red-800 dark:text-red-200">Unable to perform comparison. Ensure both groups have data.</p>
+                              <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg">
+                                <div className="flex items-start">
+                                  <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mr-2 mt-0.5 flex-shrink-0" />
+                                  <div>
+                                    <p className="font-medium text-red-800 dark:text-red-200">T-Test Error</p>
+                                    <p className="text-sm text-red-700 dark:text-red-300 mt-1">{result.error}</p>
+                                  </div>
+                                </div>
                               </div>
                             );
                           }
@@ -3366,6 +3613,17 @@ const CompletePRSApp = () => {
                           return (
                             <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
                               <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">T-Test Results (Independent Samples)</h4>
+
+                              {/* Warning for small sample sizes */}
+                              {result.warning && (
+                                <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 rounded-lg">
+                                  <div className="flex items-start">
+                                    <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mr-2 mt-0.5 flex-shrink-0" />
+                                    <p className="text-sm text-yellow-800 dark:text-yellow-200">{result.warning}</p>
+                                  </div>
+                                </div>
+                              )}
+
                               <div className="grid grid-cols-2 gap-4">
                                 <div>
                                   <p className="text-sm text-gray-600 dark:text-gray-300">Group A Mean</p>
@@ -4176,7 +4434,14 @@ const CompletePRSApp = () => {
                 )}
               </div>
 
-              <div className="mt-6 flex justify-end">
+              <div className="mt-6 flex justify-end space-x-3">
+                <button
+                  onClick={() => exportSessionToExcel(viewingSession)}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg flex items-center"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export to Excel
+                </button>
                 <button
                   onClick={() => setViewingSession(null)}
                   className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
