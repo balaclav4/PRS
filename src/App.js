@@ -1395,6 +1395,8 @@ const CompletePRSApp = () => {
     const [newTruing, setNewTruing] = useState({ distance: '', observedDrop: '', observedWindage: '' });
     const [calculatedTable, setCalculatedTable] = useState([]);
     const [truingFactor, setTruingFactor] = useState(1.0);
+    const [turretDiameter, setTurretDiameter] = useState('1.5'); // inches - for sight tape
+    const [clickValue, setClickValue] = useState('0.25'); // MOA per click
     const chartRef = useRef(null);
 
     // Inline editing state for ballistics data
@@ -1462,88 +1464,171 @@ const CompletePRSApp = () => {
     // Check if we have complete ballistics data
     const hasCompleteData = editingBC && editingMV;
 
-    // Standard atmosphere constants
-    const STANDARD_TEMP_F = 59;
-    const STANDARD_PRESSURE_INHG = 29.92;
-    const STANDARD_ALTITUDE_FT = 0;
+    // Standard atmosphere constants (ICAO standard atmosphere)
+    const STANDARD_TEMP_F = 59; // 15°C
+    const STANDARD_PRESSURE_INHG = 29.92; // sea level
+    const STANDARD_AIR_DENSITY = 0.0764742; // lb/ft³ at sea level, 59°F
 
-    // G1 and G7 drag model coefficients (simplified)
+    // G1 Drag Coefficient Table (Cd vs Mach) - from JBM Ballistics / Ingalls tables
+    const G1_DRAG_TABLE = [
+      [0.00, 0.2629], [0.05, 0.2558], [0.10, 0.2487], [0.15, 0.2413], [0.20, 0.2344],
+      [0.25, 0.2278], [0.30, 0.2214], [0.35, 0.2155], [0.40, 0.2104], [0.45, 0.2061],
+      [0.50, 0.2032], [0.55, 0.2020], [0.60, 0.2034], [0.65, 0.2165], [0.70, 0.2230],
+      [0.75, 0.2313], [0.80, 0.2417], [0.85, 0.2546], [0.90, 0.2706], [0.925, 0.2859],
+      [0.95, 0.3052], [0.975, 0.3310], [1.00, 0.3613], [1.025, 0.3936], [1.05, 0.4241],
+      [1.075, 0.4510], [1.10, 0.4740], [1.125, 0.4935], [1.15, 0.5100], [1.175, 0.5237],
+      [1.20, 0.5351], [1.25, 0.5523], [1.30, 0.5637], [1.35, 0.5714], [1.40, 0.5762],
+      [1.45, 0.5786], [1.50, 0.5793], [1.55, 0.5787], [1.60, 0.5770], [1.65, 0.5745],
+      [1.70, 0.5713], [1.75, 0.5677], [1.80, 0.5636], [1.85, 0.5593], [1.90, 0.5548],
+      [1.95, 0.5501], [2.00, 0.5454], [2.05, 0.5406], [2.10, 0.5358], [2.15, 0.5311],
+      [2.20, 0.5264], [2.25, 0.5217], [2.30, 0.5171], [2.35, 0.5125], [2.40, 0.5080],
+      [2.45, 0.5036], [2.50, 0.4993], [2.60, 0.4908], [2.70, 0.4826], [2.80, 0.4748],
+      [2.90, 0.4673], [3.00, 0.4601], [3.10, 0.4532], [3.20, 0.4466], [3.30, 0.4403],
+      [3.40, 0.4342], [3.50, 0.4284], [3.60, 0.4228], [3.70, 0.4175], [3.80, 0.4123],
+      [3.90, 0.4073], [4.00, 0.4026], [4.20, 0.3934], [4.40, 0.3849], [4.60, 0.3770],
+      [4.80, 0.3696], [5.00, 0.3627]
+    ];
+
+    // G7 Drag Coefficient Table (Cd vs Mach) - from JBM Ballistics / Applied Ballistics
+    const G7_DRAG_TABLE = [
+      [0.00, 0.1198], [0.05, 0.1197], [0.10, 0.1196], [0.15, 0.1194], [0.20, 0.1193],
+      [0.25, 0.1194], [0.30, 0.1194], [0.35, 0.1194], [0.40, 0.1193], [0.45, 0.1193],
+      [0.50, 0.1194], [0.55, 0.1193], [0.60, 0.1194], [0.65, 0.1197], [0.70, 0.1202],
+      [0.725, 0.1207], [0.75, 0.1215], [0.775, 0.1226], [0.80, 0.1242], [0.825, 0.1266],
+      [0.85, 0.1306], [0.875, 0.1368], [0.90, 0.1464], [0.925, 0.1660], [0.95, 0.2054],
+      [0.975, 0.2993], [1.00, 0.3803], [1.025, 0.4015], [1.05, 0.4043], [1.075, 0.4034],
+      [1.10, 0.4014], [1.125, 0.3987], [1.15, 0.3955], [1.175, 0.3921], [1.20, 0.3884],
+      [1.25, 0.3807], [1.30, 0.3727], [1.35, 0.3647], [1.40, 0.3567], [1.45, 0.3488],
+      [1.50, 0.3411], [1.55, 0.3337], [1.60, 0.3265], [1.65, 0.3196], [1.70, 0.3130],
+      [1.75, 0.3067], [1.80, 0.3008], [1.85, 0.2952], [1.90, 0.2899], [1.95, 0.2849],
+      [2.00, 0.2801], [2.05, 0.2756], [2.10, 0.2714], [2.15, 0.2674], [2.20, 0.2636],
+      [2.25, 0.2600], [2.30, 0.2566], [2.35, 0.2534], [2.40, 0.2503], [2.45, 0.2474],
+      [2.50, 0.2446], [2.55, 0.2419], [2.60, 0.2394], [2.65, 0.2370], [2.70, 0.2347],
+      [2.75, 0.2325], [2.80, 0.2304], [2.85, 0.2283], [2.90, 0.2264], [2.95, 0.2245],
+      [3.00, 0.2228], [3.10, 0.2194], [3.20, 0.2163], [3.30, 0.2133], [3.40, 0.2105],
+      [3.50, 0.2079], [3.60, 0.2054], [3.70, 0.2030], [3.80, 0.2008], [3.90, 0.1987],
+      [4.00, 0.1966], [4.20, 0.1928], [4.40, 0.1893], [4.60, 0.1861], [4.80, 0.1831],
+      [5.00, 0.1803]
+    ];
+
+    // Interpolate drag coefficient from table
     const getDragCoefficient = (mach, bcType) => {
-      // Simplified drag model based on Mach number
-      if (bcType === 'G7') {
-        // G7 is better for boat-tail bullets
-        if (mach < 0.8) return 0.120;
-        if (mach < 0.9) return 0.140;
-        if (mach < 1.0) return 0.180;
-        if (mach < 1.1) return 0.320;
-        if (mach < 1.2) return 0.350;
-        if (mach < 1.3) return 0.340;
-        return 0.300;
-      } else {
-        // G1 standard
-        if (mach < 0.8) return 0.150;
-        if (mach < 0.9) return 0.175;
-        if (mach < 1.0) return 0.250;
-        if (mach < 1.1) return 0.450;
-        if (mach < 1.2) return 0.480;
-        if (mach < 1.3) return 0.450;
-        return 0.400;
+      const table = bcType === 'G7' ? G7_DRAG_TABLE : G1_DRAG_TABLE;
+
+      // Find the two points to interpolate between
+      let i = 0;
+      while (i < table.length - 1 && table[i + 1][0] < mach) {
+        i++;
       }
+
+      if (i >= table.length - 1) {
+        return table[table.length - 1][1];
+      }
+
+      const [m1, cd1] = table[i];
+      const [m2, cd2] = table[i + 1];
+
+      // Linear interpolation
+      const t = (mach - m1) / (m2 - m1);
+      return cd1 + t * (cd2 - cd1);
     };
 
-    // Calculate air density ratio
+    // Calculate air density ratio relative to standard
     const getAirDensityRatio = () => {
-      const tempR = (parseFloat(temperature) + 459.67); // Rankine
-      const stdTempR = (STANDARD_TEMP_F + 459.67);
-      const pressRatio = parseFloat(pressure) / STANDARD_PRESSURE_INHG;
-      const humidityFactor = 1 - (0.00378 * (parseFloat(humidity) / 100) * (parseFloat(pressure) / 29.92));
-      const altitudeFactor = Math.exp(-parseFloat(altitude) / 29000); // Approximate
+      const tempF = parseFloat(temperature);
+      const pressInHg = parseFloat(pressure);
+      const humidityPct = parseFloat(humidity);
+      const altFt = parseFloat(altitude);
 
-      return (pressRatio * (stdTempR / tempR) * humidityFactor * altitudeFactor);
+      // Temperature ratio (absolute temps in Rankine)
+      const tempR = tempF + 459.67;
+      const stdTempR = STANDARD_TEMP_F + 459.67;
+
+      // Pressure adjustment for altitude if pressure is at sea level
+      // Station pressure vs barometric pressure correction
+      const pressureRatio = pressInHg / STANDARD_PRESSURE_INHG;
+
+      // Humidity effect on air density (water vapor is less dense than dry air)
+      // Saturation vapor pressure (simplified Magnus formula)
+      const tempC = (tempF - 32) * 5 / 9;
+      const satVaporPress = 6.1078 * Math.pow(10, (7.5 * tempC) / (tempC + 237.3)); // hPa
+      const vaporPress = (humidityPct / 100) * satVaporPress;
+      const dryAirPress = (pressInHg * 33.8639) - vaporPress; // Convert to hPa
+      const humidityFactor = (dryAirPress + 0.622 * vaporPress) / (pressInHg * 33.8639);
+
+      // Combined density ratio
+      return pressureRatio * (stdTempR / tempR) * humidityFactor;
     };
 
-    // Speed of sound based on temperature
+    // Speed of sound based on temperature (fps)
     const getSpeedOfSound = () => {
       const tempF = parseFloat(temperature);
-      const tempC = (tempF - 32) * 5/9;
-      return 1086 * Math.sqrt((tempC + 273.15) / 273.15); // fps
+      const tempC = (tempF - 32) * 5 / 9;
+      const tempK = tempC + 273.15;
+      // Speed of sound = sqrt(gamma * R * T) where gamma=1.4 for air, R=287 J/(kg·K)
+      // In fps: a = 49.0223 * sqrt(tempR) where tempR is Rankine
+      return 49.0223 * Math.sqrt(tempF + 459.67);
     };
 
-    // Calculate trajectory
+    // Calculate trajectory using point mass model
     const calculateTrajectory = () => {
-      if (!selectedLoad || !selectedLoad.bc || !selectedLoad.muzzleVelocity) {
+      if (!selectedLoad || !editingBC || !editingMV) {
         return [];
       }
 
-      const bc = parseFloat(selectedLoad.bc);
-      const mv = parseFloat(selectedLoad.muzzleVelocity);
-      const bcType = selectedLoad.bcType || 'G1';
-      const sh = parseFloat(sightHeight);
-      const zero = parseFloat(zeroDistance);
+      const bc = parseFloat(editingBC);
+      const mv = parseFloat(editingMV);
+      const bcType = editingBCType || 'G1';
+      const sh = parseFloat(sightHeight); // inches
+      const zero = parseFloat(zeroDistance); // yards
       const max = parseInt(maxRange);
       const increment = parseInt(rangeIncrement);
-      const wind = parseFloat(windSpeed);
+      const wind = parseFloat(windSpeed); // mph
       const windAngleRad = (parseFloat(windAngle) * Math.PI) / 180;
-      const crossWind = wind * Math.sin(windAngleRad);
+      const crossWind = wind * Math.sin(windAngleRad); // mph crosswind component
 
-      const airDensityRatio = getAirDensityRatio();
+      const densityRatio = getAirDensityRatio();
       const speedOfSound = getSpeedOfSound();
-      const adjustedBC = bc / airDensityRatio;
+
+      // Adjust BC for non-standard atmosphere
+      // Higher density = more drag = effectively lower BC
+      const adjustedBC = bc / densityRatio;
 
       const results = [];
-      const dt = 0.001; // Time step in seconds
-      const g = 32.174; // Gravity fps^2
+      const dt = 0.0005; // Time step in seconds (smaller = more accurate)
+      const g = 32.174; // Gravity ft/s²
 
-      // Find zero angle
+      // Convert crosswind to ft/s (mph * 1.46667)
+      const crossWindFps = crossWind * 1.46667;
+
+      // Step 1: Find the bore angle that zeros at the specified distance
+      // The bullet starts at sight height below line of sight and must hit LOS at zero distance
+
+      // Binary search for zero angle
+      let lowAngle = 0;
+      let highAngle = 0.1; // radians (~5.7 degrees, more than enough)
       let zeroAngle = 0;
-      for (let angleIteration = 0; angleIteration < 50; angleIteration++) {
-        let x = 0, y = -sh / 12, vx = mv * Math.cos(zeroAngle), vy = mv * Math.sin(zeroAngle);
 
-        while (x < zero * 3) {
+      for (let iteration = 0; iteration < 50; iteration++) {
+        zeroAngle = (lowAngle + highAngle) / 2;
+
+        // Simulate to zero distance
+        let x = 0; // downrange distance in feet
+        let y = -sh / 12; // height relative to LOS (start below by sight height), in feet
+        let vx = mv * Math.cos(zeroAngle);
+        let vy = mv * Math.sin(zeroAngle);
+
+        const zeroDistFt = zero * 3; // yards to feet
+
+        while (x < zeroDistFt) {
           const v = Math.sqrt(vx * vx + vy * vy);
           const mach = v / speedOfSound;
           const cd = getDragCoefficient(mach, bcType);
-          const retardation = (cd / adjustedBC) * v * v * 0.00004;
+
+          // Retardation = Cd / BC * v² * constant
+          // The constant accounts for air density and standard projectile
+          // For standard atmosphere: retardation (ft/s²) = Cd / BC * v² / 166168
+          const retardation = (cd / adjustedBC) * (v * v) / 166168;
 
           const ax = -retardation * (vx / v);
           const ay = -g - retardation * (vy / v);
@@ -1552,46 +1637,66 @@ const CompletePRSApp = () => {
           vy += ay * dt;
           x += vx * dt;
           y += vy * dt;
-
-          if (x >= zero * 3) break;
         }
 
-        // Interpolate to find y at zero distance
-        let testY = y * (zero * 3 / x);
-        if (Math.abs(testY) < 0.0001) break;
-        zeroAngle += testY * 0.00001;
+        // Interpolate to exact zero distance
+        const overshoot = (x - zeroDistFt) / vx;
+        const yAtZero = y - vy * overshoot;
+
+        if (Math.abs(yAtZero) < 0.0001) break; // Close enough
+
+        if (yAtZero < 0) {
+          lowAngle = zeroAngle; // Need more angle (shooting too low)
+        } else {
+          highAngle = zeroAngle; // Need less angle (shooting too high)
+        }
       }
 
-      // Now calculate full trajectory with zeroed angle
+      // Step 2: Calculate trajectory at each distance
+      // Line of sight is the straight line from scope at angle to hit zero point
+      // LOS angle = atan(sight_height / zero_distance)
+      const losAngle = Math.atan((sh / 12) / (zero * 3));
+
       for (let targetDist = 0; targetDist <= max; targetDist += increment) {
         if (targetDist === 0) {
+          // At muzzle, bullet is sight height below LOS
+          const bulletWeightGr = parseFloat(selectedLoad.bulletWeight?.replace(/[^\d.]/g, '') || 140);
+          const energy = (bulletWeightGr / 7000) * mv * mv / (2 * g);
+
           results.push({
             distance: 0,
-            drop: -sh,
+            drop: -sh, // inches below line of sight
             dropMOA: 0,
             dropMils: 0,
             windage: 0,
             windageMOA: 0,
             windageMils: 0,
-            velocity: mv,
-            energy: 0,
+            velocity: Math.round(mv),
+            energy: Math.round(energy),
             tof: 0
           });
           continue;
         }
 
-        let x = 0, y = -sh / 12, z = 0;
-        let vx = mv * Math.cos(zeroAngle), vy = mv * Math.sin(zeroAngle), vz = 0;
+        // Simulate trajectory to target distance
+        let x = 0, y = -sh / 12, z = 0; // feet
+        let vx = mv * Math.cos(zeroAngle);
+        let vy = mv * Math.sin(zeroAngle);
+        let vz = 0;
         let tof = 0;
 
-        while (x < targetDist * 3.1) {
+        const targetDistFt = targetDist * 3;
+
+        while (x < targetDistFt) {
           const v = Math.sqrt(vx * vx + vy * vy + vz * vz);
           const mach = v / speedOfSound;
           const cd = getDragCoefficient(mach, bcType);
-          const retardation = (cd / adjustedBC) * v * v * 0.00004;
 
-          // Wind acceleration (simplified)
-          const windAccel = crossWind * 1.47 * retardation / v;
+          const retardation = (cd / adjustedBC) * (v * v) / 166168;
+
+          // Wind drift: the bullet is "carried" by wind lag
+          // Simplified: wind pushes bullet proportional to time of flight and drag
+          const windAccel = crossWindFps * retardation / v;
 
           const ax = -retardation * (vx / v);
           const ay = -g - retardation * (vy / v);
@@ -1604,38 +1709,63 @@ const CompletePRSApp = () => {
           y += vy * dt;
           z += vz * dt;
           tof += dt;
-
-          if (x >= targetDist * 3.1) break;
         }
 
-        // Interpolate to exact distance
-        const factor = (targetDist * 3) / x;
-        const dropInches = y * 12 * factor * truingFactor;
-        const windageInches = z * 12 * factor;
-        const finalV = Math.sqrt(vx * vx + vy * vy);
+        // Interpolate to exact target distance
+        const overshoot = (x - targetDistFt) / vx;
+        const yAtTarget = y - vy * overshoot;
+        const zAtTarget = z - vz * overshoot;
+        const tofAtTarget = tof - overshoot;
+        const vAtTarget = Math.sqrt(vx * vx + vy * vy);
 
-        // Calculate bullet weight in pounds for energy calc
-        const bulletWeightLbs = parseFloat(selectedLoad.bulletWeight?.replace(/[^\d.]/g, '') || 140) / 7000;
-        const energy = (bulletWeightLbs * finalV * finalV) / (2 * 32.174);
+        // Calculate where line of sight is at this distance
+        // LOS height = (distance / zero_distance) * sight_height - sight_height
+        // Simplified: LOS is a straight line from scope through zero point
+        const losHeightFt = (targetDistFt / (zero * 3)) * (sh / 12) - (sh / 12);
 
-        // Convert to MOA and Mils
-        const dropMOA = (dropInches / targetDist) * (-95.5);
-        const dropMils = (dropInches / targetDist) * (-27.78);
-        const windageMOA = (windageInches / targetDist) * 95.5;
-        const windageMils = (windageInches / targetDist) * 27.78;
+        // Drop relative to line of sight (in inches)
+        const dropRelativeToLOS = (yAtTarget - losHeightFt) * 12;
+
+        // Windage in inches
+        const windageInches = zAtTarget * 12;
+
+        // Convert to MOA and Mils (correction values - how much to dial)
+        // MOA = (drop_inches / distance_yards) * 95.5 (actually 100/1.047 ≈ 95.49)
+        // Positive MOA = dial UP (bullet is low)
+        const dropMOA = targetDist > 0 ? (-dropRelativeToLOS * 100) / (targetDist * 1.047) : 0;
+        const dropMils = targetDist > 0 ? (-dropRelativeToLOS * 100) / (targetDist * 3.6) : 0;
+
+        // Windage correction (positive = dial right if bullet went left)
+        const windageMOA = targetDist > 0 ? (windageInches * 100) / (targetDist * 1.047) : 0;
+        const windageMils = targetDist > 0 ? (windageInches * 100) / (targetDist * 3.6) : 0;
+
+        // Energy calculation (ft-lbs)
+        const bulletWeightGr = parseFloat(selectedLoad.bulletWeight?.replace(/[^\d.]/g, '') || 140);
+        const bulletWeightLbs = bulletWeightGr / 7000;
+        const energy = (bulletWeightLbs * vAtTarget * vAtTarget) / (2 * g);
 
         results.push({
           distance: targetDist,
-          drop: dropInches,
-          dropMOA: dropMOA,
+          drop: dropRelativeToLOS, // inches relative to LOS (negative = below)
+          dropMOA: dropMOA, // MOA correction to dial UP
           dropMils: dropMils,
-          windage: windageInches,
+          windage: windageInches, // inches (positive = right)
           windageMOA: windageMOA,
           windageMils: windageMils,
-          velocity: Math.round(finalV),
+          velocity: Math.round(vAtTarget),
           energy: Math.round(energy),
-          tof: (tof * factor).toFixed(3)
+          tof: tofAtTarget.toFixed(3)
         });
+      }
+
+      // Apply truing factor if set
+      if (truingFactor !== 1.0) {
+        return results.map(r => ({
+          ...r,
+          drop: r.drop * truingFactor,
+          dropMOA: r.dropMOA * truingFactor,
+          dropMils: r.dropMils * truingFactor
+        }));
       }
 
       return results;
@@ -1894,6 +2024,40 @@ const CompletePRSApp = () => {
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* Turret Settings (for Sight Tape) */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Turret Settings</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Turret Diameter (in)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={turretDiameter}
+                      onChange={(e) => setTurretDiameter(e.target.value)}
+                      placeholder="e.g., 1.5"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Click Value (MOA)</label>
+                    <select
+                      value={clickValue}
+                      onChange={(e) => setClickValue(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    >
+                      <option value="0.125">1/8 MOA</option>
+                      <option value="0.25">1/4 MOA</option>
+                      <option value="0.5">1/2 MOA</option>
+                      <option value="0.1">0.1 Mil</option>
+                    </select>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Measure turret cap diameter for accurate sight tape
+                </p>
               </div>
 
               {/* Atmospheric Conditions */}
@@ -2157,50 +2321,121 @@ const CompletePRSApp = () => {
               </div>
 
               {/* Sight Tape Visualization */}
-              {calculatedTable.length > 0 && (
+              {calculatedTable.length > 0 && hasCompleteData && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Sight Tape</h3>
-                  <div className="flex items-center justify-center">
-                    <div className="relative w-16 h-96 bg-gray-200 dark:bg-gray-600 rounded-lg overflow-hidden">
-                      {/* Turret markings */}
-                      <div className="absolute inset-0 flex flex-col">
-                        {calculatedTable.filter(r => r.distance > 0 && r.distance <= parseInt(maxRange)).map((row, i) => {
-                          // Map MOA to position (assuming 10 MOA per revolution, visual scaling)
-                          const moaPerInch = 2; // visual scaling
-                          const position = Math.min(95, Math.max(5, (Math.abs(row.dropMOA) / moaPerInch) * 5));
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Sight Tape</h3>
+                    <button
+                      onClick={() => {
+                        // Generate downloadable sight tape
+                        const diameter = parseFloat(turretDiameter);
+                        const circumference = Math.PI * diameter; // inches
+                        const pixelsPerInch = 96; // standard screen DPI
+                        const tapeWidth = Math.round(circumference * pixelsPerInch);
+                        const tapeHeight = 60;
 
-                          return (
-                            <div
-                              key={i}
-                              className="absolute w-full flex items-center"
-                              style={{ top: `${position}%` }}
-                            >
-                              <div className={`h-0.5 ${row.distance % 200 === 0 ? 'w-8 bg-purple-600' : 'w-4 bg-gray-400 dark:bg-gray-500'}`} />
-                              {row.distance % 100 === 0 && (
-                                <span className="ml-1 text-xs text-gray-700 dark:text-gray-300 font-medium">
-                                  {row.distance}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
+                        const canvas = document.createElement('canvas');
+                        canvas.width = tapeWidth;
+                        canvas.height = tapeHeight;
+                        const ctx = canvas.getContext('2d');
 
-                      {/* Center mark */}
-                      <div className="absolute top-1 left-0 right-0 flex items-center">
-                        <div className="w-full h-1 bg-purple-600" />
-                      </div>
+                        // Background
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, tapeWidth, tapeHeight);
+
+                        // Find max MOA for scaling
+                        const maxMOA = Math.max(...calculatedTable.map(r => Math.abs(r.dropMOA)));
+                        const moaPerRevolution = 360 * parseFloat(clickValue) / (parseFloat(clickValue) < 1 ? 80 : 20); // typical turrets
+
+                        // Draw distance marks
+                        ctx.fillStyle = '#1a1a2e';
+                        ctx.font = 'bold 10px Arial';
+                        ctx.textAlign = 'center';
+
+                        calculatedTable.filter(r => r.distance > 0).forEach(row => {
+                          // Position based on MOA from zero
+                          const moaFromZero = Math.abs(row.dropMOA);
+                          const xPos = (moaFromZero / maxMOA) * (tapeWidth - 40) + 20;
+
+                          // Tick mark
+                          ctx.strokeStyle = row.distance % 100 === 0 ? '#9333ea' : '#666666';
+                          ctx.lineWidth = row.distance % 100 === 0 ? 2 : 1;
+                          ctx.beginPath();
+                          ctx.moveTo(xPos, 0);
+                          ctx.lineTo(xPos, row.distance % 100 === 0 ? 25 : 15);
+                          ctx.stroke();
+
+                          // Label (only every 100 yards)
+                          if (row.distance % 100 === 0) {
+                            ctx.fillStyle = '#1a1a2e';
+                            ctx.fillText(row.distance.toString(), xPos, 40);
+                          }
+                        });
+
+                        // Zero mark
+                        ctx.strokeStyle = '#22c55e';
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.moveTo(20, 0);
+                        ctx.lineTo(20, 30);
+                        ctx.stroke();
+                        ctx.fillStyle = '#22c55e';
+                        ctx.fillText('0', 20, 45);
+
+                        // Info text
+                        ctx.fillStyle = '#666666';
+                        ctx.font = '8px Arial';
+                        ctx.textAlign = 'left';
+                        ctx.fillText(`Ø${diameter}" turret | ${clickValue} MOA/click | Zero: ${zeroDistance}yds`, 5, 55);
+
+                        // Download
+                        const link = document.createElement('a');
+                        link.download = `sight-tape-${selectedLoad?.name?.replace(/\s+/g, '-') || 'ballistics'}.png`;
+                        link.href = canvas.toDataURL('image/png');
+                        link.click();
+                      }}
+                      className="flex items-center px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-sm"
+                    >
+                      <Download className="h-4 w-4 mr-1" /> Download Tape
+                    </button>
+                  </div>
+
+                  {/* Tape Preview */}
+                  <div className="overflow-x-auto">
+                    <div
+                      className="relative bg-white border border-gray-300 rounded"
+                      style={{
+                        width: `${Math.PI * parseFloat(turretDiameter) * 96}px`,
+                        height: '50px',
+                        minWidth: '300px',
+                        maxWidth: '100%'
+                      }}
+                    >
+                      {/* Zero mark */}
+                      <div className="absolute left-5 top-0 h-8 w-0.5 bg-green-500" />
+                      <span className="absolute left-4 top-9 text-xs text-green-600 font-bold">0</span>
+
+                      {/* Distance marks */}
+                      {calculatedTable.filter(r => r.distance > 0).map((row, i) => {
+                        const maxMOA = Math.max(...calculatedTable.map(r => Math.abs(r.dropMOA)));
+                        const position = (Math.abs(row.dropMOA) / maxMOA) * 90 + 5; // percentage
+
+                        return (
+                          <div key={i} className="absolute" style={{ left: `${position}%` }}>
+                            <div className={`w-0.5 ${row.distance % 100 === 0 ? 'h-6 bg-purple-600' : 'h-3 bg-gray-400'}`} />
+                            {row.distance % 100 === 0 && (
+                              <span className="absolute -left-2 top-7 text-xs text-gray-700 font-medium">
+                                {row.distance}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
+                  </div>
 
-                    <div className="ml-6 text-sm text-gray-600 dark:text-gray-400">
-                      <p className="mb-2"><strong>MOA/Click Tape</strong></p>
-                      <p>Zero: {zeroDistance} yds</p>
-                      <p>Top = Near</p>
-                      <p>Bottom = Far</p>
-                      <p className="mt-4 text-xs">
-                        Print and attach to<br />elevation turret
-                      </p>
-                    </div>
+                  <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                    <p>Turret circumference: {(Math.PI * parseFloat(turretDiameter)).toFixed(2)}" | Print at 100% scale, cut and wrap around turret</p>
                   </div>
                 </div>
               )}
