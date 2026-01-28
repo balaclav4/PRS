@@ -115,7 +115,8 @@ const CompletePRSApp = () => {
   const [newRifle, setNewRifle] = useState({ name: '', caliber: '', barrel: '', twist: '', scope: '' });
   const [newLoad, setNewLoad] = useState({
     name: '', caliber: '', bullet: '', bulletWeight: '',
-    powder: '', charge: '', primer: '', brass: '', oal: '', cbto: ''
+    powder: '', charge: '', primer: '', brass: '', oal: '', cbto: '',
+    bc: '', bcType: 'G1', muzzleVelocity: '', velocitySD: ''
   });
   
   // Statistical comparison state
@@ -127,6 +128,7 @@ const CompletePRSApp = () => {
 
   // Session detail view state
   const [viewingSession, setViewingSession] = useState(null); // Session being viewed/edited
+  const [expandedTargetPlots, setExpandedTargetPlots] = useState({}); // Track which target plots are expanded
   
   // Chrono data state
   const [showChronoImport, setShowChronoImport] = useState(false);
@@ -1106,9 +1108,11 @@ const CompletePRSApp = () => {
     const meanRadius = distancesFromGroupCenter.reduce((sum, d) => sum + d, 0) / shots.length;
     const meanRadiusInches = meanRadius / pixelsPerInch;
 
-    // Standard deviation of radii from mean radius
-    const variance = distancesFromGroupCenter.reduce((sum, d) =>
-      sum + Math.pow(d - meanRadius, 2), 0) / shots.length;
+    // Standard deviation of radii from mean radius (using sample variance n-1 for small samples)
+    const n = shots.length;
+    const variance = n > 1
+      ? distancesFromGroupCenter.reduce((sum, d) => sum + Math.pow(d - meanRadius, 2), 0) / (n - 1)
+      : 0;
     const standardDev = Math.sqrt(variance);
     const standardDevInches = standardDev / pixelsPerInch;
 
@@ -1341,6 +1345,7 @@ const CompletePRSApp = () => {
                   { id: 'home', label: 'Home', icon: Home },
                   { id: 'capture', label: 'Capture', icon: Camera },
                   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+                  { id: 'ballistics', label: 'Ballistics', icon: Crosshair },
                   { id: 'equipment', label: 'Equipment', icon: Settings }
                 ].map(({ id, label, icon: Icon }) => (
                   <button
@@ -1371,6 +1376,724 @@ const CompletePRSApp = () => {
       </div>
     </div>
   );
+
+  // Ballistics Tab Component
+  const BallisticsTab = ({ equipment }) => {
+    const [selectedLoadId, setSelectedLoadId] = useState('');
+    const [sightHeight, setSightHeight] = useState('1.5');
+    const [zeroDistance, setZeroDistance] = useState('100');
+    const [temperature, setTemperature] = useState('59');
+    const [altitude, setAltitude] = useState('0');
+    const [pressure, setPressure] = useState('29.92');
+    const [humidity, setHumidity] = useState('50');
+    const [windSpeed, setWindSpeed] = useState('10');
+    const [windAngle, setWindAngle] = useState('90');
+    const [maxRange, setMaxRange] = useState('1000');
+    const [rangeIncrement, setRangeIncrement] = useState('100');
+    const [truingData, setTruingData] = useState([]); // {distance, observedDrop, observedWindage}
+    const [showTruingModal, setShowTruingModal] = useState(false);
+    const [newTruing, setNewTruing] = useState({ distance: '', observedDrop: '', observedWindage: '' });
+    const [calculatedTable, setCalculatedTable] = useState([]);
+    const [truingFactor, setTruingFactor] = useState(1.0);
+    const chartRef = useRef(null);
+
+    const selectedLoad = equipment.loads.find(l => l.id === selectedLoadId);
+
+    // Standard atmosphere constants
+    const STANDARD_TEMP_F = 59;
+    const STANDARD_PRESSURE_INHG = 29.92;
+    const STANDARD_ALTITUDE_FT = 0;
+
+    // G1 and G7 drag model coefficients (simplified)
+    const getDragCoefficient = (mach, bcType) => {
+      // Simplified drag model based on Mach number
+      if (bcType === 'G7') {
+        // G7 is better for boat-tail bullets
+        if (mach < 0.8) return 0.120;
+        if (mach < 0.9) return 0.140;
+        if (mach < 1.0) return 0.180;
+        if (mach < 1.1) return 0.320;
+        if (mach < 1.2) return 0.350;
+        if (mach < 1.3) return 0.340;
+        return 0.300;
+      } else {
+        // G1 standard
+        if (mach < 0.8) return 0.150;
+        if (mach < 0.9) return 0.175;
+        if (mach < 1.0) return 0.250;
+        if (mach < 1.1) return 0.450;
+        if (mach < 1.2) return 0.480;
+        if (mach < 1.3) return 0.450;
+        return 0.400;
+      }
+    };
+
+    // Calculate air density ratio
+    const getAirDensityRatio = () => {
+      const tempR = (parseFloat(temperature) + 459.67); // Rankine
+      const stdTempR = (STANDARD_TEMP_F + 459.67);
+      const pressRatio = parseFloat(pressure) / STANDARD_PRESSURE_INHG;
+      const humidityFactor = 1 - (0.00378 * (parseFloat(humidity) / 100) * (parseFloat(pressure) / 29.92));
+      const altitudeFactor = Math.exp(-parseFloat(altitude) / 29000); // Approximate
+
+      return (pressRatio * (stdTempR / tempR) * humidityFactor * altitudeFactor);
+    };
+
+    // Speed of sound based on temperature
+    const getSpeedOfSound = () => {
+      const tempF = parseFloat(temperature);
+      const tempC = (tempF - 32) * 5/9;
+      return 1086 * Math.sqrt((tempC + 273.15) / 273.15); // fps
+    };
+
+    // Calculate trajectory
+    const calculateTrajectory = () => {
+      if (!selectedLoad || !selectedLoad.bc || !selectedLoad.muzzleVelocity) {
+        return [];
+      }
+
+      const bc = parseFloat(selectedLoad.bc);
+      const mv = parseFloat(selectedLoad.muzzleVelocity);
+      const bcType = selectedLoad.bcType || 'G1';
+      const sh = parseFloat(sightHeight);
+      const zero = parseFloat(zeroDistance);
+      const max = parseInt(maxRange);
+      const increment = parseInt(rangeIncrement);
+      const wind = parseFloat(windSpeed);
+      const windAngleRad = (parseFloat(windAngle) * Math.PI) / 180;
+      const crossWind = wind * Math.sin(windAngleRad);
+
+      const airDensityRatio = getAirDensityRatio();
+      const speedOfSound = getSpeedOfSound();
+      const adjustedBC = bc / airDensityRatio;
+
+      const results = [];
+      const dt = 0.001; // Time step in seconds
+      const g = 32.174; // Gravity fps^2
+
+      // Find zero angle
+      let zeroAngle = 0;
+      for (let angleIteration = 0; angleIteration < 50; angleIteration++) {
+        let x = 0, y = -sh / 12, vx = mv * Math.cos(zeroAngle), vy = mv * Math.sin(zeroAngle);
+
+        while (x < zero * 3) {
+          const v = Math.sqrt(vx * vx + vy * vy);
+          const mach = v / speedOfSound;
+          const cd = getDragCoefficient(mach, bcType);
+          const retardation = (cd / adjustedBC) * v * v * 0.00004;
+
+          const ax = -retardation * (vx / v);
+          const ay = -g - retardation * (vy / v);
+
+          vx += ax * dt;
+          vy += ay * dt;
+          x += vx * dt;
+          y += vy * dt;
+
+          if (x >= zero * 3) break;
+        }
+
+        // Interpolate to find y at zero distance
+        let testY = y * (zero * 3 / x);
+        if (Math.abs(testY) < 0.0001) break;
+        zeroAngle += testY * 0.00001;
+      }
+
+      // Now calculate full trajectory with zeroed angle
+      for (let targetDist = 0; targetDist <= max; targetDist += increment) {
+        if (targetDist === 0) {
+          results.push({
+            distance: 0,
+            drop: -sh,
+            dropMOA: 0,
+            dropMils: 0,
+            windage: 0,
+            windageMOA: 0,
+            windageMils: 0,
+            velocity: mv,
+            energy: 0,
+            tof: 0
+          });
+          continue;
+        }
+
+        let x = 0, y = -sh / 12, z = 0;
+        let vx = mv * Math.cos(zeroAngle), vy = mv * Math.sin(zeroAngle), vz = 0;
+        let tof = 0;
+
+        while (x < targetDist * 3.1) {
+          const v = Math.sqrt(vx * vx + vy * vy + vz * vz);
+          const mach = v / speedOfSound;
+          const cd = getDragCoefficient(mach, bcType);
+          const retardation = (cd / adjustedBC) * v * v * 0.00004;
+
+          // Wind acceleration (simplified)
+          const windAccel = crossWind * 1.47 * retardation / v;
+
+          const ax = -retardation * (vx / v);
+          const ay = -g - retardation * (vy / v);
+          const az = windAccel;
+
+          vx += ax * dt;
+          vy += ay * dt;
+          vz += az * dt;
+          x += vx * dt;
+          y += vy * dt;
+          z += vz * dt;
+          tof += dt;
+
+          if (x >= targetDist * 3.1) break;
+        }
+
+        // Interpolate to exact distance
+        const factor = (targetDist * 3) / x;
+        const dropInches = y * 12 * factor * truingFactor;
+        const windageInches = z * 12 * factor;
+        const finalV = Math.sqrt(vx * vx + vy * vy);
+
+        // Calculate bullet weight in pounds for energy calc
+        const bulletWeightLbs = parseFloat(selectedLoad.bulletWeight?.replace(/[^\d.]/g, '') || 140) / 7000;
+        const energy = (bulletWeightLbs * finalV * finalV) / (2 * 32.174);
+
+        // Convert to MOA and Mils
+        const dropMOA = (dropInches / targetDist) * (-95.5);
+        const dropMils = (dropInches / targetDist) * (-27.78);
+        const windageMOA = (windageInches / targetDist) * 95.5;
+        const windageMils = (windageInches / targetDist) * 27.78;
+
+        results.push({
+          distance: targetDist,
+          drop: dropInches,
+          dropMOA: dropMOA,
+          dropMils: dropMils,
+          windage: windageInches,
+          windageMOA: windageMOA,
+          windageMils: windageMils,
+          velocity: Math.round(finalV),
+          energy: Math.round(energy),
+          tof: (tof * factor).toFixed(3)
+        });
+      }
+
+      return results;
+    };
+
+    // Apply truing
+    const applyTruing = () => {
+      if (truingData.length === 0 || calculatedTable.length === 0) return;
+
+      // Find the best truing factor based on observed data
+      let sumRatios = 0;
+      let count = 0;
+
+      truingData.forEach(obs => {
+        const predicted = calculatedTable.find(r => r.distance === parseInt(obs.distance));
+        if (predicted && predicted.drop !== 0 && obs.observedDrop) {
+          const ratio = parseFloat(obs.observedDrop) / predicted.drop;
+          sumRatios += ratio;
+          count++;
+        }
+      });
+
+      if (count > 0) {
+        setTruingFactor(sumRatios / count);
+      }
+    };
+
+    useEffect(() => {
+      if (selectedLoad && selectedLoad.bc && selectedLoad.muzzleVelocity) {
+        const table = calculateTrajectory();
+        setCalculatedTable(table);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedLoadId, selectedLoad, sightHeight, zeroDistance, temperature, altitude, pressure, humidity, windSpeed, windAngle, maxRange, rangeIncrement, truingFactor]);
+
+    // Generate drop chart image for phone screensaver
+    const generateDropChart = () => {
+      if (calculatedTable.length === 0) return;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 400;
+      canvas.height = 800;
+      const ctx = canvas.getContext('2d');
+
+      // Background
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, 400, 800);
+
+      // Header
+      ctx.fillStyle = '#9333ea';
+      ctx.fillRect(0, 0, 400, 80);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(selectedLoad?.name || 'Drop Chart', 200, 35);
+      ctx.font = '14px Arial';
+      ctx.fillText(`MV: ${selectedLoad?.muzzleVelocity} fps | BC: ${selectedLoad?.bc} ${selectedLoad?.bcType || 'G1'}`, 200, 55);
+      ctx.fillText(`Zero: ${zeroDistance}yds | Wind: ${windSpeed}mph @ ${windAngle}°`, 200, 72);
+
+      // Table header
+      ctx.fillStyle = '#4a4a6a';
+      ctx.fillRect(0, 80, 400, 35);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 12px Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText('YDS', 15, 102);
+      ctx.textAlign = 'center';
+      ctx.fillText('DROP', 100, 102);
+      ctx.fillText('MOA', 170, 102);
+      ctx.fillText('MIL', 230, 102);
+      ctx.fillText('WIND', 290, 102);
+      ctx.fillText('VEL', 360, 102);
+
+      // Table rows
+      ctx.font = '12px Arial';
+      let y = 130;
+      calculatedTable.forEach((row, i) => {
+        if (i % 2 === 0) {
+          ctx.fillStyle = '#252540';
+          ctx.fillRect(0, y - 15, 400, 25);
+        }
+
+        ctx.fillStyle = row.distance === parseInt(zeroDistance) ? '#9333ea' : '#ffffff';
+        ctx.textAlign = 'left';
+        ctx.fillText(row.distance.toString(), 15, y);
+        ctx.textAlign = 'center';
+        ctx.fillText(row.drop.toFixed(1) + '"', 100, y);
+        ctx.fillText(row.dropMOA.toFixed(1), 170, y);
+        ctx.fillText(row.dropMils.toFixed(2), 230, y);
+        ctx.fillStyle = row.windage >= 0 ? '#22c55e' : '#ef4444';
+        ctx.fillText((row.windage >= 0 ? 'R ' : 'L ') + Math.abs(row.windage).toFixed(1) + '"', 290, y);
+        ctx.fillStyle = row.distance === parseInt(zeroDistance) ? '#9333ea' : '#ffffff';
+        ctx.fillText(row.velocity.toString(), 360, y);
+
+        y += 25;
+      });
+
+      // Footer
+      ctx.fillStyle = '#4a4a6a';
+      ctx.fillRect(0, 750, 400, 50);
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '10px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Generated: ${new Date().toLocaleDateString()} | Temp: ${temperature}°F | Alt: ${altitude}ft`, 200, 770);
+      ctx.fillText('PRS Ballistics Calculator', 200, 785);
+
+      // Download
+      const link = document.createElement('a');
+      link.download = `drop-chart-${selectedLoad?.name?.replace(/\s+/g, '-') || 'ballistics'}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    };
+
+    // Loads with ballistics data
+    const ballisticLoads = equipment.loads.filter(l => l.bc && l.muzzleVelocity);
+
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
+          <Crosshair className="mr-3 h-7 w-7 text-purple-600 dark:text-purple-400" />
+          Ballistics Calculator
+        </h2>
+
+        {ballisticLoads.length === 0 ? (
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6">
+            <div className="flex items-start">
+              <AlertCircle className="h-6 w-6 text-yellow-600 dark:text-yellow-400 mr-3 mt-0.5" />
+              <div>
+                <h3 className="font-medium text-yellow-800 dark:text-yellow-200">No Ballistics Data Available</h3>
+                <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+                  Add BC and Muzzle Velocity data to your loads in the Equipment tab to use the ballistics calculator.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Input Panel */}
+            <div className="lg:col-span-1 space-y-6">
+              {/* Load Selection */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Load Selection</h3>
+                <select
+                  value={selectedLoadId}
+                  onChange={(e) => setSelectedLoadId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="">Select a load...</option>
+                  {ballisticLoads.map(load => (
+                    <option key={load.id} value={load.id}>
+                      {load.name} ({load.bc} {load.bcType || 'G1'}, {load.muzzleVelocity} fps)
+                    </option>
+                  ))}
+                </select>
+
+                {selectedLoad && (
+                  <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><span className="text-gray-500 dark:text-gray-400">Bullet:</span> <span className="text-gray-900 dark:text-white">{selectedLoad.bullet}</span></div>
+                      <div><span className="text-gray-500 dark:text-gray-400">Weight:</span> <span className="text-gray-900 dark:text-white">{selectedLoad.bulletWeight}</span></div>
+                      <div><span className="text-gray-500 dark:text-gray-400">BC:</span> <span className="text-gray-900 dark:text-white">{selectedLoad.bc} {selectedLoad.bcType || 'G1'}</span></div>
+                      <div><span className="text-gray-500 dark:text-gray-400">MV:</span> <span className="text-gray-900 dark:text-white">{selectedLoad.muzzleVelocity} fps</span></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Rifle Settings */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Rifle Settings</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Sight Height (inches)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={sightHeight}
+                      onChange={(e) => setSightHeight(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Zero Distance (yards)</label>
+                    <input
+                      type="number"
+                      value={zeroDistance}
+                      onChange={(e) => setZeroDistance(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Atmospheric Conditions */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Atmosphere</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Temp (°F)</label>
+                    <input
+                      type="number"
+                      value={temperature}
+                      onChange={(e) => setTemperature(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Altitude (ft)</label>
+                    <input
+                      type="number"
+                      value={altitude}
+                      onChange={(e) => setAltitude(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Pressure (inHg)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={pressure}
+                      onChange={(e) => setPressure(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Humidity (%)</label>
+                    <input
+                      type="number"
+                      value={humidity}
+                      onChange={(e) => setHumidity(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Wind */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Wind</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Speed (mph)</label>
+                    <input
+                      type="number"
+                      value={windSpeed}
+                      onChange={(e) => setWindSpeed(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Angle (°)</label>
+                    <input
+                      type="number"
+                      value={windAngle}
+                      onChange={(e) => setWindAngle(e.target.value)}
+                      placeholder="90 = full crosswind"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  0° = head wind, 90° = full crosswind, 180° = tail wind
+                </p>
+              </div>
+
+              {/* Range Settings */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Range Settings</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Max Range (yds)</label>
+                    <input
+                      type="number"
+                      value={maxRange}
+                      onChange={(e) => setMaxRange(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Increment (yds)</label>
+                    <select
+                      value={rangeIncrement}
+                      onChange={(e) => setRangeIncrement(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    >
+                      <option value="25">25</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Truing */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Truing Data</h3>
+                  <button
+                    onClick={() => setShowTruingModal(true)}
+                    className="flex items-center text-sm text-purple-600 dark:text-purple-400 hover:text-purple-700"
+                  >
+                    <Plus className="h-4 w-4 mr-1" /> Add
+                  </button>
+                </div>
+
+                {truingData.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Add real-world observations to true your ballistic solution.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {truingData.map((data, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm p-2 bg-gray-50 dark:bg-gray-700 rounded">
+                        <span className="text-gray-900 dark:text-white">{data.distance} yds: {data.observedDrop}" drop</span>
+                        <button
+                          onClick={() => setTruingData(prev => prev.filter((_, idx) => idx !== i))}
+                          className="text-red-500 hover:text-red-600"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={applyTruing}
+                      className="w-full mt-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-sm"
+                    >
+                      Apply Truing (Factor: {truingFactor.toFixed(3)})
+                    </button>
+                    {truingFactor !== 1.0 && (
+                      <button
+                        onClick={() => setTruingFactor(1.0)}
+                        className="w-full px-3 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md text-sm"
+                      >
+                        Reset Truing
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Results Panel */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Drop Table */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Drop Table</h3>
+                  {calculatedTable.length > 0 && (
+                    <button
+                      onClick={generateDropChart}
+                      className="flex items-center px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-sm"
+                    >
+                      <Download className="h-4 w-4 mr-1" /> Phone Chart
+                    </button>
+                  )}
+                </div>
+
+                {!selectedLoad ? (
+                  <p className="text-gray-500 dark:text-gray-400 text-center py-8">
+                    Select a load to calculate trajectory
+                  </p>
+                ) : calculatedTable.length === 0 ? (
+                  <p className="text-gray-500 dark:text-gray-400 text-center py-8">
+                    Calculating...
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left border-b border-gray-200 dark:border-gray-600">
+                          <th className="py-2 px-2 text-gray-600 dark:text-gray-300">Dist</th>
+                          <th className="py-2 px-2 text-gray-600 dark:text-gray-300">Drop</th>
+                          <th className="py-2 px-2 text-gray-600 dark:text-gray-300">MOA</th>
+                          <th className="py-2 px-2 text-gray-600 dark:text-gray-300">Mils</th>
+                          <th className="py-2 px-2 text-gray-600 dark:text-gray-300">Wind</th>
+                          <th className="py-2 px-2 text-gray-600 dark:text-gray-300">W-MOA</th>
+                          <th className="py-2 px-2 text-gray-600 dark:text-gray-300">Vel</th>
+                          <th className="py-2 px-2 text-gray-600 dark:text-gray-300">Energy</th>
+                          <th className="py-2 px-2 text-gray-600 dark:text-gray-300">TOF</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {calculatedTable.map((row, i) => (
+                          <tr
+                            key={i}
+                            className={`border-b border-gray-100 dark:border-gray-700 ${
+                              row.distance === parseInt(zeroDistance) ? 'bg-purple-50 dark:bg-purple-900/30' : ''
+                            }`}
+                          >
+                            <td className="py-2 px-2 font-medium text-gray-900 dark:text-white">{row.distance}</td>
+                            <td className="py-2 px-2 text-gray-700 dark:text-gray-300">{row.drop.toFixed(1)}"</td>
+                            <td className="py-2 px-2 text-gray-700 dark:text-gray-300">{row.dropMOA.toFixed(1)}</td>
+                            <td className="py-2 px-2 text-gray-700 dark:text-gray-300">{row.dropMils.toFixed(2)}</td>
+                            <td className={`py-2 px-2 ${row.windage >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                              {row.windage >= 0 ? 'R ' : 'L '}{Math.abs(row.windage).toFixed(1)}"
+                            </td>
+                            <td className="py-2 px-2 text-gray-700 dark:text-gray-300">{row.windageMOA.toFixed(1)}</td>
+                            <td className="py-2 px-2 text-gray-700 dark:text-gray-300">{row.velocity}</td>
+                            <td className="py-2 px-2 text-gray-700 dark:text-gray-300">{row.energy}</td>
+                            <td className="py-2 px-2 text-gray-700 dark:text-gray-300">{row.tof}s</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Sight Tape Visualization */}
+              {calculatedTable.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Sight Tape</h3>
+                  <div className="flex items-center justify-center">
+                    <div className="relative w-16 h-96 bg-gray-200 dark:bg-gray-600 rounded-lg overflow-hidden">
+                      {/* Turret markings */}
+                      <div className="absolute inset-0 flex flex-col">
+                        {calculatedTable.filter(r => r.distance > 0 && r.distance <= parseInt(maxRange)).map((row, i) => {
+                          // Map MOA to position (assuming 10 MOA per revolution, visual scaling)
+                          const moaPerInch = 2; // visual scaling
+                          const position = Math.min(95, Math.max(5, (Math.abs(row.dropMOA) / moaPerInch) * 5));
+
+                          return (
+                            <div
+                              key={i}
+                              className="absolute w-full flex items-center"
+                              style={{ top: `${position}%` }}
+                            >
+                              <div className={`h-0.5 ${row.distance % 200 === 0 ? 'w-8 bg-purple-600' : 'w-4 bg-gray-400 dark:bg-gray-500'}`} />
+                              {row.distance % 100 === 0 && (
+                                <span className="ml-1 text-xs text-gray-700 dark:text-gray-300 font-medium">
+                                  {row.distance}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Center mark */}
+                      <div className="absolute top-1 left-0 right-0 flex items-center">
+                        <div className="w-full h-1 bg-purple-600" />
+                      </div>
+                    </div>
+
+                    <div className="ml-6 text-sm text-gray-600 dark:text-gray-400">
+                      <p className="mb-2"><strong>MOA/Click Tape</strong></p>
+                      <p>Zero: {zeroDistance} yds</p>
+                      <p>Top = Near</p>
+                      <p>Bottom = Far</p>
+                      <p className="mt-4 text-xs">
+                        Print and attach to<br />elevation turret
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Truing Modal */}
+        {showTruingModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Add Truing Observation</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Enter the actual observed drop at a known distance to calibrate the ballistic solution.
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Distance (yards)</label>
+                  <input
+                    type="number"
+                    value={newTruing.distance}
+                    onChange={(e) => setNewTruing({ ...newTruing, distance: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    placeholder="e.g., 600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Observed Drop (inches)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={newTruing.observedDrop}
+                    onChange={(e) => setNewTruing({ ...newTruing, observedDrop: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    placeholder="e.g., -85.5 (negative = below zero)"
+                  />
+                </div>
+              </div>
+              <div className="mt-6 flex justify-end space-x-4">
+                <button
+                  onClick={() => {
+                    setShowTruingModal(false);
+                    setNewTruing({ distance: '', observedDrop: '', observedWindage: '' });
+                  }}
+                  className="px-4 py-2 text-gray-700 dark:text-gray-200 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (newTruing.distance && newTruing.observedDrop) {
+                      setTruingData(prev => [...prev, newTruing]);
+                      setNewTruing({ distance: '', observedDrop: '', observedWindage: '' });
+                      setShowTruingModal(false);
+                    }
+                  }}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg"
+                >
+                  Add Observation
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Chrono Import Modal
   const ChronoImportModal = () => (
@@ -3923,7 +4646,11 @@ const CompletePRSApp = () => {
                                 primer: load.primer || '',
                                 brass: load.brass || '',
                                 oal: load.oal || '',
-                                cbto: load.cbto || ''
+                                cbto: load.cbto || '',
+                                bc: load.bc || '',
+                                bcType: load.bcType || 'G1',
+                                muzzleVelocity: load.muzzleVelocity || '',
+                                velocitySD: load.velocitySD || ''
                               });
                               setShowAddLoad(true);
                             }}
@@ -3981,6 +4708,11 @@ const CompletePRSApp = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Ballistics Tab */}
+        {activeTab === 'ballistics' && (
+          <BallisticsTab equipment={equipment} />
         )}
 
         {/* Add/Edit Rifle Modal */}
@@ -4208,6 +4940,56 @@ const CompletePRSApp = () => {
                     placeholder="e.g., 2.230&quot;"
                   />
                 </div>
+
+                {/* Ballistics Section */}
+                <div className="pt-4 border-t border-gray-200 dark:border-gray-600">
+                  <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">Ballistics Data</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">BC</label>
+                      <input
+                        type="text"
+                        value={newLoad.bc}
+                        onChange={(e) => setNewLoad({...newLoad, bc: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                        placeholder="e.g., 0.585"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">BC Type</label>
+                      <select
+                        value={newLoad.bcType}
+                        onChange={(e) => setNewLoad({...newLoad, bcType: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      >
+                        <option value="G1">G1</option>
+                        <option value="G7">G7</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Muzzle Velocity (fps)</label>
+                      <input
+                        type="text"
+                        value={newLoad.muzzleVelocity}
+                        onChange={(e) => setNewLoad({...newLoad, muzzleVelocity: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                        placeholder="e.g., 2750"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Velocity SD (fps)</label>
+                      <input
+                        type="text"
+                        value={newLoad.velocitySD}
+                        onChange={(e) => setNewLoad({...newLoad, velocitySD: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                        placeholder="e.g., 8"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className="mt-6 flex justify-end space-x-4">
                 <button
@@ -4216,7 +4998,8 @@ const CompletePRSApp = () => {
                     setEditingLoad(null);
                     setNewLoad({
                       name: '', caliber: '', bullet: '', bulletWeight: '',
-                      powder: '', charge: '', primer: '', brass: '', oal: '', cbto: ''
+                      powder: '', charge: '', primer: '', brass: '', oal: '', cbto: '',
+                      bc: '', bcType: 'G1', muzzleVelocity: '', velocitySD: ''
                     });
                   }}
                   className="px-4 py-2 text-gray-700 dark:text-gray-200 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
@@ -4257,7 +5040,8 @@ const CompletePRSApp = () => {
                       setEditingLoad(null);
                       setNewLoad({
                         name: '', caliber: '', bullet: '', bulletWeight: '',
-                        powder: '', charge: '', primer: '', brass: '', oal: '', cbto: ''
+                        powder: '', charge: '', primer: '', brass: '', oal: '', cbto: '',
+                        bc: '', bcType: 'G1', muzzleVelocity: '', velocitySD: ''
                       });
                     } catch (error) {
                       console.error('Error saving load:', error);
@@ -4354,12 +5138,122 @@ const CompletePRSApp = () => {
                     const meanRadiusMOA = stats.meanRadiusInches ? (stats.meanRadiusInches * 95.5) / distance : 0;
                     const stdDevMOA = stats.standardDevInches ? (stats.standardDevInches * 95.5) / distance : 0;
 
+                    const isPlotExpanded = expandedTargetPlots[`${viewingSession.id}-${index}`];
+                    const plotKey = `${viewingSession.id}-${index}`;
+
                     return (
                       <div key={index} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4">
                         <div className="flex justify-between items-start mb-3">
                           <h5 className="font-medium text-gray-900 dark:text-white">Target {index + 1}</h5>
-                          <span className="text-sm text-gray-500 dark:text-gray-400">{target.shots?.length || 0} shots</span>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm text-gray-500 dark:text-gray-400">{target.shots?.length || 0} shots</span>
+                            {target.shots?.length >= 2 && (
+                              <button
+                                onClick={() => setExpandedTargetPlots(prev => ({
+                                  ...prev,
+                                  [plotKey]: !prev[plotKey]
+                                }))}
+                                className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 text-sm font-medium"
+                              >
+                                {isPlotExpanded ? '▼ Hide Plot' : '▶ Show Plot'}
+                              </button>
+                            )}
+                          </div>
                         </div>
+
+                        {/* Expandable Shot Plot */}
+                        {isPlotExpanded && target.shots?.length >= 2 && (
+                          <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                            <div className="flex justify-center">
+                              <svg width="200" height="200" className="bg-white dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-600">
+                                {/* Grid lines */}
+                                <line x1="100" y1="0" x2="100" y2="200" stroke="#e5e7eb" strokeWidth="1" className="dark:stroke-gray-600" />
+                                <line x1="0" y1="100" x2="200" y2="100" stroke="#e5e7eb" strokeWidth="1" className="dark:stroke-gray-600" />
+                                <circle cx="100" cy="100" r="30" fill="none" stroke="#e5e7eb" strokeWidth="1" className="dark:stroke-gray-600" />
+                                <circle cx="100" cy="100" r="60" fill="none" stroke="#e5e7eb" strokeWidth="1" className="dark:stroke-gray-600" />
+                                <circle cx="100" cy="100" r="90" fill="none" stroke="#e5e7eb" strokeWidth="1" className="dark:stroke-gray-600" />
+
+                                {/* Target center crosshair */}
+                                <line x1="95" y1="100" x2="105" y2="100" stroke="#9ca3af" strokeWidth="2" />
+                                <line x1="100" y1="95" x2="100" y2="105" stroke="#9ca3af" strokeWidth="2" />
+
+                                {/* Shot markers - scale to fit in 180px with max at edges */}
+                                {(() => {
+                                  const shots = target.shots || [];
+                                  if (shots.length === 0) return null;
+
+                                  // Calculate shot positions relative to target center
+                                  const centerX = target.adjustedX ?? target.x;
+                                  const centerY = target.adjustedY ?? target.y;
+                                  const ppi = target.pixelsPerInch || 1;
+
+                                  const shotPositions = shots.map(shot => ({
+                                    xInches: (shot.x - centerX) / ppi,
+                                    yInches: (shot.y - centerY) / ppi
+                                  }));
+
+                                  // Find max extent for scaling
+                                  const maxExtent = Math.max(
+                                    ...shotPositions.map(s => Math.abs(s.xInches)),
+                                    ...shotPositions.map(s => Math.abs(s.yInches)),
+                                    0.5 // Minimum scale
+                                  );
+
+                                  const scale = 80 / maxExtent; // 80px from center to edge
+
+                                  // Group center
+                                  const gcX = stats.groupCenterXInches || 0;
+                                  const gcY = stats.groupCenterYInches || 0;
+
+                                  return (
+                                    <>
+                                      {/* Group center marker */}
+                                      <circle
+                                        cx={100 + gcX * scale}
+                                        cy={100 - gcY * scale}
+                                        r="4"
+                                        fill="none"
+                                        stroke="#9333ea"
+                                        strokeWidth="2"
+                                      />
+
+                                      {/* Mean radius circle */}
+                                      {stats.meanRadiusInches && (
+                                        <circle
+                                          cx={100 + gcX * scale}
+                                          cy={100 - gcY * scale}
+                                          r={stats.meanRadiusInches * scale}
+                                          fill="none"
+                                          stroke="#9333ea"
+                                          strokeWidth="1"
+                                          strokeDasharray="4,4"
+                                          opacity="0.5"
+                                        />
+                                      )}
+
+                                      {/* Shot markers */}
+                                      {shotPositions.map((shot, i) => (
+                                        <circle
+                                          key={i}
+                                          cx={100 + shot.xInches * scale}
+                                          cy={100 - shot.yInches * scale}
+                                          r="4"
+                                          fill="#ef4444"
+                                          stroke="#b91c1c"
+                                          strokeWidth="1"
+                                        />
+                                      ))}
+                                    </>
+                                  );
+                                })()}
+                              </svg>
+                            </div>
+                            <div className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+                              Red dots = shots • Purple circle = group center • Dashed = mean radius
+                            </div>
+                          </div>
+                        )}
+
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                           <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
                             <p className="text-gray-500 dark:text-gray-400 text-xs uppercase">Group Size</p>
