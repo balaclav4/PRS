@@ -1378,7 +1378,7 @@ const CompletePRSApp = () => {
   );
 
   // Ballistics Tab Component
-  const BallisticsTab = ({ equipment }) => {
+  const BallisticsTab = ({ equipment, user, setEquipment }) => {
     const [selectedLoadId, setSelectedLoadId] = useState('');
     const [sightHeight, setSightHeight] = useState('1.5');
     const [zeroDistance, setZeroDistance] = useState('100');
@@ -1397,7 +1397,70 @@ const CompletePRSApp = () => {
     const [truingFactor, setTruingFactor] = useState(1.0);
     const chartRef = useRef(null);
 
+    // Inline editing state for ballistics data
+    const [editingBC, setEditingBC] = useState('');
+    const [editingBCType, setEditingBCType] = useState('G1');
+    const [editingMV, setEditingMV] = useState('');
+    const [editingVelocitySD, setEditingVelocitySD] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
     const selectedLoad = equipment.loads.find(l => l.id === selectedLoadId);
+
+    // Update editing state when load selection changes
+    useEffect(() => {
+      if (selectedLoad) {
+        setEditingBC(selectedLoad.bc || '');
+        setEditingBCType(selectedLoad.bcType || 'G1');
+        setEditingMV(selectedLoad.muzzleVelocity || '');
+        setEditingVelocitySD(selectedLoad.velocitySD || '');
+      } else {
+        setEditingBC('');
+        setEditingBCType('G1');
+        setEditingMV('');
+        setEditingVelocitySD('');
+      }
+    }, [selectedLoadId, selectedLoad]);
+
+    // Save ballistics data to load
+    const saveBallisticsData = async () => {
+      if (!selectedLoad || !user) return;
+
+      setIsSaving(true);
+      try {
+        const updatedData = {
+          ...selectedLoad,
+          bc: editingBC,
+          bcType: editingBCType,
+          muzzleVelocity: editingMV,
+          velocitySD: editingVelocitySD
+        };
+
+        await updateLoad(user.uid, selectedLoad.id, updatedData);
+
+        // Update local state
+        setEquipment(prev => ({
+          ...prev,
+          loads: prev.loads.map(l =>
+            l.id === selectedLoad.id ? { ...l, ...updatedData } : l
+          )
+        }));
+      } catch (error) {
+        console.error('Error saving ballistics data:', error);
+        alert('Failed to save ballistics data. Please try again.');
+      }
+      setIsSaving(false);
+    };
+
+    // Check if ballistics data has been modified
+    const hasModifiedData = selectedLoad && (
+      editingBC !== (selectedLoad.bc || '') ||
+      editingBCType !== (selectedLoad.bcType || 'G1') ||
+      editingMV !== (selectedLoad.muzzleVelocity || '') ||
+      editingVelocitySD !== (selectedLoad.velocitySD || '')
+    );
+
+    // Check if we have complete ballistics data
+    const hasCompleteData = editingBC && editingMV;
 
     // Standard atmosphere constants
     const STANDARD_TEMP_F = 59;
@@ -1686,9 +1749,6 @@ const CompletePRSApp = () => {
       link.click();
     };
 
-    // Loads with ballistics data
-    const ballisticLoads = equipment.loads.filter(l => l.bc && l.muzzleVelocity);
-
     return (
       <div className="space-y-6">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
@@ -1696,14 +1756,14 @@ const CompletePRSApp = () => {
           Ballistics Calculator
         </h2>
 
-        {ballisticLoads.length === 0 ? (
+        {equipment.loads.length === 0 ? (
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6">
             <div className="flex items-start">
               <AlertCircle className="h-6 w-6 text-yellow-600 dark:text-yellow-400 mr-3 mt-0.5" />
               <div>
-                <h3 className="font-medium text-yellow-800 dark:text-yellow-200">No Ballistics Data Available</h3>
+                <h3 className="font-medium text-yellow-800 dark:text-yellow-200">No Loads Available</h3>
                 <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                  Add BC and Muzzle Velocity data to your loads in the Equipment tab to use the ballistics calculator.
+                  Add loads in the Equipment tab first, then return here to set up ballistics data.
                 </p>
               </div>
             </div>
@@ -1712,7 +1772,7 @@ const CompletePRSApp = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Input Panel */}
             <div className="lg:col-span-1 space-y-6">
-              {/* Load Selection */}
+              {/* Load Selection & Ballistics Data */}
               <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Load Selection</h3>
                 <select
@@ -1721,22 +1781,92 @@ const CompletePRSApp = () => {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
                 >
                   <option value="">Select a load...</option>
-                  {ballisticLoads.map(load => (
+                  {equipment.loads.map(load => (
                     <option key={load.id} value={load.id}>
-                      {load.name} ({load.bc} {load.bcType || 'G1'}, {load.muzzleVelocity} fps)
+                      {load.name} {load.bc && load.muzzleVelocity ? `(${load.bc} ${load.bcType || 'G1'}, ${load.muzzleVelocity} fps)` : '(needs ballistics data)'}
                     </option>
                   ))}
                 </select>
 
                 {selectedLoad && (
-                  <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div><span className="text-gray-500 dark:text-gray-400">Bullet:</span> <span className="text-gray-900 dark:text-white">{selectedLoad.bullet}</span></div>
-                      <div><span className="text-gray-500 dark:text-gray-400">Weight:</span> <span className="text-gray-900 dark:text-white">{selectedLoad.bulletWeight}</span></div>
-                      <div><span className="text-gray-500 dark:text-gray-400">BC:</span> <span className="text-gray-900 dark:text-white">{selectedLoad.bc} {selectedLoad.bcType || 'G1'}</span></div>
-                      <div><span className="text-gray-500 dark:text-gray-400">MV:</span> <span className="text-gray-900 dark:text-white">{selectedLoad.muzzleVelocity} fps</span></div>
+                  <div className="mt-4 space-y-4">
+                    {/* Load Info */}
+                    <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div><span className="text-gray-500 dark:text-gray-400">Bullet:</span> <span className="text-gray-900 dark:text-white">{selectedLoad.bullet || 'N/A'}</span></div>
+                        <div><span className="text-gray-500 dark:text-gray-400">Weight:</span> <span className="text-gray-900 dark:text-white">{selectedLoad.bulletWeight || 'N/A'}</span></div>
+                        <div><span className="text-gray-500 dark:text-gray-400">Caliber:</span> <span className="text-gray-900 dark:text-white">{selectedLoad.caliber || 'N/A'}</span></div>
+                      </div>
+                    </div>
+
+                    {/* Ballistics Data Input */}
+                    <div className="border-t border-gray-200 dark:border-gray-600 pt-4">
+                      <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                        Ballistics Data
+                        {!hasCompleteData && (
+                          <span className="ml-2 text-xs font-normal text-yellow-600 dark:text-yellow-400">(required for calculations)</span>
+                        )}
+                      </h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">BC *</label>
+                          <input
+                            type="text"
+                            value={editingBC}
+                            onChange={(e) => setEditingBC(e.target.value)}
+                            placeholder="e.g., 0.585"
+                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">BC Type</label>
+                          <select
+                            value={editingBCType}
+                            onChange={(e) => setEditingBCType(e.target.value)}
+                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                          >
+                            <option value="G1">G1</option>
+                            <option value="G7">G7</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Muzzle Velocity (fps) *</label>
+                          <input
+                            type="text"
+                            value={editingMV}
+                            onChange={(e) => setEditingMV(e.target.value)}
+                            placeholder="e.g., 2750"
+                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Velocity SD (fps)</label>
+                          <input
+                            type="text"
+                            value={editingVelocitySD}
+                            onChange={(e) => setEditingVelocitySD(e.target.value)}
+                            placeholder="e.g., 8"
+                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
+                      </div>
+                      {hasModifiedData && (
+                        <button
+                          onClick={saveBallisticsData}
+                          disabled={isSaving}
+                          className="mt-3 w-full px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white rounded-md text-sm font-medium flex items-center justify-center"
+                        >
+                          {isSaving ? 'Saving...' : <><Save className="h-4 w-4 mr-1" /> Save Ballistics Data</>}
+                        </button>
+                      )}
                     </div>
                   </div>
+                )}
+
+                {!selectedLoad && (
+                  <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                    Select a load to view and enter ballistics data
+                  </p>
                 )}
               </div>
 
@@ -1916,12 +2046,26 @@ const CompletePRSApp = () => {
             </div>
 
             {/* Results Panel */}
-            <div className="lg:col-span-2 space-y-6">
+            <div className={`lg:col-span-2 space-y-6 ${!hasCompleteData ? 'opacity-50 pointer-events-none' : ''}`}>
+              {/* Missing Data Notice */}
+              {!hasCompleteData && (
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mr-2" />
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                      {!selectedLoad
+                        ? 'Select a load to see trajectory calculations'
+                        : 'Enter BC and Muzzle Velocity data to enable calculations'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Drop Table */}
               <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Drop Table</h3>
-                  {calculatedTable.length > 0 && (
+                  {calculatedTable.length > 0 && hasCompleteData && (
                     <button
                       onClick={generateDropChart}
                       className="flex items-center px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-sm"
@@ -1931,10 +2075,40 @@ const CompletePRSApp = () => {
                   )}
                 </div>
 
-                {!selectedLoad ? (
-                  <p className="text-gray-500 dark:text-gray-400 text-center py-8">
-                    Select a load to calculate trajectory
-                  </p>
+                {!hasCompleteData ? (
+                  /* Preview table with sample data when incomplete */
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left border-b border-gray-200 dark:border-gray-600">
+                          <th className="py-2 px-2 text-gray-400 dark:text-gray-500">Dist</th>
+                          <th className="py-2 px-2 text-gray-400 dark:text-gray-500">Drop</th>
+                          <th className="py-2 px-2 text-gray-400 dark:text-gray-500">MOA</th>
+                          <th className="py-2 px-2 text-gray-400 dark:text-gray-500">Mils</th>
+                          <th className="py-2 px-2 text-gray-400 dark:text-gray-500">Wind</th>
+                          <th className="py-2 px-2 text-gray-400 dark:text-gray-500">W-MOA</th>
+                          <th className="py-2 px-2 text-gray-400 dark:text-gray-500">Vel</th>
+                          <th className="py-2 px-2 text-gray-400 dark:text-gray-500">Energy</th>
+                          <th className="py-2 px-2 text-gray-400 dark:text-gray-500">TOF</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[100, 200, 300, 400, 500, 600, 700, 800, 900, 1000].map((dist, i) => (
+                          <tr key={i} className="border-b border-gray-100 dark:border-gray-700">
+                            <td className="py-2 px-2 text-gray-400 dark:text-gray-500">{dist}</td>
+                            <td className="py-2 px-2 text-gray-400 dark:text-gray-500">--</td>
+                            <td className="py-2 px-2 text-gray-400 dark:text-gray-500">--</td>
+                            <td className="py-2 px-2 text-gray-400 dark:text-gray-500">--</td>
+                            <td className="py-2 px-2 text-gray-400 dark:text-gray-500">--</td>
+                            <td className="py-2 px-2 text-gray-400 dark:text-gray-500">--</td>
+                            <td className="py-2 px-2 text-gray-400 dark:text-gray-500">--</td>
+                            <td className="py-2 px-2 text-gray-400 dark:text-gray-500">--</td>
+                            <td className="py-2 px-2 text-gray-400 dark:text-gray-500">--</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : calculatedTable.length === 0 ? (
                   <p className="text-gray-500 dark:text-gray-400 text-center py-8">
                     Calculating...
@@ -4712,7 +4886,7 @@ const CompletePRSApp = () => {
 
         {/* Ballistics Tab */}
         {activeTab === 'ballistics' && (
-          <BallisticsTab equipment={equipment} />
+          <BallisticsTab equipment={equipment} user={user} setEquipment={setEquipment} />
         )}
 
         {/* Add/Edit Rifle Modal */}
@@ -5138,7 +5312,7 @@ const CompletePRSApp = () => {
                     const meanRadiusMOA = stats.meanRadiusInches ? (stats.meanRadiusInches * 95.5) / distance : 0;
                     const stdDevMOA = stats.standardDevInches ? (stats.standardDevInches * 95.5) / distance : 0;
 
-                    const isPlotExpanded = expandedTargetPlots[`${viewingSession.id}-${index}`];
+                    const isPlotExpanded = expandedTargetPlots[`${viewingSession.id}-${index}`] !== false; // Default to expanded
                     const plotKey = `${viewingSession.id}-${index}`;
 
                     return (
@@ -5151,7 +5325,7 @@ const CompletePRSApp = () => {
                               <button
                                 onClick={() => setExpandedTargetPlots(prev => ({
                                   ...prev,
-                                  [plotKey]: !prev[plotKey]
+                                  [plotKey]: !isPlotExpanded
                                 }))}
                                 className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 text-sm font-medium"
                               >
@@ -5210,7 +5384,7 @@ const CompletePRSApp = () => {
                                       {/* Group center marker */}
                                       <circle
                                         cx={100 + gcX * scale}
-                                        cy={100 - gcY * scale}
+                                        cy={100 + gcY * scale}
                                         r="4"
                                         fill="none"
                                         stroke="#9333ea"
@@ -5221,7 +5395,7 @@ const CompletePRSApp = () => {
                                       {stats.meanRadiusInches && (
                                         <circle
                                           cx={100 + gcX * scale}
-                                          cy={100 - gcY * scale}
+                                          cy={100 + gcY * scale}
                                           r={stats.meanRadiusInches * scale}
                                           fill="none"
                                           stroke="#9333ea"
@@ -5236,7 +5410,7 @@ const CompletePRSApp = () => {
                                         <circle
                                           key={i}
                                           cx={100 + shot.xInches * scale}
-                                          cy={100 - shot.yInches * scale}
+                                          cy={100 + shot.yInches * scale}
                                           r="4"
                                           fill="#ef4444"
                                           stroke="#b91c1c"
