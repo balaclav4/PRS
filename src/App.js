@@ -1336,7 +1336,7 @@ const CompletePRSApp = () => {
         <div className={`flex justify-between items-center ${isMobile ? 'h-14' : 'h-16'}`}>
           <div className="flex items-center space-x-2">
             <Target className={`${isMobile ? 'h-6 w-6' : 'h-8 w-8'} text-purple-600 dark:text-purple-400`} />
-            <h1 className={`${isMobile ? 'text-lg' : 'text-xl'} font-bold text-gray-900 dark:text-white`}>PRS Precision</h1>
+            <h1 className={`${isMobile ? 'text-lg' : 'text-xl'} font-bold text-gray-900 dark:text-white`}>PRS Analytics</h1>
           </div>
           <div className="flex items-center space-x-2">
             {user && (
@@ -1794,16 +1794,18 @@ const CompletePRSApp = () => {
     };
 
     useEffect(() => {
-      if (selectedLoad && selectedLoad.bc && selectedLoad.muzzleVelocity) {
+      if (selectedLoad && editingBC && editingMV) {
         const table = calculateTrajectory();
         setCalculatedTable(table);
+      } else {
+        setCalculatedTable([]);
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedLoadId, selectedLoad, sightHeight, zeroDistance, temperature, altitude, pressure, humidity, windSpeed, windAngle, maxRange, rangeIncrement, truingFactor]);
+    }, [selectedLoadId, selectedLoad, editingBC, editingBCType, editingMV, sightHeight, zeroDistance, temperature, altitude, pressure, humidity, windSpeed, windAngle, maxRange, rangeIncrement, truingFactor]);
 
     // Generate drop chart image for phone screensaver
     const generateDropChart = () => {
-      if (calculatedTable.length === 0) return;
+      if (calculatedTable.length === 0 || !hasCompleteData) return;
 
       const canvas = document.createElement('canvas');
       canvas.width = 400;
@@ -1822,7 +1824,7 @@ const CompletePRSApp = () => {
       ctx.textAlign = 'center';
       ctx.fillText(selectedLoad?.name || 'Drop Chart', 200, 35);
       ctx.font = '14px Arial';
-      ctx.fillText(`MV: ${selectedLoad?.muzzleVelocity} fps | BC: ${selectedLoad?.bc} ${selectedLoad?.bcType || 'G1'}`, 200, 55);
+      ctx.fillText(`MV: ${editingMV} fps | BC: ${editingBC} ${editingBCType}`, 200, 55);
       ctx.fillText(`Zero: ${zeroDistance}yds | Wind: ${windSpeed}mph @ ${windAngle}°`, 200, 72);
 
       // Table header
@@ -1870,7 +1872,7 @@ const CompletePRSApp = () => {
       ctx.font = '10px Arial';
       ctx.textAlign = 'center';
       ctx.fillText(`Generated: ${new Date().toLocaleDateString()} | Temp: ${temperature}°F | Alt: ${altitude}ft`, 200, 770);
-      ctx.fillText('PRS Ballistics Calculator', 200, 785);
+      ctx.fillText('PRS Analytics', 200, 785);
 
       // Download
       const link = document.createElement('a');
