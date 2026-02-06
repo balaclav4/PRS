@@ -1625,10 +1625,10 @@ const CompletePRSApp = () => {
           const mach = v / speedOfSound;
           const cd = getDragCoefficient(mach, bcType);
 
-          // Retardation = Cd / BC * v² * constant
-          // The constant accounts for air density and standard projectile
-          // For standard atmosphere: retardation (ft/s²) = Cd / BC * v² / 166168
-          const retardation = (cd / adjustedBC) * (v * v) / 166168;
+          // Retardation = Cd / BC * v² / K
+          // K ≈ 4880 for G1/G7 standard (derived from standard projectile and air density)
+          // This gives retardation in ft/s²
+          const retardation = (cd / adjustedBC) * (v * v) / 4880;
 
           const ax = -retardation * (vx / v);
           const ay = -g - retardation * (vy / v);
@@ -1692,7 +1692,9 @@ const CompletePRSApp = () => {
           const mach = v / speedOfSound;
           const cd = getDragCoefficient(mach, bcType);
 
-          const retardation = (cd / adjustedBC) * (v * v) / 166168;
+          // Retardation = Cd / BC * v² / K
+          // K ≈ 4880 for G1/G7 standard (derived from standard projectile and air density)
+          const retardation = (cd / adjustedBC) * (v * v) / 4880;
 
           // Wind drift: the bullet is "carried" by wind lag
           // Simplified: wind pushes bullet proportional to time of flight and drag
