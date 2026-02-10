@@ -116,7 +116,11 @@ const CompletePRSApp = () => {
   const [newLoad, setNewLoad] = useState({
     name: '', caliber: '', bullet: '', bulletWeight: '',
     powder: '', charge: '', primer: '', brass: '', oal: '', cbto: '',
-    bc: '', bcType: 'G1', muzzleVelocity: '', velocitySD: ''
+    bc: '', bcType: 'G1', muzzleVelocity: '', velocitySD: '',
+    // Reloading measurements
+    caseLength: '', trimLength: '', headspace: '', shoulderBump: '',
+    neckDiameter: '', neckTension: '', bulletJump: '', chamberOAL: '',
+    baseDiameter: '', shoulderDiameter: '', primerDepth: '', annealed: false
   });
   
   // Statistical comparison state
@@ -1397,6 +1401,7 @@ const CompletePRSApp = () => {
     const [truingFactor, setTruingFactor] = useState(1.0);
     const [turretDiameter, setTurretDiameter] = useState('1.5'); // inches - for sight tape
     const [clickValue, setClickValue] = useState('0.25'); // MOA per click
+    const [turretRevolutions, setTurretRevolutions] = useState('10'); // MOA per revolution
     const chartRef = useRef(null);
 
     // Inline editing state for ballistics data
@@ -2058,9 +2063,23 @@ const CompletePRSApp = () => {
                       <option value="0.1">0.1 Mil</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Revolutions</label>
+                    <select
+                      value={turretRevolutions}
+                      onChange={(e) => setTurretRevolutions(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                    >
+                      <option value="10">10 MOA/rev</option>
+                      <option value="12">12 MOA/rev</option>
+                      <option value="15">15 MOA/rev</option>
+                      <option value="20">20 MOA/rev</option>
+                      <option value="25">25 MOA/rev</option>
+                    </select>
+                  </div>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                  Measure turret cap diameter for accurate sight tape
+                  Measure turret cap diameter and check MOA per revolution for accurate sight tape
                 </p>
               </div>
 
@@ -5043,7 +5062,23 @@ const CompletePRSApp = () => {
                         <div className="flex-1">
                           <p className="font-medium text-gray-900 dark:text-white">{load.name}</p>
                           <p className="text-sm text-gray-600 dark:text-gray-300">{load.caliber} • {load.bulletWeight} {load.bullet}</p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">{load.charge} {load.powder} • OAL: {load.oal}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">{load.charge} {load.powder} • OAL: {load.oal}{load.cbto && ` • CBTO: ${load.cbto}`}</p>
+                          {(load.bc || load.muzzleVelocity) && (
+                            <p className="text-sm text-purple-600 dark:text-purple-400">
+                              {load.bc && `BC: ${load.bc} ${load.bcType || 'G1'}`}
+                              {load.bc && load.muzzleVelocity && ' • '}
+                              {load.muzzleVelocity && `MV: ${load.muzzleVelocity} fps`}
+                              {load.velocitySD && ` (SD: ${load.velocitySD})`}
+                            </p>
+                          )}
+                          {(load.caseLength || load.headspace || load.bulletJump) && (
+                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                              {load.caseLength && `Case: ${load.caseLength}`}
+                              {load.headspace && ` • HS: ${load.headspace}`}
+                              {load.bulletJump && ` • Jump: ${load.bulletJump}`}
+                              {load.annealed && ' • Annealed'}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center space-x-1">
                           <button
@@ -5063,7 +5098,20 @@ const CompletePRSApp = () => {
                                 bc: load.bc || '',
                                 bcType: load.bcType || 'G1',
                                 muzzleVelocity: load.muzzleVelocity || '',
-                                velocitySD: load.velocitySD || ''
+                                velocitySD: load.velocitySD || '',
+                                // Reloading measurements
+                                caseLength: load.caseLength || '',
+                                trimLength: load.trimLength || '',
+                                headspace: load.headspace || '',
+                                shoulderBump: load.shoulderBump || '',
+                                neckDiameter: load.neckDiameter || '',
+                                neckTension: load.neckTension || '',
+                                bulletJump: load.bulletJump || '',
+                                chamberOAL: load.chamberOAL || '',
+                                baseDiameter: load.baseDiameter || '',
+                                shoulderDiameter: load.shoulderDiameter || '',
+                                primerDepth: load.primerDepth || '',
+                                annealed: load.annealed || false
                               });
                               setShowAddLoad(true);
                             }}
@@ -5403,6 +5451,200 @@ const CompletePRSApp = () => {
                     </div>
                   </div>
                 </div>
+
+                {/* Reloading Data Section */}
+                <div className="pt-4 border-t border-gray-200 dark:border-gray-600">
+                  <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">Reloading Measurements</h4>
+
+                  {/* Cartridge Diagram */}
+                  <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <svg viewBox="0 0 400 120" className="w-full h-auto">
+                      {/* Cartridge case outline */}
+                      <defs>
+                        <linearGradient id="brassGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#d4a84b" />
+                          <stop offset="50%" stopColor="#c9a227" />
+                          <stop offset="100%" stopColor="#b8941f" />
+                        </linearGradient>
+                        <linearGradient id="bulletGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#b87333" />
+                          <stop offset="50%" stopColor="#a0522d" />
+                          <stop offset="100%" stopColor="#8b4513" />
+                        </linearGradient>
+                      </defs>
+
+                      {/* Case body */}
+                      <path d="M 50 40 L 50 80 L 180 80 L 200 70 L 200 50 L 180 40 Z" fill="url(#brassGradient)" stroke="#8b7355" strokeWidth="1" />
+
+                      {/* Case neck */}
+                      <rect x="200" y="50" width="40" height="20" fill="url(#brassGradient)" stroke="#8b7355" strokeWidth="1" />
+
+                      {/* Bullet */}
+                      <path d="M 240 50 L 240 70 L 280 70 Q 320 60 320 60 Q 280 50 280 50 Z" fill="url(#bulletGradient)" stroke="#6b4423" strokeWidth="1" />
+
+                      {/* Primer */}
+                      <circle cx="50" cy="60" r="8" fill="#c0c0c0" stroke="#808080" strokeWidth="1" />
+
+                      {/* Dimension lines and labels */}
+                      {/* Case Length */}
+                      <line x1="50" y1="95" x2="240" y2="95" stroke="#9333ea" strokeWidth="1" markerEnd="url(#arrowhead)" markerStart="url(#arrowhead)" />
+                      <text x="145" y="108" textAnchor="middle" className="text-xs fill-purple-600 dark:fill-purple-400" fontSize="8">Case Length</text>
+
+                      {/* OAL */}
+                      <line x1="50" y1="25" x2="320" y2="25" stroke="#22c55e" strokeWidth="1" />
+                      <text x="185" y="18" textAnchor="middle" className="text-xs fill-green-600 dark:fill-green-400" fontSize="8">OAL (Overall Length)</text>
+
+                      {/* CBTO */}
+                      <line x1="50" y1="35" x2="280" y2="35" stroke="#3b82f6" strokeWidth="1" />
+                      <text x="165" y="32" textAnchor="middle" className="text-xs fill-blue-600 dark:fill-blue-400" fontSize="8">CBTO (Base to Ogive)</text>
+
+                      {/* Headspace datum */}
+                      <line x1="180" y1="40" x2="180" y2="80" stroke="#ef4444" strokeWidth="1" strokeDasharray="2,2" />
+                      <text x="175" y="88" textAnchor="middle" className="text-xs fill-red-500" fontSize="6">Datum</text>
+
+                      {/* Labels on diagram */}
+                      <text x="115" y="63" textAnchor="middle" className="text-xs fill-gray-700 dark:fill-gray-300" fontSize="7">Body</text>
+                      <text x="220" y="63" textAnchor="middle" className="text-xs fill-gray-700 dark:fill-gray-300" fontSize="7">Neck</text>
+                      <text x="290" y="63" textAnchor="middle" className="text-xs fill-gray-700 dark:fill-gray-300" fontSize="7">Bullet</text>
+                      <text x="50" y="63" textAnchor="middle" className="text-xs fill-gray-500" fontSize="6">Primer</text>
+                      <text x="190" y="48" textAnchor="middle" className="text-xs fill-gray-500" fontSize="6">Shoulder</text>
+                    </svg>
+                  </div>
+
+                  {/* Case Measurements */}
+                  <div className="grid grid-cols-3 gap-3 mb-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Case Length</label>
+                      <input
+                        type="text"
+                        value={newLoad.caseLength}
+                        onChange={(e) => setNewLoad({...newLoad, caseLength: e.target.value})}
+                        placeholder="e.g., 1.920&quot;"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Trim Length</label>
+                      <input
+                        type="text"
+                        value={newLoad.trimLength}
+                        onChange={(e) => setNewLoad({...newLoad, trimLength: e.target.value})}
+                        placeholder="e.g., 1.910&quot;"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Headspace</label>
+                      <input
+                        type="text"
+                        value={newLoad.headspace}
+                        onChange={(e) => setNewLoad({...newLoad, headspace: e.target.value})}
+                        placeholder="e.g., 1.542&quot;"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 mb-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Shoulder Bump</label>
+                      <input
+                        type="text"
+                        value={newLoad.shoulderBump}
+                        onChange={(e) => setNewLoad({...newLoad, shoulderBump: e.target.value})}
+                        placeholder="e.g., 0.002&quot;"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Neck Diameter</label>
+                      <input
+                        type="text"
+                        value={newLoad.neckDiameter}
+                        onChange={(e) => setNewLoad({...newLoad, neckDiameter: e.target.value})}
+                        placeholder="e.g., 0.290&quot;"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Neck Tension</label>
+                      <input
+                        type="text"
+                        value={newLoad.neckTension}
+                        onChange={(e) => setNewLoad({...newLoad, neckTension: e.target.value})}
+                        placeholder="e.g., 0.002&quot;"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 mb-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Bullet Jump</label>
+                      <input
+                        type="text"
+                        value={newLoad.bulletJump}
+                        onChange={(e) => setNewLoad({...newLoad, bulletJump: e.target.value})}
+                        placeholder="e.g., 0.020&quot;"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Chamber OAL</label>
+                      <input
+                        type="text"
+                        value={newLoad.chamberOAL}
+                        onChange={(e) => setNewLoad({...newLoad, chamberOAL: e.target.value})}
+                        placeholder="Max OAL to lands"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Primer Depth</label>
+                      <input
+                        type="text"
+                        value={newLoad.primerDepth}
+                        onChange={(e) => setNewLoad({...newLoad, primerDepth: e.target.value})}
+                        placeholder="e.g., 0.004&quot;"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Base Diameter</label>
+                      <input
+                        type="text"
+                        value={newLoad.baseDiameter}
+                        onChange={(e) => setNewLoad({...newLoad, baseDiameter: e.target.value})}
+                        placeholder="e.g., 0.470&quot;"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Shoulder Dia.</label>
+                      <input
+                        type="text"
+                        value={newLoad.shoulderDiameter}
+                        onChange={(e) => setNewLoad({...newLoad, shoulderDiameter: e.target.value})}
+                        placeholder="e.g., 0.454&quot;"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <label className="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          checked={newLoad.annealed}
+                          onChange={(e) => setNewLoad({...newLoad, annealed: e.target.checked})}
+                          className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        <span>Brass Annealed</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className="mt-6 flex justify-end space-x-4">
                 <button
@@ -5412,7 +5654,10 @@ const CompletePRSApp = () => {
                     setNewLoad({
                       name: '', caliber: '', bullet: '', bulletWeight: '',
                       powder: '', charge: '', primer: '', brass: '', oal: '', cbto: '',
-                      bc: '', bcType: 'G1', muzzleVelocity: '', velocitySD: ''
+                      bc: '', bcType: 'G1', muzzleVelocity: '', velocitySD: '',
+                      caseLength: '', trimLength: '', headspace: '', shoulderBump: '',
+                      neckDiameter: '', neckTension: '', bulletJump: '', chamberOAL: '',
+                      baseDiameter: '', shoulderDiameter: '', primerDepth: '', annealed: false
                     });
                   }}
                   className="px-4 py-2 text-gray-700 dark:text-gray-200 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
@@ -5454,7 +5699,10 @@ const CompletePRSApp = () => {
                       setNewLoad({
                         name: '', caliber: '', bullet: '', bulletWeight: '',
                         powder: '', charge: '', primer: '', brass: '', oal: '', cbto: '',
-                        bc: '', bcType: 'G1', muzzleVelocity: '', velocitySD: ''
+                        bc: '', bcType: 'G1', muzzleVelocity: '', velocitySD: '',
+                        caseLength: '', trimLength: '', headspace: '', shoulderBump: '',
+                        neckDiameter: '', neckTension: '', bulletJump: '', chamberOAL: '',
+                        baseDiameter: '', shoulderDiameter: '', primerDepth: '', annealed: false
                       });
                     } catch (error) {
                       console.error('Error saving load:', error);
