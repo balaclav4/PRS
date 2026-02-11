@@ -5017,94 +5017,36 @@ const CompletePRSApp = () => {
                     Cartridge Measurements Reference
                   </h3>
                   <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                    <svg viewBox="0 0 500 180" className="w-full h-auto">
-                      <defs>
-                        <linearGradient id="brassGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#d4a84b" />
-                          <stop offset="50%" stopColor="#c9a227" />
-                          <stop offset="100%" stopColor="#b8941f" />
-                        </linearGradient>
-                        <linearGradient id="bulletGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#b87333" />
-                          <stop offset="50%" stopColor="#a0522d" />
-                          <stop offset="100%" stopColor="#8b4513" />
-                        </linearGradient>
-                        <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-                          <path d="M0,0 L0,6 L9,3 z" fill="#666" />
-                        </marker>
-                      </defs>
-
-                      {/* Case body */}
-                      <path d="M 60 55 L 60 105 L 220 105 L 250 90 L 250 70 L 220 55 Z" fill="url(#brassGrad)" stroke="#8b7355" strokeWidth="1.5" />
-
-                      {/* Case neck */}
-                      <rect x="250" y="70" width="50" height="20" fill="url(#brassGrad)" stroke="#8b7355" strokeWidth="1.5" />
-
-                      {/* Bullet */}
-                      <path d="M 300 70 L 300 90 L 350 90 Q 400 80 400 80 Q 350 70 350 70 Z" fill="url(#bulletGrad)" stroke="#6b4423" strokeWidth="1.5" />
-
-                      {/* Primer pocket */}
-                      <rect x="55" y="70" width="8" height="20" fill="#a08060" stroke="#8b7355" strokeWidth="1" />
-
-                      {/* Primer */}
-                      <circle cx="60" cy="80" r="10" fill="#c0c0c0" stroke="#808080" strokeWidth="1.5" />
-                      <circle cx="60" cy="80" r="3" fill="#b0b0b0" />
-
-                      {/* Dimension Lines */}
-                      {/* Case Length */}
-                      <line x1="60" y1="125" x2="300" y2="125" stroke="#9333ea" strokeWidth="2" />
-                      <line x1="60" y1="120" x2="60" y2="130" stroke="#9333ea" strokeWidth="2" />
-                      <line x1="300" y1="120" x2="300" y2="130" stroke="#9333ea" strokeWidth="2" />
-                      <text x="180" y="140" textAnchor="middle" fill="#9333ea" fontSize="11" fontWeight="bold">Case Length</text>
-
-                      {/* OAL */}
-                      <line x1="60" y1="35" x2="400" y2="35" stroke="#22c55e" strokeWidth="2" />
-                      <line x1="60" y1="30" x2="60" y2="40" stroke="#22c55e" strokeWidth="2" />
-                      <line x1="400" y1="30" x2="400" y2="40" stroke="#22c55e" strokeWidth="2" />
-                      <text x="230" y="28" textAnchor="middle" fill="#22c55e" fontSize="11" fontWeight="bold">OAL (Cartridge Overall Length)</text>
-
-                      {/* CBTO */}
-                      <line x1="60" y1="47" x2="350" y2="47" stroke="#3b82f6" strokeWidth="2" />
-                      <line x1="60" y1="43" x2="60" y2="51" stroke="#3b82f6" strokeWidth="2" />
-                      <line x1="350" y1="43" x2="350" y2="51" stroke="#3b82f6" strokeWidth="2" />
-                      <text x="205" y="45" textAnchor="middle" fill="#3b82f6" fontSize="9">CBTO (Base to Ogive)</text>
-
-                      {/* Headspace Datum */}
-                      <line x1="220" y1="55" x2="220" y2="105" stroke="#ef4444" strokeWidth="2" strokeDasharray="4,3" />
-                      <text x="220" y="115" textAnchor="middle" fill="#ef4444" fontSize="9">Datum</text>
-
-                      {/* Shoulder */}
-                      <line x1="250" y1="60" x2="250" y2="100" stroke="#f59e0b" strokeWidth="1" strokeDasharray="3,3" />
-
-                      {/* Component Labels */}
-                      <text x="140" y="83" textAnchor="middle" fill="#665544" fontSize="10" fontWeight="500">Body</text>
-                      <text x="275" y="83" textAnchor="middle" fill="#665544" fontSize="10" fontWeight="500">Neck</text>
-                      <text x="350" y="83" textAnchor="middle" fill="#553322" fontSize="10" fontWeight="500">Bullet</text>
-                      <text x="235" y="65" textAnchor="middle" fill="#996633" fontSize="8">Shoulder</text>
-
-                      {/* Base diameter indicator */}
-                      <line x1="45" y1="55" x2="45" y2="105" stroke="#666" strokeWidth="1" />
-                      <line x1="42" y1="55" x2="48" y2="55" stroke="#666" strokeWidth="1" />
-                      <line x1="42" y1="105" x2="48" y2="105" stroke="#666" strokeWidth="1" />
-                      <text x="35" y="83" textAnchor="middle" fill="#666" fontSize="7" transform="rotate(-90, 35, 83)">Base Ø</text>
-
-                      {/* Neck diameter indicator */}
-                      <line x1="275" y1="65" x2="275" y2="95" stroke="#666" strokeWidth="1" />
-                      <text x="285" y="60" fill="#666" fontSize="7">Neck Ø</text>
-
-                      {/* Bullet Jump annotation */}
-                      <path d="M 300 155 L 300 95" stroke="#10b981" strokeWidth="1" strokeDasharray="2,2" />
-                      <text x="310" y="160" fill="#10b981" fontSize="8">Bullet seating</text>
-                      <text x="310" y="170" fill="#10b981" fontSize="8">depth / jump</text>
-                    </svg>
+                    {/* Light/Dark mode diagram images */}
+                    <img
+                      src={darkMode ? "/images/cartridge-diagram-dark.png" : "/images/cartridge-diagram-light.png"}
+                      alt="Cartridge dimension reference diagram"
+                      className="w-full h-auto"
+                    />
                   </div>
 
-                  {/* Quick Reference Legend */}
-                  <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                    <div className="flex items-center"><span className="w-3 h-3 bg-green-500 rounded mr-2"></span>OAL - Overall Length</div>
-                    <div className="flex items-center"><span className="w-3 h-3 bg-blue-500 rounded mr-2"></span>CBTO - Base to Ogive</div>
-                    <div className="flex items-center"><span className="w-3 h-3 bg-purple-500 rounded mr-2"></span>Case Length</div>
-                    <div className="flex items-center"><span className="w-3 h-3 bg-red-500 rounded mr-2"></span>Headspace Datum</div>
+                  {/* Measurement Legend - matching diagram labels */}
+                  <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+                    <div className="space-y-1">
+                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">A</span> Overall Length</div>
+                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">B</span> Case Length</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">C</span> Length to Neck</div>
+                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">D</span> Length to Shoulder</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">E</span> Rim Diameter</div>
+                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">F</span> Rim Thickness</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">G</span> Head Diameter</div>
+                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">H</span> Shoulder Diameter</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">I</span> Neck Diameter</div>
+                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">J</span> Shoulder Angle</div>
+                    </div>
                   </div>
                 </div>
 
