@@ -18,7 +18,8 @@ import {
   Home, BarChart3, Settings, Save, X, Upload, ZoomIn, ZoomOut,
   Wind, Thermometer, Droplets, Calendar, Info, ChevronRight,
   CheckCircle, AlertCircle, TrendingUp, Award, FileText,
-  Clock, File, Smartphone, Moon, Sun, Pencil
+  Clock, File, Smartphone, Moon, Sun, Pencil, Wrench,
+  ShoppingCart, ExternalLink, Package, Ruler, FlaskConical, RotateCcw
 } from 'lucide-react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
@@ -30,6 +31,27 @@ import {
   addTrainingImage, getTrainingDataCount
 } from './services/firestore';
 import * as XLSX from 'xlsx';
+
+// Product recommendation card for affiliate marketing
+const ProductCard = ({ category, name, description, reason }) => (
+  <div className="p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:border-purple-300 dark:hover:border-purple-600 transition-colors">
+    <div className="flex items-start justify-between mb-1">
+      <span className="text-xs font-medium text-purple-600 dark:text-purple-400 uppercase tracking-wide">{category}</span>
+      <ExternalLink className="h-3 w-3 text-gray-400" />
+    </div>
+    <h4 className="font-medium text-gray-900 dark:text-white text-sm">{name}</h4>
+    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{description}</p>
+    {reason && (
+      <p className="text-xs text-purple-600 dark:text-purple-400 mt-2 flex items-center">
+        <Info className="h-3 w-3 mr-1" />
+        {reason}
+      </p>
+    )}
+    <button className="mt-2 w-full text-xs text-center py-1.5 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors">
+      Find Best Price
+    </button>
+  </div>
+);
 
 const CompletePRSApp = () => {
   // Authentication state
@@ -1350,6 +1372,7 @@ const CompletePRSApp = () => {
                   { id: 'capture', label: 'Capture', icon: Camera },
                   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
                   { id: 'ballistics', label: 'Ballistics', icon: Crosshair },
+                  { id: 'reloading', label: 'Reloading', icon: Wrench },
                   { id: 'equipment', label: 'Equipment', icon: Settings }
                 ].map(({ id, label, icon: Icon }) => (
                   <button
@@ -4972,6 +4995,406 @@ const CompletePRSApp = () => {
                 </button>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Reloading Tab */}
+        {activeTab === 'reloading' && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
+              <Wrench className="mr-3 h-7 w-7 text-purple-600 dark:text-purple-400" />
+              Reloading Workbench
+            </h2>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left Column - Load Development & Brass Management */}
+              <div className="lg:col-span-2 space-y-6">
+
+                {/* Interactive Cartridge Diagram */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                    <Ruler className="h-5 w-5 mr-2 text-purple-600" />
+                    Cartridge Measurements Reference
+                  </h3>
+                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                    <svg viewBox="0 0 500 180" className="w-full h-auto">
+                      <defs>
+                        <linearGradient id="brassGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#d4a84b" />
+                          <stop offset="50%" stopColor="#c9a227" />
+                          <stop offset="100%" stopColor="#b8941f" />
+                        </linearGradient>
+                        <linearGradient id="bulletGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#b87333" />
+                          <stop offset="50%" stopColor="#a0522d" />
+                          <stop offset="100%" stopColor="#8b4513" />
+                        </linearGradient>
+                        <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                          <path d="M0,0 L0,6 L9,3 z" fill="#666" />
+                        </marker>
+                      </defs>
+
+                      {/* Case body */}
+                      <path d="M 60 55 L 60 105 L 220 105 L 250 90 L 250 70 L 220 55 Z" fill="url(#brassGrad)" stroke="#8b7355" strokeWidth="1.5" />
+
+                      {/* Case neck */}
+                      <rect x="250" y="70" width="50" height="20" fill="url(#brassGrad)" stroke="#8b7355" strokeWidth="1.5" />
+
+                      {/* Bullet */}
+                      <path d="M 300 70 L 300 90 L 350 90 Q 400 80 400 80 Q 350 70 350 70 Z" fill="url(#bulletGrad)" stroke="#6b4423" strokeWidth="1.5" />
+
+                      {/* Primer pocket */}
+                      <rect x="55" y="70" width="8" height="20" fill="#a08060" stroke="#8b7355" strokeWidth="1" />
+
+                      {/* Primer */}
+                      <circle cx="60" cy="80" r="10" fill="#c0c0c0" stroke="#808080" strokeWidth="1.5" />
+                      <circle cx="60" cy="80" r="3" fill="#b0b0b0" />
+
+                      {/* Dimension Lines */}
+                      {/* Case Length */}
+                      <line x1="60" y1="125" x2="300" y2="125" stroke="#9333ea" strokeWidth="2" />
+                      <line x1="60" y1="120" x2="60" y2="130" stroke="#9333ea" strokeWidth="2" />
+                      <line x1="300" y1="120" x2="300" y2="130" stroke="#9333ea" strokeWidth="2" />
+                      <text x="180" y="140" textAnchor="middle" fill="#9333ea" fontSize="11" fontWeight="bold">Case Length</text>
+
+                      {/* OAL */}
+                      <line x1="60" y1="35" x2="400" y2="35" stroke="#22c55e" strokeWidth="2" />
+                      <line x1="60" y1="30" x2="60" y2="40" stroke="#22c55e" strokeWidth="2" />
+                      <line x1="400" y1="30" x2="400" y2="40" stroke="#22c55e" strokeWidth="2" />
+                      <text x="230" y="28" textAnchor="middle" fill="#22c55e" fontSize="11" fontWeight="bold">OAL (Cartridge Overall Length)</text>
+
+                      {/* CBTO */}
+                      <line x1="60" y1="47" x2="350" y2="47" stroke="#3b82f6" strokeWidth="2" />
+                      <line x1="60" y1="43" x2="60" y2="51" stroke="#3b82f6" strokeWidth="2" />
+                      <line x1="350" y1="43" x2="350" y2="51" stroke="#3b82f6" strokeWidth="2" />
+                      <text x="205" y="45" textAnchor="middle" fill="#3b82f6" fontSize="9">CBTO (Base to Ogive)</text>
+
+                      {/* Headspace Datum */}
+                      <line x1="220" y1="55" x2="220" y2="105" stroke="#ef4444" strokeWidth="2" strokeDasharray="4,3" />
+                      <text x="220" y="115" textAnchor="middle" fill="#ef4444" fontSize="9">Datum</text>
+
+                      {/* Shoulder */}
+                      <line x1="250" y1="60" x2="250" y2="100" stroke="#f59e0b" strokeWidth="1" strokeDasharray="3,3" />
+
+                      {/* Component Labels */}
+                      <text x="140" y="83" textAnchor="middle" fill="#665544" fontSize="10" fontWeight="500">Body</text>
+                      <text x="275" y="83" textAnchor="middle" fill="#665544" fontSize="10" fontWeight="500">Neck</text>
+                      <text x="350" y="83" textAnchor="middle" fill="#553322" fontSize="10" fontWeight="500">Bullet</text>
+                      <text x="235" y="65" textAnchor="middle" fill="#996633" fontSize="8">Shoulder</text>
+
+                      {/* Base diameter indicator */}
+                      <line x1="45" y1="55" x2="45" y2="105" stroke="#666" strokeWidth="1" />
+                      <line x1="42" y1="55" x2="48" y2="55" stroke="#666" strokeWidth="1" />
+                      <line x1="42" y1="105" x2="48" y2="105" stroke="#666" strokeWidth="1" />
+                      <text x="35" y="83" textAnchor="middle" fill="#666" fontSize="7" transform="rotate(-90, 35, 83)">Base Ø</text>
+
+                      {/* Neck diameter indicator */}
+                      <line x1="275" y1="65" x2="275" y2="95" stroke="#666" strokeWidth="1" />
+                      <text x="285" y="60" fill="#666" fontSize="7">Neck Ø</text>
+
+                      {/* Bullet Jump annotation */}
+                      <path d="M 300 155 L 300 95" stroke="#10b981" strokeWidth="1" strokeDasharray="2,2" />
+                      <text x="310" y="160" fill="#10b981" fontSize="8">Bullet seating</text>
+                      <text x="310" y="170" fill="#10b981" fontSize="8">depth / jump</text>
+                    </svg>
+                  </div>
+
+                  {/* Quick Reference Legend */}
+                  <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                    <div className="flex items-center"><span className="w-3 h-3 bg-green-500 rounded mr-2"></span>OAL - Overall Length</div>
+                    <div className="flex items-center"><span className="w-3 h-3 bg-blue-500 rounded mr-2"></span>CBTO - Base to Ogive</div>
+                    <div className="flex items-center"><span className="w-3 h-3 bg-purple-500 rounded mr-2"></span>Case Length</div>
+                    <div className="flex items-center"><span className="w-3 h-3 bg-red-500 rounded mr-2"></span>Headspace Datum</div>
+                  </div>
+                </div>
+
+                {/* Load Development */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                    <FlaskConical className="h-5 w-5 mr-2 text-purple-600" />
+                    Load Development
+                  </h3>
+
+                  {equipment.loads.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                      <Package className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                      <p>No loads created yet.</p>
+                      <p className="text-sm">Add loads in the Equipment tab to start load development.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {equipment.loads.map((load, idx) => (
+                        <div key={idx} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4">
+                          <div className="flex justify-between items-start mb-3">
+                            <div>
+                              <h4 className="font-medium text-gray-900 dark:text-white">{load.name}</h4>
+                              <p className="text-sm text-gray-500 dark:text-gray-400">
+                                {load.bullet} {load.bulletWeight} • {load.powder} {load.charge}
+                              </p>
+                            </div>
+                            <span className={`px-2 py-1 text-xs rounded-full ${
+                              load.bc && load.muzzleVelocity
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                            }`}>
+                              {load.bc && load.muzzleVelocity ? 'Complete' : 'Needs Data'}
+                            </span>
+                          </div>
+
+                          {/* Load specs grid */}
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                            <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                              <span className="text-gray-500 dark:text-gray-400 text-xs">OAL</span>
+                              <p className="font-medium text-gray-900 dark:text-white">{load.oal || '—'}</p>
+                            </div>
+                            <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                              <span className="text-gray-500 dark:text-gray-400 text-xs">CBTO</span>
+                              <p className="font-medium text-gray-900 dark:text-white">{load.cbto || '—'}</p>
+                            </div>
+                            <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                              <span className="text-gray-500 dark:text-gray-400 text-xs">Velocity</span>
+                              <p className="font-medium text-gray-900 dark:text-white">{load.muzzleVelocity ? `${load.muzzleVelocity} fps` : '—'}</p>
+                            </div>
+                            <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                              <span className="text-gray-500 dark:text-gray-400 text-xs">SD</span>
+                              <p className="font-medium text-gray-900 dark:text-white">{load.velocitySD ? `${load.velocitySD} fps` : '—'}</p>
+                            </div>
+                          </div>
+
+                          {/* Reloading measurements if available */}
+                          {(load.caseLength || load.headspace || load.bulletJump) && (
+                            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Reloading Specs</p>
+                              <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-xs">
+                                {load.caseLength && <div><span className="text-gray-400">Case:</span> {load.caseLength}</div>}
+                                {load.headspace && <div><span className="text-gray-400">HS:</span> {load.headspace}</div>}
+                                {load.shoulderBump && <div><span className="text-gray-400">Bump:</span> {load.shoulderBump}</div>}
+                                {load.bulletJump && <div><span className="text-gray-400">Jump:</span> {load.bulletJump}</div>}
+                                {load.neckTension && <div><span className="text-gray-400">Tension:</span> {load.neckTension}</div>}
+                                {load.annealed && <div className="text-green-600">✓ Annealed</div>}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Missing data suggestions */}
+                          {(!load.bc || !load.muzzleVelocity || !load.caseLength) && (
+                            <div className="mt-3 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs text-yellow-700 dark:text-yellow-300">
+                              <strong>Missing:</strong>{' '}
+                              {!load.bc && 'BC, '}
+                              {!load.muzzleVelocity && 'Muzzle Velocity, '}
+                              {!load.caseLength && 'Case Length, '}
+                              {!load.cbto && 'CBTO'}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Brass Management */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                    <RotateCcw className="h-5 w-5 mr-2 text-purple-600" />
+                    Brass Management
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                    Track your brass lots, firing counts, and annealing cycles.
+                  </p>
+
+                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg">
+                        <p className="text-3xl font-bold text-purple-600">{equipment.loads.filter(l => l.brass).length}</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Brass Types</p>
+                      </div>
+                      <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg">
+                        <p className="text-3xl font-bold text-green-600">{equipment.loads.filter(l => l.annealed).length}</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Annealed Loads</p>
+                      </div>
+                      <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg">
+                        <p className="text-3xl font-bold text-blue-600">{equipment.loads.filter(l => l.caseLength).length}</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">With Case Data</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Brass types used */}
+                  {equipment.loads.filter(l => l.brass).length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Brass in Use:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {[...new Set(equipment.loads.map(l => l.brass).filter(Boolean))].map((brass, i) => (
+                          <span key={i} className="px-3 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 rounded-full text-sm">
+                            {brass}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column - Product Recommendations */}
+              <div className="space-y-6">
+                {/* Recommended Equipment */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                    <ShoppingCart className="h-5 w-5 mr-2 text-purple-600" />
+                    Recommended Gear
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                    Based on your reloading setup
+                  </p>
+
+                  <div className="space-y-3">
+                    {/* Dynamic recommendations based on missing data */}
+                    {equipment.loads.some(l => !l.cbto) && (
+                      <ProductCard
+                        category="Measuring"
+                        name="Bullet Comparator Set"
+                        description="Measure CBTO accurately for consistent seating depth"
+                        reason="You have loads without CBTO data"
+                      />
+                    )}
+
+                    {equipment.loads.some(l => !l.muzzleVelocity) && (
+                      <ProductCard
+                        category="Chronograph"
+                        name="LabRadar or MagnetoSpeed"
+                        description="Measure muzzle velocity and SD for ballistic calculations"
+                        reason="Velocity data needed for ballistics"
+                      />
+                    )}
+
+                    {equipment.loads.some(l => !l.headspace) && (
+                      <ProductCard
+                        category="Measuring"
+                        name="Headspace Gauge Set"
+                        description="Measure shoulder bump and case headspace"
+                        reason="Track headspace for brass life"
+                      />
+                    )}
+
+                    {equipment.loads.some(l => !l.annealed) && (
+                      <ProductCard
+                        category="Brass Prep"
+                        name="Annealing Machine"
+                        description="Consistent neck tension and extended brass life"
+                        reason="None of your loads use annealed brass"
+                      />
+                    )}
+
+                    {/* General recommendations */}
+                    <ProductCard
+                      category="Dies"
+                      name="Premium Bushing Dies"
+                      description="Precise neck tension control for accuracy"
+                      reason="Essential for precision reloading"
+                    />
+
+                    <ProductCard
+                      category="Components"
+                      name="Match Grade Primers"
+                      description="Consistent ignition for low SD"
+                      reason="Recommended for precision loads"
+                    />
+                  </div>
+                </div>
+
+                {/* Component Finder */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                    <Package className="h-5 w-5 mr-2 text-purple-600" />
+                    Components in Your Loads
+                  </h3>
+
+                  {equipment.loads.length > 0 ? (
+                    <div className="space-y-3">
+                      {/* Powders */}
+                      {[...new Set(equipment.loads.map(l => l.powder).filter(Boolean))].length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Powders</p>
+                          <div className="space-y-1">
+                            {[...new Set(equipment.loads.map(l => l.powder).filter(Boolean))].map((powder, i) => (
+                              <div key={i} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
+                                <span className="text-sm text-gray-900 dark:text-white">{powder}</span>
+                                <button className="text-xs text-purple-600 hover:text-purple-700 flex items-center">
+                                  Find in stock <ExternalLink className="h-3 w-3 ml-1" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Primers */}
+                      {[...new Set(equipment.loads.map(l => l.primer).filter(Boolean))].length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Primers</p>
+                          <div className="space-y-1">
+                            {[...new Set(equipment.loads.map(l => l.primer).filter(Boolean))].map((primer, i) => (
+                              <div key={i} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
+                                <span className="text-sm text-gray-900 dark:text-white">{primer}</span>
+                                <button className="text-xs text-purple-600 hover:text-purple-700 flex items-center">
+                                  Find in stock <ExternalLink className="h-3 w-3 ml-1" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Bullets */}
+                      {[...new Set(equipment.loads.map(l => l.bullet ? `${l.bulletWeight} ${l.bullet}` : null).filter(Boolean))].length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Bullets</p>
+                          <div className="space-y-1">
+                            {[...new Set(equipment.loads.map(l => l.bullet ? `${l.bulletWeight} ${l.bullet}` : null).filter(Boolean))].map((bullet, i) => (
+                              <div key={i} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
+                                <span className="text-sm text-gray-900 dark:text-white">{bullet}</span>
+                                <button className="text-xs text-purple-600 hover:text-purple-700 flex items-center">
+                                  Find in stock <ExternalLink className="h-3 w-3 ml-1" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Add loads to see your components here
+                    </p>
+                  )}
+                </div>
+
+                {/* Retailer Links */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Shop Partners</h3>
+                  <div className="space-y-2">
+                    {[
+                      { name: 'MidwayUSA', url: '#' },
+                      { name: 'Brownells', url: '#' },
+                      { name: 'Primary Arms', url: '#' },
+                      { name: 'Grafs', url: '#' },
+                    ].map((retailer, i) => (
+                      <a
+                        key={i}
+                        href={retailer.url}
+                        className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        <span className="font-medium text-gray-900 dark:text-white">{retailer.name}</span>
+                        <ExternalLink className="h-4 w-4 text-gray-400" />
+                      </a>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-3">
+                    * Affiliate links help support PRS Analytics
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
