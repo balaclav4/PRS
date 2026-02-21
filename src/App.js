@@ -53,6 +53,118 @@ const ProductCard = ({ category, name, description, reason }) => (
   </div>
 );
 
+// Test entry form for load development wizard
+const TestEntryForm = ({ onAdd, fields }) => {
+  const [draft, setDraft] = React.useState({
+    bullet: '', powder: '', charge: '', primer: '', seatingDepth: '',
+    velocities: '', groupSizeMOA: '', notes: '', pressure: 'none'
+  });
+
+  const handleAdd = () => {
+    if (fields.includes('powder') && !draft.powder && !fields.includes('primer')) return;
+    if (fields.includes('charge') && !draft.charge) return;
+    if (fields.includes('primer') && !draft.primer) return;
+    if (fields.includes('seatingDepth') && !draft.seatingDepth) return;
+
+    const vs = draft.velocities ? draft.velocities.split(',').map(v => Number(v.trim())).filter(v => v > 0) : [];
+    // For single velocity field (max charge step)
+    const singleV = fields.includes('velocity') && draft.velocities ? [Number(draft.velocities)] : vs;
+
+    onAdd({
+      ...draft,
+      velocities: singleV.length > 0 ? singleV : vs,
+      groupSizeMOA: Number(draft.groupSizeMOA) || 0,
+      notes: fields.includes('pressure') ? draft.pressure : draft.notes
+    });
+    setDraft({ bullet: '', powder: '', charge: '', primer: '', seatingDepth: '', velocities: '', groupSizeMOA: '', notes: '', pressure: 'none' });
+  };
+
+  const inputClass = "w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white";
+
+  return (
+    <div className="border border-gray-200 dark:border-gray-600 rounded-lg p-4 mb-4">
+      <p className="text-sm font-medium text-gray-800 dark:text-white mb-3">Add Test</p>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+        {fields.includes('bullet') && (
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bullet</label>
+            <input value={draft.bullet} onChange={e => setDraft(d => ({ ...d, bullet: e.target.value }))}
+              placeholder="e.g. Berger 140" className={inputClass} />
+          </div>
+        )}
+        {fields.includes('powder') && (
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Powder</label>
+            <input value={draft.powder} onChange={e => setDraft(d => ({ ...d, powder: e.target.value }))}
+              placeholder="e.g. H4350" className={inputClass} />
+          </div>
+        )}
+        {fields.includes('charge') && (
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Charge (gr)</label>
+            <input type="number" step="0.1" value={draft.charge} onChange={e => setDraft(d => ({ ...d, charge: e.target.value }))}
+              placeholder="41.5" className={inputClass} />
+          </div>
+        )}
+        {fields.includes('primer') && (
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Primer</label>
+            <input value={draft.primer} onChange={e => setDraft(d => ({ ...d, primer: e.target.value }))}
+              placeholder="e.g. Fed 210M" className={inputClass} />
+          </div>
+        )}
+        {fields.includes('seatingDepth') && (
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Jump (inches)</label>
+            <input type="number" step="0.005" value={draft.seatingDepth} onChange={e => setDraft(d => ({ ...d, seatingDepth: e.target.value }))}
+              placeholder="0.020" className={inputClass} />
+          </div>
+        )}
+        {(fields.includes('velocities') || fields.includes('velocity')) && (
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              {fields.includes('velocity') ? 'Avg Velocity (fps)' : 'Velocities (comma-sep)'}
+            </label>
+            <input value={draft.velocities} onChange={e => setDraft(d => ({ ...d, velocities: e.target.value }))}
+              placeholder={fields.includes('velocity') ? '2850' : '2800, 2795, 2810'}
+              className={inputClass} />
+          </div>
+        )}
+        {fields.includes('groupSizeMOA') && (
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Group (MOA)</label>
+            <input type="number" step="0.05" value={draft.groupSizeMOA} onChange={e => setDraft(d => ({ ...d, groupSizeMOA: e.target.value }))}
+              placeholder="0.85" className={inputClass} />
+          </div>
+        )}
+        {fields.includes('pressure') && (
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Pressure Signs</label>
+            <select value={draft.pressure} onChange={e => setDraft(d => ({ ...d, pressure: e.target.value }))} className={inputClass}>
+              <option value="none">None</option>
+              <option value="slight_cratering">Slight cratering</option>
+              <option value="sticky_bolt">Sticky bolt lift</option>
+              <option value="flat_primer">Flattened primer</option>
+              <option value="ejector_mark">Ejector mark</option>
+            </select>
+          </div>
+        )}
+        {fields.includes('notes') && !fields.includes('pressure') && (
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Notes</label>
+            <input value={draft.notes} onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))}
+              placeholder="Optional" className={inputClass} />
+          </div>
+        )}
+      </div>
+      <button onClick={handleAdd}
+        className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors">
+        Add
+      </button>
+    </div>
+  );
+};
+
 const CompletePRSApp = () => {
   // Authentication state
   const [user, setUser] = useState(null);
@@ -162,7 +274,37 @@ const CompletePRSApp = () => {
   
   // Mobile optimization state
   const [isMobile, setIsMobile] = useState(false);
-  
+
+  // Load Development Wizard State
+  const [loadDevStep, setLoadDevStep] = useState(0); // 0 = not started, 1-8 = steps
+  const [loadDevGoal, setLoadDevGoal] = useState({
+    hitPercent: 90,
+    groupSize: 1.0, // MOA
+    distance: 100 // yards
+  });
+  const [loadDevProject, setLoadDevProject] = useState({
+    name: '',
+    caliber: '',
+    rifle: '',
+    startDate: null,
+    status: 'not_started', // not_started, in_progress, goal_met, completed
+    currentStep: 0,
+    completedSteps: []
+  });
+  const [loadDevTests, setLoadDevTests] = useState([]);
+
+  // Statistical helper for load development
+  const calculateVelocityStats = (velocities) => {
+    if (!velocities || velocities.length === 0) return null;
+    const nums = velocities.filter(v => v > 0);
+    if (nums.length === 0) return null;
+    const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+    const variance = nums.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / nums.length;
+    const sd = Math.sqrt(variance);
+    const es = Math.max(...nums) - Math.min(...nums);
+    return { mean: Math.round(mean), sd: Math.round(sd * 10) / 10, es, count: nums.length };
+  };
+
   const fileInputRef = useRef(null);
   const chronoFileRef = useRef(null);
 
@@ -4997,348 +5139,692 @@ const CompletePRSApp = () => {
             )}
           </div>
         )}
-
         {/* Reloading Tab */}
-        {activeTab === 'reloading' && (
+        {activeTab === 'reloading' && (() => {
+          const STEPS = [
+            { id: 1, title: 'Set Your Goal', icon: '🎯', short: 'Goal' },
+            { id: 2, title: 'Bullet & Powder Screen', icon: '🔬', short: 'Screen' },
+            { id: 3, title: 'Find Max Charge', icon: '📈', short: 'Max Charge' },
+            { id: 4, title: 'Accuracy Test', icon: '🏹', short: 'Accuracy' },
+            { id: 5, title: 'Primer Evaluation', icon: '⚡', short: 'Primers' },
+            { id: 6, title: 'Charge Ladder', icon: '🪜', short: 'Ladder' },
+            { id: 7, title: 'Seating Depth', icon: '📐', short: 'Seating' },
+            { id: 8, title: 'Reference', icon: '📖', short: 'Reference' },
+          ];
+
+          const stepTests = loadDevTests.filter(t => t.step === loadDevStep);
+
+          const addTest = (testData) => {
+            setLoadDevTests(prev => [...prev, { ...testData, step: loadDevStep, id: Date.now() }]);
+          };
+
+          const removeTest = (id) => {
+            setLoadDevTests(prev => prev.filter(t => t.id !== id));
+          };
+
+          const advanceStep = () => {
+            setLoadDevProject(p => ({
+              ...p,
+              completedSteps: [...new Set([...p.completedSteps, loadDevStep])],
+              currentStep: loadDevStep + 1
+            }));
+            setLoadDevStep(s => Math.min(s + 1, 8));
+          };
+
+          const GoalBanner = () => {
+            const allTests = loadDevTests.filter(t => t.step > 1 && t.groupSizeMOA > 0);
+            const bestGroup = allTests.length > 0 ? Math.min(...allTests.map(t => t.groupSizeMOA)) : null;
+            const goalMet = bestGroup !== null && bestGroup <= loadDevGoal.groupSize;
+            if (loadDevStep < 2 || bestGroup === null) return null;
+            return (
+              <div className={`rounded-lg p-3 text-sm flex items-center justify-between ${
+                goalMet ? 'bg-green-50 dark:bg-green-900/30 border border-green-300 dark:border-green-600'
+                       : 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
+              }`}>
+                <span className={goalMet ? 'text-green-800 dark:text-green-200' : 'text-blue-700 dark:text-blue-300'}>
+                  {goalMet ? `Goal met! Best: ${bestGroup.toFixed(2)} MOA` : `Best so far: ${bestGroup.toFixed(2)} MOA (goal: ${loadDevGoal.groupSize} MOA)`}
+                </span>
+              </div>
+            );
+          };
+
+          return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
-              <Wrench className="mr-3 h-7 w-7 text-purple-600 dark:text-purple-400" />
-              Reloading Workbench
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
+                <FlaskConical className="mr-3 h-7 w-7 text-purple-600 dark:text-purple-400" />
+                Load Development Process
+              </h2>
+              {loadDevStep > 0 && loadDevStep < 8 && (
+                <span className="text-sm text-gray-500 dark:text-gray-400">Step {loadDevStep} of 7</span>
+              )}
+            </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left Column - Load Development & Brass Management */}
-              <div className="lg:col-span-2 space-y-6">
+            {/* Progress Bar */}
+            {loadDevStep > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                <div className="flex items-center gap-1 overflow-x-auto pb-1">
+                  {STEPS.slice(0,7).map((s) => (
+                    <React.Fragment key={s.id}>
+                      <button onClick={() => setLoadDevStep(s.id)}
+                        className={`flex flex-col items-center min-w-[56px] px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                          s.id === loadDevStep ? 'bg-purple-600 text-white'
+                          : loadDevProject.completedSteps.includes(s.id) ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                        }`}>
+                        <span>{s.icon}</span>
+                        <span className="hidden md:block mt-0.5">{s.short}</span>
+                      </button>
+                      {s.id < 7 && <div className={`h-0.5 flex-1 min-w-[8px] ${loadDevProject.completedSteps.includes(s.id) ? 'bg-green-400' : 'bg-gray-200 dark:bg-gray-600'}`} />}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            )}
 
-                {/* Interactive Cartridge Diagram */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                    <Ruler className="h-5 w-5 mr-2 text-purple-600" />
-                    Cartridge Measurements Reference
-                  </h3>
-                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                    {/* Light/Dark mode diagram images */}
-                    <img
-                      src={darkMode ? "/images/cartridge-diagram-dark.png" : "/images/cartridge-diagram-light.png"}
-                      alt="Cartridge dimension reference diagram"
-                      className="w-full h-auto"
-                    />
-                  </div>
+            {loadDevStep > 1 && <GoalBanner />}
 
-                  {/* Measurement Legend - matching diagram labels */}
-                  <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
-                    <div className="space-y-1">
-                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">A</span> Overall Length</div>
-                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">B</span> Case Length</div>
+            {/* STEP 0: Not Started */}
+            {loadDevStep === 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-8 shadow text-center">
+                <div className="text-6xl mb-4">🔬</div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Load Development Wizard</h3>
+                <p className="text-gray-500 dark:text-gray-400 mb-6 max-w-md mx-auto">
+                  A systematic process to develop accurate, consistent ammunition.
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8 text-sm text-left">
+                  {[{ icon: '🎯', label: 'Set accuracy goal' }, { icon: '🔬', label: 'Screen bullets & powders' },
+                    { icon: '📈', label: 'Find max safe charge' }, { icon: '⚡', label: 'Optimize primer & seating' }
+                  ].map((f, i) => (
+                    <div key={i} className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+                      <div className="text-2xl mb-1">{f.icon}</div>
+                      <p className="text-gray-700 dark:text-gray-300 text-xs">{f.label}</p>
                     </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">C</span> Length to Neck</div>
-                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">D</span> Length to Shoulder</div>
+                  ))}
+                </div>
+                <button onClick={() => { setLoadDevStep(1); setLoadDevProject(p => ({ ...p, status: 'in_progress', startDate: new Date().toISOString() })); }}
+                  className="px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold text-lg transition-colors">
+                  Start Load Development
+                </button>
+                <div className="mt-4">
+                  <button onClick={() => setLoadDevStep(8)} className="text-sm text-purple-600 dark:text-purple-400 hover:underline">
+                    Or view cartridge reference →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 1: Set Goal */}
+            {loadDevStep === 1 && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">🎯 Step 1 — Set Your Accuracy Goal</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+                      Define what "good enough" means. The wizard will tell you when to stop.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Hit Rate (%)</label>
+                        <input type="number" min="50" max="100" value={loadDevGoal.hitPercent}
+                          onChange={e => setLoadDevGoal(g => ({ ...g, hitPercent: Number(e.target.value) }))}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Group Size (MOA)</label>
+                        <input type="number" min="0.1" max="10" step="0.1" value={loadDevGoal.groupSize}
+                          onChange={e => setLoadDevGoal(g => ({ ...g, groupSize: Number(e.target.value) }))}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Distance (yards)</label>
+                        <input type="number" min="25" max="1000" value={loadDevGoal.distance}
+                          onChange={e => setLoadDevGoal(g => ({ ...g, distance: Number(e.target.value) }))}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">E</span> Rim Diameter</div>
-                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">F</span> Rim Thickness</div>
+                    <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-700 text-sm text-purple-800 dark:text-purple-200 mb-5">
+                      <strong>Goal:</strong> {loadDevGoal.hitPercent}% of shots within {loadDevGoal.groupSize} MOA at {loadDevGoal.distance} yards
+                      ({((loadDevGoal.groupSize / 100) * loadDevGoal.distance).toFixed(2)}" group)
                     </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">G</span> Head Diameter</div>
-                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">H</span> Shoulder Diameter</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Project Name</label>
+                        <input type="text" placeholder="e.g. 6.5 CM Load Dev" value={loadDevProject.name}
+                          onChange={e => setLoadDevProject(p => ({ ...p, name: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Rifle</label>
+                        <select value={loadDevProject.rifle} onChange={e => setLoadDevProject(p => ({ ...p, rifle: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
+                          <option value="">Select rifle...</option>
+                          {equipment.rifles.map((r, i) => <option key={i} value={r.name}>{r.name}</option>)}
+                        </select>
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">I</span> Neck Diameter</div>
-                      <div className="flex items-center"><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">J</span> Shoulder Angle</div>
-                    </div>
+                    <button onClick={advanceStep} className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors">
+                      Set Goal & Begin →
+                    </button>
                   </div>
                 </div>
+                <div className="space-y-4">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4 text-sm text-blue-800 dark:text-blue-200">
+                    <p className="font-semibold mb-2">💡 Why set a goal?</p>
+                    <p>Without a defined standard, load development never ends. A clear goal saves components and barrel life.</p>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow text-sm">
+                    <p className="font-semibold text-gray-800 dark:text-white mb-2">Typical Goals</p>
+                    {[{ use: 'PRS / Matches', goal: '0.5–0.75 MOA' }, { use: 'Hunting', goal: '1.0–1.5 MOA' },
+                      { use: 'F-Class', goal: '0.25–0.5 MOA' }, { use: 'Plinking', goal: '1.5–2.0 MOA' }
+                    ].map((row, i) => (
+                      <div key={i} className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                        <span className="text-gray-600 dark:text-gray-400">{row.use}</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{row.goal}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
-                {/* Load Development */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                    <FlaskConical className="h-5 w-5 mr-2 text-purple-600" />
-                    Load Development
-                  </h3>
-
-                  {equipment.loads.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                      <Package className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                      <p>No loads created yet.</p>
-                      <p className="text-sm">Add loads in the Equipment tab to start load development.</p>
+            {/* STEP 2: Bullet & Powder Screen */}
+            {loadDevStep === 2 && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">🔬 Step 2 — Bullet & Powder Screening</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                      Load 3–5 rounds at <strong>mid charge</strong> for each candidate powder. Record group sizes and velocities.
+                    </p>
+                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-3 text-xs text-amber-800 dark:text-amber-200 mb-4">
+                      <strong>Mid charge</strong> = 5–8% below published maximum. Check your reloading manual.
                     </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {equipment.loads.map((load, idx) => (
-                        <div key={idx} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4">
-                          <div className="flex justify-between items-start mb-3">
-                            <div>
-                              <h4 className="font-medium text-gray-900 dark:text-white">{load.name}</h4>
-                              <p className="text-sm text-gray-500 dark:text-gray-400">
-                                {load.bullet} {load.bulletWeight} • {load.powder} {load.charge}
-                              </p>
-                            </div>
-                            <span className={`px-2 py-1 text-xs rounded-full ${
-                              load.bc && load.muzzleVelocity
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                            }`}>
-                              {load.bc && load.muzzleVelocity ? 'Complete' : 'Needs Data'}
-                            </span>
+
+                    <TestEntryForm onAdd={addTest} fields={['bullet', 'powder', 'charge', 'velocities', 'groupSizeMOA', 'notes']} />
+
+                    {stepTests.length > 0 && (
+                      <div className="overflow-x-auto mt-4">
+                        <table className="w-full text-sm text-left">
+                          <thead>
+                            <tr className="border-b border-gray-200 dark:border-gray-600 text-xs text-gray-500 dark:text-gray-400">
+                              <th className="pb-2 pr-3">Powder / Charge</th>
+                              <th className="pb-2 pr-3">Group (MOA)</th>
+                              <th className="pb-2 pr-3">Avg MV</th>
+                              <th className="pb-2 pr-3">SD</th>
+                              <th className="pb-2"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {stepTests.map((t) => {
+                              const vs = calculateVelocityStats(t.velocities);
+                              const goalMet = t.groupSizeMOA > 0 && t.groupSizeMOA <= loadDevGoal.groupSize;
+                              return (
+                                <tr key={t.id} className="border-b border-gray-100 dark:border-gray-700">
+                                  <td className="py-2 pr-3">
+                                    <span className="font-medium text-gray-900 dark:text-white">{t.powder}</span>
+                                    <span className="text-gray-400 ml-1">{t.charge}gr</span>
+                                    {t.bullet && <div className="text-xs text-gray-400">{t.bullet}</div>}
+                                  </td>
+                                  <td className="py-2 pr-3">
+                                    {t.groupSizeMOA > 0 ? (
+                                      <span className={`font-semibold ${goalMet ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white'}`}>
+                                        {t.groupSizeMOA.toFixed(2)} {goalMet && '✅'}
+                                      </span>
+                                    ) : '—'}
+                                  </td>
+                                  <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">{vs ? `${vs.mean} fps` : '—'}</td>
+                                  <td className="py-2 pr-3">
+                                    {vs ? <span className={vs.sd <= 10 ? 'text-green-600 dark:text-green-400' : vs.sd <= 20 ? 'text-yellow-600' : 'text-red-500'}>{vs.sd} fps</span> : '—'}
+                                  </td>
+                                  <td className="py-2">
+                                    <button onClick={() => removeTest(t.id)} className="text-gray-400 hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {stepTests.length >= 2 && (() => {
+                      const sorted = [...stepTests].filter(t => t.groupSizeMOA > 0).sort((a, b) => a.groupSizeMOA - b.groupSizeMOA);
+                      const best = sorted[0];
+                      return best && (
+                        <div className="mt-4 bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                          <p className="text-sm font-semibold text-gray-800 dark:text-white mb-2">📊 Analysis</p>
+                          <p className="text-sm text-gray-700 dark:text-gray-300">
+                            Best: <strong>{best.powder} {best.charge}gr</strong> — {best.groupSizeMOA.toFixed(2)} MOA
+                            {best.groupSizeMOA <= loadDevGoal.groupSize && ' ✅ Goal met!'}
+                          </p>
+                        </div>
+                      );
+                    })()}
+
+                    <button onClick={advanceStep} disabled={stepTests.length === 0}
+                      className="mt-5 px-5 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
+                      Take Best Powders Forward →
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4 text-sm text-blue-800 dark:text-blue-200">
+                    <p className="font-semibold mb-2">💡 Screening tips</p>
+                    <ul className="space-y-1 text-xs list-disc list-inside">
+                      <li>3–5 shots per group is enough</li>
+                      <li>Let barrel cool between groups</li>
+                      <li>SD under 15 fps is excellent</li>
+                    </ul>
+                  </div>
+                  <ProductCard category="Chronograph" name="LabRadar Doppler" description="Accurate SD/ES tracking" reason="Essential for velocity stats" />
+                </div>
+              </div>
+            )}
+
+            {/* STEP 3: Max Charge */}
+            {loadDevStep === 3 && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">📈 Step 3 — Find Maximum Charge</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                      Work up in 0.3–0.5 gr increments from mid to max. Stop at first pressure signs.
+                    </p>
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-3 text-xs text-red-800 dark:text-red-200 mb-4">
+                      ⚠️ Stop at: flattened primers, sticky bolt, cratered primers, ejector marks. Never exceed published max.
+                    </div>
+
+                    <TestEntryForm onAdd={addTest} fields={['powder', 'charge', 'velocity', 'pressure']} />
+
+                    {stepTests.length > 0 && (() => {
+                      const byPowder = stepTests.reduce((acc, t) => {
+                        if (!acc[t.powder]) acc[t.powder] = [];
+                        acc[t.powder].push(t);
+                        return acc;
+                      }, {});
+                      return Object.entries(byPowder).map(([powder, steps]) => {
+                        const sorted = [...steps].sort((a, b) => Number(a.charge) - Number(b.charge));
+                        return (
+                          <div key={powder} className="mb-4 border border-gray-200 dark:border-gray-600 rounded-lg p-3">
+                            <p className="text-sm font-semibold text-gray-800 dark:text-white mb-2">{powder}</p>
+                            <table className="w-full text-xs">
+                              <thead><tr className="text-gray-400"><th className="text-left pb-1 pr-4">Charge</th><th className="text-left pb-1 pr-4">MV</th><th className="text-left pb-1">Pressure</th></tr></thead>
+                              <tbody>
+                                {sorted.map((s, i) => (
+                                  <tr key={i} className={`border-t border-gray-100 dark:border-gray-700 ${s.notes !== 'none' && s.notes ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'}`}>
+                                    <td className="py-1 pr-4 font-mono">{s.charge} gr</td>
+                                    <td className="py-1 pr-4">{s.velocities?.[0] ? `${s.velocities[0]} fps` : '—'}</td>
+                                    <td className="py-1">{s.notes === 'none' || !s.notes ? '✓ Clean' : `⚠️ ${s.notes.replace(/_/g, ' ')}`}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
+                        );
+                      });
+                    })()}
 
-                          {/* Load specs grid */}
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                            <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
-                              <span className="text-gray-500 dark:text-gray-400 text-xs">OAL</span>
-                              <p className="font-medium text-gray-900 dark:text-white">{load.oal || '—'}</p>
-                            </div>
-                            <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
-                              <span className="text-gray-500 dark:text-gray-400 text-xs">CBTO</span>
-                              <p className="font-medium text-gray-900 dark:text-white">{load.cbto || '—'}</p>
-                            </div>
-                            <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
-                              <span className="text-gray-500 dark:text-gray-400 text-xs">Velocity</span>
-                              <p className="font-medium text-gray-900 dark:text-white">{load.muzzleVelocity ? `${load.muzzleVelocity} fps` : '—'}</p>
-                            </div>
-                            <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
-                              <span className="text-gray-500 dark:text-gray-400 text-xs">SD</span>
-                              <p className="font-medium text-gray-900 dark:text-white">{load.velocitySD ? `${load.velocitySD} fps` : '—'}</p>
-                            </div>
+                    <button onClick={advanceStep} disabled={stepTests.length === 0}
+                      className="mt-4 px-5 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
+                      Max Found → Accuracy Test
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4 text-sm text-blue-800 dark:text-blue-200">
+                    <p className="font-semibold mb-2">💡 Safety</p>
+                    <ul className="space-y-1 text-xs list-disc list-inside">
+                      <li>0.3 gr increments near max</li>
+                      <li>Let barrel cool</li>
+                      <li>Test at 2–5% under max next</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 4: Accuracy Test */}
+            {loadDevStep === 4 && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">🏹 Step 4 — Accuracy Test</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                      Load each powder at <strong>2–5% below max</strong>. Shoot 5-shot groups.
+                    </p>
+
+                    <TestEntryForm onAdd={addTest} fields={['powder', 'charge', 'groupSizeMOA', 'velocities', 'notes']} />
+
+                    {stepTests.length > 0 && (() => {
+                      const sorted = [...stepTests].filter(t => t.groupSizeMOA > 0).sort((a, b) => a.groupSizeMOA - b.groupSizeMOA);
+                      return (
+                        <div className="overflow-x-auto mb-4 mt-4">
+                          <table className="w-full text-sm">
+                            <thead><tr className="border-b border-gray-200 dark:border-gray-600 text-xs text-gray-500">
+                              <th className="pb-2 pr-3 text-left">Powder / Charge</th>
+                              <th className="pb-2 pr-3 text-left">Group</th>
+                              <th className="pb-2 pr-3 text-left">Avg MV</th>
+                              <th className="pb-2 pr-3 text-left">SD</th>
+                              <th className="pb-2 text-left">Verdict</th>
+                            </tr></thead>
+                            <tbody>
+                              {sorted.map((t) => {
+                                const vs = calculateVelocityStats(t.velocities);
+                                const goalMet = t.groupSizeMOA <= loadDevGoal.groupSize;
+                                const goodSd = vs && vs.sd <= 12;
+                                return (
+                                  <tr key={t.id} className="border-b border-gray-100 dark:border-gray-700">
+                                    <td className="py-2 pr-3 font-medium text-gray-900 dark:text-white">{t.powder} {t.charge}gr</td>
+                                    <td className={`py-2 pr-3 font-semibold ${goalMet ? 'text-green-600' : 'text-gray-900 dark:text-white'}`}>{t.groupSizeMOA.toFixed(2)} MOA</td>
+                                    <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">{vs ? `${vs.mean} fps` : '—'}</td>
+                                    <td className={`py-2 pr-3 ${goodSd ? 'text-green-600' : 'text-yellow-600'}`}>{vs ? `${vs.sd} fps` : '—'}</td>
+                                    <td className="py-2 text-xs">{goalMet && goodSd ? '✅ Winner' : goalMet ? '🔶 Check SD' : '❌ Eliminate'}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
+
+                    <button onClick={advanceStep} disabled={stepTests.length === 0}
+                      className="mt-4 px-5 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
+                      Evaluate Primers →
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4 text-sm text-blue-800 dark:text-blue-200">
+                    <p className="font-semibold mb-2">💡 Tips</p>
+                    <ul className="space-y-1 text-xs list-disc list-inside">
+                      <li>5 shots minimum per group</li>
+                      <li>Shoot at {loadDevGoal.distance} yards</li>
+                      <li>SD ≤12 fps is excellent</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 5: Primer Evaluation */}
+            {loadDevStep === 5 && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">⚡ Step 5 — Primer Evaluation</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                      Test an alternate primer. <strong>Skip if SD is already ≤12 fps.</strong>
+                    </p>
+
+                    <TestEntryForm onAdd={addTest} fields={['primer', 'velocities', 'groupSizeMOA']} />
+
+                    {stepTests.length >= 2 && (() => {
+                      const [a, b] = stepTests;
+                      const aStats = calculateVelocityStats(a.velocities);
+                      const bStats = calculateVelocityStats(b.velocities);
+                      const better = aStats && bStats ? (aStats.sd <= bStats.sd ? a : b) : null;
+                      return (
+                        <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mt-4">
+                          <p className="text-sm font-semibold mb-2 text-gray-800 dark:text-white">📊 Comparison</p>
+                          <div className="grid grid-cols-2 gap-4 mb-3">
+                            {[a, b].map((t, i) => {
+                              const vs = calculateVelocityStats(t.velocities);
+                              return (
+                                <div key={i} className="text-sm">
+                                  <p className="font-medium text-gray-900 dark:text-white">{t.primer}</p>
+                                  <p className="text-gray-500">Avg: {vs?.mean} fps</p>
+                                  <p className={vs?.sd <= 12 ? 'text-green-600' : 'text-yellow-600'}>SD: {vs?.sd} fps</p>
+                                </div>
+                              );
+                            })}
                           </div>
+                          {better && <p className="text-sm text-gray-700 dark:text-gray-300">Use <strong>{better.primer}</strong> (lower SD).</p>}
+                        </div>
+                      );
+                    })()}
 
-                          {/* Reloading measurements if available */}
-                          {(load.caseLength || load.headspace || load.bulletJump) && (
-                            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
-                              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Reloading Specs</p>
-                              <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-xs">
-                                {load.caseLength && <div><span className="text-gray-400">Case:</span> {load.caseLength}</div>}
-                                {load.headspace && <div><span className="text-gray-400">HS:</span> {load.headspace}</div>}
-                                {load.shoulderBump && <div><span className="text-gray-400">Bump:</span> {load.shoulderBump}</div>}
-                                {load.bulletJump && <div><span className="text-gray-400">Jump:</span> {load.bulletJump}</div>}
-                                {load.neckTension && <div><span className="text-gray-400">Tension:</span> {load.neckTension}</div>}
-                                {load.annealed && <div className="text-green-600">✓ Annealed</div>}
-                              </div>
-                            </div>
-                          )}
+                    <button onClick={advanceStep}
+                      className="mt-5 px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors">
+                      {stepTests.length === 0 ? 'Skip — Primer OK →' : 'Primer Locked → Charge Ladder'}
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4 text-sm text-blue-800 dark:text-blue-200">
+                    <p className="font-semibold mb-2">💡 When to change</p>
+                    <ul className="space-y-1 text-xs list-disc list-inside">
+                      <li>SD &gt;20 fps: try match primer</li>
+                      <li>SD ≤12 fps: don't bother</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
 
-                          {/* Missing data suggestions */}
-                          {(!load.bc || !load.muzzleVelocity || !load.caseLength) && (
-                            <div className="mt-3 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs text-yellow-700 dark:text-yellow-300">
-                              <strong>Missing:</strong>{' '}
-                              {!load.bc && 'BC, '}
-                              {!load.muzzleVelocity && 'Muzzle Velocity, '}
-                              {!load.caseLength && 'Case Length, '}
-                              {!load.cbto && 'CBTO'}
+            {/* STEP 6: Charge Ladder */}
+            {loadDevStep === 6 && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">🪜 Step 6 — Charge Ladder</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                      Vary charge in <strong>0.2 gr increments</strong> around working charge ±1.0 gr. Find the "node."
+                    </p>
+
+                    <TestEntryForm onAdd={addTest} fields={['charge', 'groupSizeMOA', 'velocities']} />
+
+                    {stepTests.length > 0 && (() => {
+                      const sorted = [...stepTests].filter(t => t.groupSizeMOA > 0).sort((a, b) => Number(a.charge) - Number(b.charge));
+                      const best = sorted.length > 0 ? sorted.reduce((a, b) => a.groupSizeMOA < b.groupSizeMOA ? a : b) : null;
+                      return (
+                        <div className="mt-4">
+                          <div className="flex items-end gap-1 h-20 mb-2">
+                            {sorted.map((t, i) => {
+                              const maxVal = Math.max(...sorted.map(w => w.groupSizeMOA), loadDevGoal.groupSize * 2);
+                              const height = Math.max(8, (t.groupSizeMOA / maxVal) * 80);
+                              return (
+                                <div key={i} className="flex flex-col items-center flex-1 min-w-0">
+                                  <div style={{ height: `${height}px` }}
+                                    className={`w-full rounded-t ${t.groupSizeMOA <= loadDevGoal.groupSize ? 'bg-green-500' : 'bg-gray-400'}`}
+                                    title={`${t.charge}gr: ${t.groupSizeMOA} MOA`} />
+                                  <span className="text-xs text-gray-400 truncate w-full text-center mt-1">{t.charge}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {best && <p className="text-sm text-gray-700 dark:text-gray-300">Best: <strong>{best.charge} gr</strong> ({best.groupSizeMOA.toFixed(2)} MOA)</p>}
+                        </div>
+                      );
+                    })()}
+
+                    <button onClick={advanceStep} disabled={stepTests.length === 0}
+                      className="mt-5 px-5 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
+                      Charge Locked → Seating Depth
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4 text-sm text-blue-800 dark:text-blue-200">
+                    <p className="font-semibold mb-2">💡 Finding the node</p>
+                    <ul className="space-y-1 text-xs list-disc list-inside">
+                      <li>A "node" = 2–3 adjacent charges all shoot well</li>
+                      <li>More temperature-stable</li>
+                      <li>3–5 shots per charge</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 7: Seating Depth */}
+            {loadDevStep === 7 && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">📐 Step 7 — Seating Depth</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                      Vary CBTO in <strong>0.010" increments</strong>. Typical range: 0.010–0.100" off lands.
+                    </p>
+
+                    <TestEntryForm onAdd={addTest} fields={['seatingDepth', 'groupSizeMOA', 'notes']} />
+
+                    {stepTests.length > 0 && (() => {
+                      const sorted = [...stepTests].filter(t => t.groupSizeMOA > 0).sort((a, b) => Number(a.seatingDepth) - Number(b.seatingDepth));
+                      const best = sorted.reduce((a, b) => a.groupSizeMOA < b.groupSizeMOA ? a : b, sorted[0]);
+                      return (
+                        <div className="mt-4">
+                          <table className="w-full text-sm mb-4">
+                            <thead><tr className="border-b border-gray-200 dark:border-gray-600 text-xs text-gray-500">
+                              <th className="pb-2 pr-4 text-left">Jump</th>
+                              <th className="pb-2 pr-4 text-left">Group (MOA)</th>
+                              <th className="pb-2 text-left">Notes</th>
+                            </tr></thead>
+                            <tbody>
+                              {sorted.map((t) => (
+                                <tr key={t.id} className={`border-b border-gray-100 dark:border-gray-700 ${t === best ? 'bg-purple-50 dark:bg-purple-900/20' : ''}`}>
+                                  <td className="py-2 pr-4 font-mono text-gray-900 dark:text-white">{Number(t.seatingDepth).toFixed(3)}"</td>
+                                  <td className={`py-2 pr-4 font-semibold ${t.groupSizeMOA <= loadDevGoal.groupSize ? 'text-green-600' : 'text-gray-900 dark:text-white'}`}>{t.groupSizeMOA.toFixed(2)} {t === best && '⭐'}</td>
+                                  <td className="py-2 text-gray-500 text-xs">{t.notes || '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {best && (
+                            <div className="bg-green-50 dark:bg-green-900/30 border border-green-300 dark:border-green-600 rounded-lg p-3 text-sm text-green-800 dark:text-green-200">
+                              ⭐ Best: <strong>{Number(best.seatingDepth).toFixed(3)}" off lands</strong> → {best.groupSizeMOA.toFixed(2)} MOA
+                              {best.groupSizeMOA <= loadDevGoal.groupSize && ' ✅ Goal met!'}
                             </div>
                           )}
                         </div>
-                      ))}
+                      );
+                    })()}
+
+                    <div className="mt-5 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
+                      <p className="text-sm font-semibold text-purple-800 dark:text-purple-200 mb-1">🏁 Load Development Complete</p>
+                      <p className="text-xs text-purple-700 dark:text-purple-300">Record your final recipe in Equipment → Loads.</p>
                     </div>
-                  )}
+                    <button onClick={() => { setLoadDevProject(p => ({ ...p, status: 'completed' })); setLoadDevStep(0); }}
+                      className="mt-4 px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors">
+                      ✅ Finish & Save Recipe
+                    </button>
+                  </div>
                 </div>
+                <div className="space-y-4">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4 text-sm text-blue-800 dark:text-blue-200">
+                    <p className="font-semibold mb-2">💡 Seating tips</p>
+                    <ul className="space-y-1 text-xs list-disc list-inside">
+                      <li>Start 0.050" off lands</li>
+                      <li>VLDs need more jump</li>
+                      <li>Use a comparator, not OAL</li>
+                    </ul>
+                  </div>
+                  <ProductCard category="Measuring" name="Hornady Comparator" description="Measure CBTO consistently" reason="Required for seating depth" />
+                </div>
+              </div>
+            )}
 
-                {/* Brass Management */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                    <RotateCcw className="h-5 w-5 mr-2 text-purple-600" />
-                    Brass Management
-                  </h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                    Track your brass lots, firing counts, and annealing cycles.
-                  </p>
-
-                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg">
-                        <p className="text-3xl font-bold text-purple-600">{equipment.loads.filter(l => l.brass).length}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Brass Types</p>
+            {/* STEP 8: Reference */}
+            {loadDevStep === 8 && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                      <Ruler className="h-5 w-5 mr-2 text-purple-600" />
+                      Cartridge Measurements Reference
+                    </h3>
+                    <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                      <img src={darkMode ? "/images/cartridge-diagram-dark.png" : "/images/cartridge-diagram-light.png"}
+                        alt="Cartridge dimension reference" className="w-full h-auto" />
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+                      <div className="space-y-1">
+                        <div><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">A</span> Overall Length</div>
+                        <div><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">B</span> Case Length</div>
                       </div>
-                      <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg">
-                        <p className="text-3xl font-bold text-green-600">{equipment.loads.filter(l => l.annealed).length}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Annealed Loads</p>
+                      <div className="space-y-1">
+                        <div><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">C</span> Length to Neck</div>
+                        <div><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">D</span> Length to Shoulder</div>
                       </div>
-                      <div className="text-center p-4 bg-white dark:bg-gray-800 rounded-lg">
-                        <p className="text-3xl font-bold text-blue-600">{equipment.loads.filter(l => l.caseLength).length}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">With Case Data</p>
+                      <div className="space-y-1">
+                        <div><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">E</span> Rim Diameter</div>
+                        <div><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">F</span> Rim Thickness</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">G</span> Head Diameter</div>
+                        <div><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">H</span> Shoulder Diameter</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">I</span> Neck Diameter</div>
+                        <div><span className="font-bold text-gray-700 dark:text-gray-300 mr-1">J</span> Shoulder Angle</div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Brass types used */}
-                  {equipment.loads.filter(l => l.brass).length > 0 && (
-                    <div className="mt-4">
-                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Brass in Use:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {[...new Set(equipment.loads.map(l => l.brass).filter(Boolean))].map((brass, i) => (
-                          <span key={i} className="px-3 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 rounded-full text-sm">
-                            {brass}
-                          </span>
+                  {equipment.loads.length > 0 && (
+                    <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                        <Package className="h-5 w-5 mr-2 text-purple-600" />
+                        Saved Loads
+                      </h3>
+                      <div className="space-y-3">
+                        {equipment.loads.map((load, idx) => (
+                          <div key={idx} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-medium text-gray-900 dark:text-white">{load.name}</h4>
+                              <span className={`px-2 py-0.5 text-xs rounded-full ${load.bc && load.muzzleVelocity ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                {load.bc && load.muzzleVelocity ? 'Complete' : 'Needs Data'}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-gray-600 dark:text-gray-400">
+                              <span>{load.bullet} {load.bulletWeight}gr</span>
+                              <span>{load.powder} {load.charge}gr</span>
+                              <span>{load.muzzleVelocity ? `${load.muzzleVelocity} fps` : '—'}</span>
+                              <span>SD: {load.velocitySD || '—'}</span>
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </div>
                   )}
                 </div>
-              </div>
-
-              {/* Right Column - Product Recommendations */}
-              <div className="space-y-6">
-                {/* Recommended Equipment */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                    <ShoppingCart className="h-5 w-5 mr-2 text-purple-600" />
-                    Recommended Gear
-                  </h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                    Based on your reloading setup
-                  </p>
-
-                  <div className="space-y-3">
-                    {/* Dynamic recommendations based on missing data */}
-                    {equipment.loads.some(l => !l.cbto) && (
-                      <ProductCard
-                        category="Measuring"
-                        name="Bullet Comparator Set"
-                        description="Measure CBTO accurately for consistent seating depth"
-                        reason="You have loads without CBTO data"
-                      />
-                    )}
-
-                    {equipment.loads.some(l => !l.muzzleVelocity) && (
-                      <ProductCard
-                        category="Chronograph"
-                        name="LabRadar or MagnetoSpeed"
-                        description="Measure muzzle velocity and SD for ballistic calculations"
-                        reason="Velocity data needed for ballistics"
-                      />
-                    )}
-
-                    {equipment.loads.some(l => !l.headspace) && (
-                      <ProductCard
-                        category="Measuring"
-                        name="Headspace Gauge Set"
-                        description="Measure shoulder bump and case headspace"
-                        reason="Track headspace for brass life"
-                      />
-                    )}
-
-                    {equipment.loads.some(l => !l.annealed) && (
-                      <ProductCard
-                        category="Brass Prep"
-                        name="Annealing Machine"
-                        description="Consistent neck tension and extended brass life"
-                        reason="None of your loads use annealed brass"
-                      />
-                    )}
-
-                    {/* General recommendations */}
-                    <ProductCard
-                      category="Dies"
-                      name="Premium Bushing Dies"
-                      description="Precise neck tension control for accuracy"
-                      reason="Essential for precision reloading"
-                    />
-
-                    <ProductCard
-                      category="Components"
-                      name="Match Grade Primers"
-                      description="Consistent ignition for low SD"
-                      reason="Recommended for precision loads"
-                    />
-                  </div>
-                </div>
-
-                {/* Component Finder */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                    <Package className="h-5 w-5 mr-2 text-purple-600" />
-                    Components in Your Loads
-                  </h3>
-
-                  {equipment.loads.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center">
+                      <ShoppingCart className="h-4 w-4 mr-2 text-purple-600" />
+                      Recommended Gear
+                    </h3>
                     <div className="space-y-3">
-                      {/* Powders */}
-                      {[...new Set(equipment.loads.map(l => l.powder).filter(Boolean))].length > 0 && (
-                        <div>
-                          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Powders</p>
-                          <div className="space-y-1">
-                            {[...new Set(equipment.loads.map(l => l.powder).filter(Boolean))].map((powder, i) => (
-                              <div key={i} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                                <span className="text-sm text-gray-900 dark:text-white">{powder}</span>
-                                <button className="text-xs text-purple-600 hover:text-purple-700 flex items-center">
-                                  Find in stock <ExternalLink className="h-3 w-3 ml-1" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Primers */}
-                      {[...new Set(equipment.loads.map(l => l.primer).filter(Boolean))].length > 0 && (
-                        <div>
-                          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Primers</p>
-                          <div className="space-y-1">
-                            {[...new Set(equipment.loads.map(l => l.primer).filter(Boolean))].map((primer, i) => (
-                              <div key={i} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                                <span className="text-sm text-gray-900 dark:text-white">{primer}</span>
-                                <button className="text-xs text-purple-600 hover:text-purple-700 flex items-center">
-                                  Find in stock <ExternalLink className="h-3 w-3 ml-1" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Bullets */}
-                      {[...new Set(equipment.loads.map(l => l.bullet ? `${l.bulletWeight} ${l.bullet}` : null).filter(Boolean))].length > 0 && (
-                        <div>
-                          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Bullets</p>
-                          <div className="space-y-1">
-                            {[...new Set(equipment.loads.map(l => l.bullet ? `${l.bulletWeight} ${l.bullet}` : null).filter(Boolean))].map((bullet, i) => (
-                              <div key={i} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                                <span className="text-sm text-gray-900 dark:text-white">{bullet}</span>
-                                <button className="text-xs text-purple-600 hover:text-purple-700 flex items-center">
-                                  Find in stock <ExternalLink className="h-3 w-3 ml-1" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                      {equipment.loads.some(l => !l.cbto) && <ProductCard category="Measuring" name="Bullet Comparator Set" description="Measure CBTO accurately" reason="Loads missing CBTO" />}
+                      {equipment.loads.some(l => !l.muzzleVelocity) && <ProductCard category="Chronograph" name="LabRadar" description="Velocity and SD" reason="Velocity data needed" />}
+                      <ProductCard category="Dies" name="Premium Bushing Dies" description="Precise neck tension" reason="Essential for precision" />
                     </div>
-                  ) : (
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Add loads to see your components here
-                    </p>
-                  )}
-                </div>
-
-                {/* Retailer Links */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Shop Partners</h3>
-                  <div className="space-y-2">
-                    {[
-                      { name: 'MidwayUSA', url: '#' },
-                      { name: 'Brownells', url: '#' },
-                      { name: 'Primary Arms', url: '#' },
-                      { name: 'Grafs', url: '#' },
-                    ].map((retailer, i) => (
-                      <a
-                        key={i}
-                        href={retailer.url}
-                        className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                      >
-                        <span className="font-medium text-gray-900 dark:text-white">{retailer.name}</span>
-                        <ExternalLink className="h-4 w-4 text-gray-400" />
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Shop Partners</h3>
+                    {[{ name: 'MidwayUSA' }, { name: 'Brownells' }, { name: 'Primary Arms' }, { name: 'Grafs' }].map((r, i) => (
+                      <a key={i} href="#" className="flex items-center justify-between p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded text-sm text-gray-700 dark:text-gray-300">
+                        {r.name} <ExternalLink className="h-3 w-3 text-gray-400" />
                       </a>
                     ))}
+                    <p className="text-xs text-gray-400 mt-2">* Affiliate links</p>
                   </div>
-                  <p className="text-xs text-gray-400 mt-3">
-                    * Affiliate links help support PRS Analytics
-                  </p>
                 </div>
               </div>
-            </div>
+            )}
+
+            {loadDevStep >= 2 && loadDevStep <= 7 && (
+              <div className="flex justify-between items-center pt-2 text-sm text-gray-500 dark:text-gray-400">
+                <button onClick={() => setLoadDevStep(s => Math.max(1, s - 1))} className="flex items-center hover:text-purple-600">← Back</button>
+                <button onClick={() => setLoadDevStep(8)} className="hover:text-purple-600">View Reference</button>
+              </div>
+            )}
           </div>
-        )}
+          );
+        })()}
+
+
 
         {/* Equipment Tab */}
         {activeTab === 'equipment' && (
