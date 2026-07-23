@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Manrope',-apple-system,BlinkMacSystemFont,sans-serif;-webkit-font-smoothing:antialiased}
+  :root{
+    --page:radial-gradient(1200px 760px at 50% -8%, #F4F3F9, #E3E1EA);--pagetx:#9B99A8;
+    --bg:#F4F3F8;--card:#fff;--bd:#ECEBF2;--line:#F2F1F7;
+    --tx:#16151C;--mut:#8D8B99;--fnt:#B7B5C2;
+    --input:#fff;--ibd:#E4E2EC;--nav:rgba(255,255,255,.94);
+    --acs:#F1EDFD;--act:#5A2FD0;--avb:#DDD8F5;--avt:#5A2FD0;--inset:#F7F6FB;
+    --tgt:#FAF9FD;--ring:#E7E4F5;--grid:#EDECF3;--st1:#E8E7EE;--st2:#E1E0E9;
+    --oks:#E7F6ED;--okbd:#C6EAD3;--okt:#15833E;
+    --warns:#FBF0E1;--warnt:#B36A05;--dngs:#FBECEC;--dngt:#DC2626;
+  }
+  .theme-dark{
+    --page:radial-gradient(1200px 760px at 50% -8%, #1a1826, #0b0a11);--pagetx:#6E6C7E;
+    --bg:#111019;--card:#1A1922;--bd:#282634;--line:#26242F;
+    --tx:#F2F1F6;--mut:#9997A6;--fnt:#66647A;
+    --input:#201E29;--ibd:#302E3C;--nav:rgba(20,19,26,.92);
+    --acs:#251E3A;--act:#B49BF7;--avb:#2C2448;--avt:#C4AEF9;--inset:#221F2C;
+    --tgt:#17161F;--ring:#332B4A;--grid:#26242F;--st1:#2A2833;--st2:#232130;
+    --oks:#123020;--okbd:#204A31;--okt:#5FDB8B;
+    --warns:#38290F;--warnt:#E8B056;--dngs:#3A1D1D;--dngt:#F16A6A;
+  }
+  .ico{display:inline-flex;align-items:center;justify-content:center;flex:none}
+  .ico svg{width:100%;height:100%;stroke-width:2}
+  .mono{font-family:'JetBrains Mono',monospace;font-feature-settings:"tnum"}
+  .scroll{scrollbar-width:none}
+  .scroll::-webkit-scrollbar{display:none}
+  a{color:var(--act);text-decoration:none}
+  a:hover{opacity:.8}
+  button{font-family:inherit;cursor:pointer;border:none;background:none}
+  @keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+</style>
+</helmet>
+<div class="{{ themeClass }}" style="min-height:100vh;background:var(--page);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:44px 20px;gap:20px">
+
+  <div style="position:relative;width:390px;height:844px;background:#0B0B10;border-radius:52px;padding:11px;box-shadow:0 44px 90px -24px rgba(28,20,54,.5), 0 0 0 2px #1a1922;flex:none">
+    <div style="position:relative;width:100%;height:100%;background:var(--bg);border-radius:42px;overflow:hidden;display:flex;flex-direction:column">
+
+      <!-- STATUS BAR -->
+      <div style="flex:none;height:50px;display:flex;align-items:center;justify-content:space-between;padding:0 26px 0 30px;z-index:5">
+        <span class="mono" style="font-size:15px;font-weight:700;color:var(--tx);letter-spacing:.5px">9:41</span>
+        <div style="display:flex;align-items:center;gap:7px;color:var(--tx)">
+          <span class="ico" style="width:17px;height:17px"><i data-lucide="signal-high"></i></span>
+          <span class="ico" style="width:17px;height:17px"><i data-lucide="wifi"></i></span>
+          <span class="ico" style="width:24px;height:17px"><i data-lucide="battery-full"></i></span>
+        </div>
+      </div>
+
+      <!-- SCROLL BODY -->
+      <div class="scroll" style="flex:1;overflow-y:auto;overflow-x:hidden">
+
+        <!-- ================= LOGIN ================= -->
+        <sc-if value="{{ isLogin }}" hint-placeholder-val="{{ true }}">
+          <div style="min-height:100%;display:flex;flex-direction:column;padding:28px 26px 40px">
+            <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:4px">
+              <div style="width:76px;height:76px;border-radius:22px;background:linear-gradient(150deg,#7B4DF0,#5A2FD0);display:flex;align-items:center;justify-content:center;box-shadow:0 16px 30px -8px rgba(109,59,235,.5);margin-bottom:22px">
+                <span class="ico" style="width:40px;height:40px;color:#fff"><i data-lucide="target"></i></span>
+              </div>
+              <h1 style="margin:0;font-size:28px;font-weight:800;letter-spacing:-.5px;color:var(--tx)">PRS Precision</h1>
+              <p style="margin:6px 0 30px;font-size:15px;color:var(--mut);font-weight:500;line-height:1.4">Measure groups. Track loads.<br>Shoot tighter.</p>
+              <div style="width:100%;display:flex;flex-direction:column;gap:12px;text-align:left">
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;color:var(--mut);margin-bottom:6px">Email</label>
+                  <input type="email" value="shooter@precision.com" style="width:100%;padding:14px 16px;border:1px solid var(--ibd);border-radius:13px;font-size:15px;font-family:inherit;background:var(--input);color:var(--tx);outline:none">
+                </div>
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:600;color:var(--mut);margin-bottom:6px">Password</label>
+                  <input type="password" value="password" style="width:100%;padding:14px 16px;border:1px solid var(--ibd);border-radius:13px;font-size:15px;font-family:inherit;background:var(--input);color:var(--tx);outline:none">
+                </div>
+              </div>
+              <button onClick="{{ login }}" style="width:100%;margin-top:22px;padding:16px;border-radius:14px;background:linear-gradient(150deg,#7B4DF0,#5A2FD0);color:#fff;font-size:16px;font-weight:700;box-shadow:0 12px 24px -8px rgba(109,59,235,.55)">Sign In</button>
+              <div style="display:flex;align-items:center;gap:12px;width:100%;margin:20px 0 4px;color:var(--fnt);font-size:12px;font-weight:600">
+                <div style="flex:1;height:1px;background:var(--ibd)"></div>OR<div style="flex:1;height:1px;background:var(--ibd)"></div>
+              </div>
+              <button onClick="{{ login }}" style="width:100%;padding:14px;border-radius:14px;background:var(--card);border:1px solid var(--ibd);color:var(--tx);font-size:15px;font-weight:600">Continue with Apple</button>
+            </div>
+            <p style="text-align:center;font-size:12px;color:var(--fnt);margin:24px 0 0">New here? <a href="#">Create an account</a></p>
+          </div>
+        </sc-if>
+
+        <!-- ================= HOME ================= -->
+        <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:6px 20px 108px;animation:fadeIn .25s ease">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+              <div>
+                <p style="margin:0;font-size:13px;color:var(--mut);font-weight:600">Welcome back</p>
+                <h1 style="margin:2px 0 0;font-size:24px;font-weight:800;letter-spacing:-.4px;color:var(--tx)">Dashboard</h1>
+              </div>
+              <div style="width:42px;height:42px;border-radius:50%;background:var(--avb);display:flex;align-items:center;justify-content:center;color:var(--avt);font-weight:800;font-size:15px">JR</div>
+            </div>
+
+            <div style="border-radius:22px;padding:22px;background:linear-gradient(145deg,#7B4DF0 0%,#5A2FD0 60%,#4A22B8 100%);color:#fff;box-shadow:0 20px 36px -14px rgba(90,47,208,.6);position:relative;overflow:hidden">
+              <div style="position:absolute;right:-30px;top:-30px;width:150px;height:150px;border:2px solid rgba(255,255,255,.14);border-radius:50%"></div>
+              <div style="position:absolute;right:6px;top:6px;width:78px;height:78px;border:2px solid rgba(255,255,255,.12);border-radius:50%"></div>
+              <p style="margin:0;font-size:13px;font-weight:600;color:rgba(255,255,255,.8);letter-spacing:.3px">READY TO SHOOT</p>
+              <h2 style="margin:8px 0 16px;font-size:22px;font-weight:800;line-height:1.2;max-width:220px">Capture your next group</h2>
+              <button onClick="{{ goCapture }}" style="display:inline-flex;align-items:center;gap:8px;background:#fff;color:#5A2FD0;padding:12px 18px;border-radius:12px;font-size:14px;font-weight:700">
+                <span class="ico" style="width:17px;height:17px"><i data-lucide="camera"></i></span>New Session
+              </button>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:16px">
+              <div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:14px 12px">
+                <span class="ico" style="width:20px;height:20px;color:var(--act);margin-bottom:10px"><i data-lucide="target"></i></span>
+                <p class="mono" style="margin:0;font-size:22px;font-weight:700;color:var(--tx)">12</p>
+                <p style="margin:2px 0 0;font-size:11px;color:var(--mut);font-weight:600">Sessions</p>
+              </div>
+              <div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:14px 12px">
+                <span class="ico" style="width:20px;height:20px;color:#15A34A;margin-bottom:10px"><i data-lucide="trending-up"></i></span>
+                <p class="mono" style="margin:0;font-size:22px;font-weight:700;color:var(--tx)">0.28"</p>
+                <p style="margin:2px 0 0;font-size:11px;color:var(--mut);font-weight:600">Best Group</p>
+              </div>
+              <div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:14px 12px">
+                <span class="ico" style="width:20px;height:20px;color:#D97706;margin-bottom:10px"><i data-lucide="crosshair"></i></span>
+                <p class="mono" style="margin:0;font-size:22px;font-weight:700;color:var(--tx)">3</p>
+                <p style="margin:2px 0 0;font-size:11px;color:var(--mut);font-weight:600">Rifles</p>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;margin:24px 0 10px">
+              <h3 style="margin:0;font-size:16px;font-weight:800;color:var(--tx)">Recent Sessions</h3>
+              <button onClick="{{ goHistory }}" style="font-size:13px;font-weight:700;color:var(--act)">See all</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ recentSessions }}" as="s" hint-placeholder-count="3">
+                <button onClick="{{ s.onOpen }}" style="text-align:left;display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:14px">
+                  <div style="width:44px;height:44px;border-radius:12px;background:var(--acs);display:flex;align-items:center;justify-content:center;flex:none">
+                    <span class="ico" style="width:20px;height:20px;color:var(--act)"><i data-lucide="crosshair"></i></span>
+                  </div>
+                  <div style="flex:1;min-width:0">
+                    <p style="margin:0;font-size:14px;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.name }}</p>
+                    <p style="margin:3px 0 0;font-size:12px;color:var(--mut);font-weight:500">{{ s.meta }}</p>
+                  </div>
+                  <div style="text-align:right;flex:none">
+                    <p class="mono" style="margin:0;font-size:15px;font-weight:700;color:{{ s.bestColor }}">{{ s.best }}"</p>
+                    <p style="margin:2px 0 0;font-size:11px;color:var(--fnt);font-weight:600">best</p>
+                  </div>
+                </button>
+              </sc-for>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px">
+              <button onClick="{{ goBallistics }}" style="text-align:left;background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:16px">
+                <span class="ico" style="width:22px;height:22px;color:var(--act);margin-bottom:10px"><i data-lucide="wind"></i></span>
+                <p style="margin:0;font-size:14px;font-weight:700;color:var(--tx)">Ballistics</p>
+                <p style="margin:2px 0 0;font-size:12px;color:var(--mut);font-weight:500">Dope card &amp; drops</p>
+              </button>
+              <button onClick="{{ goReloading }}" style="text-align:left;background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:16px">
+                <span class="ico" style="width:22px;height:22px;color:var(--act);margin-bottom:10px"><i data-lucide="flask-conical"></i></span>
+                <p style="margin:0;font-size:14px;font-weight:700;color:var(--tx)">Load Dev</p>
+                <p style="margin:2px 0 0;font-size:12px;color:var(--mut);font-weight:500">6 Dasher · Step 6</p>
+              </button>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ================= ANALYTICS ================= -->
+        <sc-if value="{{ isAnalytics }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:6px 20px 108px;animation:fadeIn .25s ease">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+              <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-.4px;color:var(--tx)">Analytics</h1>
+              <button style="width:40px;height:40px;border-radius:12px;background:var(--card);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;color:var(--act)">
+                <span class="ico" style="width:19px;height:19px"><i data-lucide="download"></i></span>
+              </button>
+            </div>
+
+            <div style="display:flex;gap:8px;overflow-x:auto;margin:0 -20px 18px;padding:0 20px" class="scroll">
+              <sc-for list="{{ filterChips }}" as="c" hint-placeholder-count="4">
+                <button onClick="{{ c.onTap }}" style="flex:none;white-space:nowrap;padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;border:1px solid {{ c.border }};background:{{ c.bg }};color:{{ c.color }}">{{ c.label }}</button>
+              </sc-for>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:15px">
+                <p style="margin:0;font-size:12px;color:var(--mut);font-weight:600">Avg Group</p>
+                <p class="mono" style="margin:6px 0 0;font-size:24px;font-weight:700;color:var(--tx)">{{ anAvg }}"</p>
+              </div>
+              <div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:15px">
+                <p style="margin:0;font-size:12px;color:var(--mut);font-weight:600">Total Rounds</p>
+                <p class="mono" style="margin:6px 0 0;font-size:24px;font-weight:700;color:var(--tx)">{{ anRounds }}</p>
+              </div>
+            </div>
+
+            <div style="background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:18px 16px 12px;margin-top:12px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <h3 style="margin:0;font-size:15px;font-weight:800;color:var(--tx)">Group Size Trend</h3>
+                <span style="font-size:12px;font-weight:700;color:#15A34A;display:inline-flex;align-items:center;gap:4px"><span class="ico" style="width:14px;height:14px"><i data-lucide="trending-down"></i></span>Improving</span>
+              </div>
+              <svg viewBox="0 0 300 106" style="width:100%;height:auto;display:block">
+                <sc-for list="{{ trendGrid }}" as="g" hint-placeholder-count="4">
+                  <line x1="34" y1="{{ g.y }}" x2="{{ g.x2 }}" y2="{{ g.y }}" stroke="var(--grid)" stroke-width="1"/>
+                  <text x="{{ g.xt }}" y="{{ g.y }}" text-anchor="end" dominant-baseline="middle" font-size="9" font-family="'JetBrains Mono',monospace" fill="var(--fnt)">{{ g.label }}</text>
+                </sc-for>
+                <path d="{{ trendArea }}" fill="rgba(109,59,235,.12)"/>
+                <path d="{{ trendPath }}" fill="none" stroke="#8257F0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <sc-for list="{{ trendPts }}" as="p" hint-placeholder-count="8">
+                  <circle cx="{{ p.cx }}" cy="{{ p.cy }}" r="3.4" fill="var(--card)" stroke="#8257F0" stroke-width="2"/>
+                </sc-for>
+              </svg>
+              <div style="display:flex;justify-content:space-between;margin:6px 4px 0 34px;font-size:11px;color:var(--fnt);font-weight:600">
+                <span>8 sessions ago</span><span>latest · MOA</span>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:18px 16px;margin-top:12px;align-items:center">
+              <div>
+                <p style="margin:0 0 8px;font-size:15px;font-weight:800;color:var(--tx)">Shot<br>Distribution</p>
+                <p style="margin:0;font-size:12px;color:var(--mut);font-weight:500">Latest group<br>{{ anLatestShots }} shots · {{ anLatestGroup }}"</p>
+              </div>
+              <svg viewBox="0 0 170 170" style="width:100%;max-width:150px;height:auto;justify-self:end">
+                <circle cx="85" cy="85" r="75" fill="var(--tgt)" stroke="var(--grid)"/>
+                <circle cx="85" cy="85" r="50" fill="none" stroke="var(--ring)" stroke-dasharray="3 3"/>
+                <circle cx="85" cy="85" r="25" fill="none" stroke="var(--ring)" stroke-dasharray="3 3"/>
+                <line x1="85" y1="8" x2="85" y2="162" stroke="var(--grid)"/>
+                <line x1="8" y1="85" x2="162" y2="85" stroke="var(--grid)"/>
+                <text x="88" y="37" font-size="9" font-family="'JetBrains Mono',monospace" fill="var(--fnt)">1 MOA</text>
+                <text x="88" y="62" font-size="9" font-family="'JetBrains Mono',monospace" fill="var(--fnt)">0.5</text>
+                <sc-for list="{{ scatterPts }}" as="s" hint-placeholder-count="7">
+                  <circle cx="{{ s.cx }}" cy="{{ s.cy }}" r="5" fill="rgba(130,87,240,.9)"/>
+                </sc-for>
+              </svg>
+            </div>
+
+            <div style="background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:18px 16px;margin-top:12px">
+              <h3 style="margin:0 0 14px;font-size:15px;font-weight:800;color:var(--tx)">Load Comparison</h3>
+              <div style="display:flex;align-items:center;gap:10px">
+                <div style="flex:1;text-align:center;padding:12px 8px;border-radius:12px;background:var(--inset)">
+                  <p style="margin:0;font-size:12px;color:var(--mut);font-weight:600">140 / H4350</p>
+                  <p class="mono" style="margin:6px 0 0;font-size:19px;font-weight:700;color:var(--tx)">0.31"</p>
+                </div>
+                <span style="font-size:12px;font-weight:700;color:var(--fnt)">vs</span>
+                <div style="flex:1;text-align:center;padding:12px 8px;border-radius:12px;background:var(--oks);border:1px solid var(--okbd)">
+                  <p style="margin:0;font-size:12px;color:var(--okt);font-weight:700">105 / Varget</p>
+                  <p class="mono" style="margin:6px 0 0;font-size:19px;font-weight:700;color:var(--okt)">0.19"</p>
+                </div>
+              </div>
+              <div style="margin-top:12px;padding:12px 14px;border-radius:12px;background:var(--acs);display:flex;gap:10px;align-items:flex-start">
+                <span class="ico" style="width:18px;height:18px;color:var(--act);margin-top:1px"><i data-lucide="circle-check"></i></span>
+                <p style="margin:0;font-size:12.5px;color:var(--act);font-weight:600;line-height:1.45">105 Varget is significantly tighter — <span class="mono">t=2.84, p&lt;0.05</span></p>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ================= BALLISTICS ================= -->
+        <sc-if value="{{ isBallistics }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:6px 20px 108px;animation:fadeIn .25s ease">
+            <h1 style="margin:0 0 16px;font-size:24px;font-weight:800;letter-spacing:-.4px;color:var(--tx)">Ballistics</h1>
+
+            <div style="border-radius:18px;padding:18px;background:linear-gradient(145deg,#232130,#15141d);color:#fff;position:relative;overflow:hidden">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                <div>
+                  <p style="margin:0;font-size:12px;color:#9E9BB0;font-weight:600">ACTIVE LOAD</p>
+                  <h2 style="margin:6px 0 0;font-size:18px;font-weight:800">6.5 CM · 140 Hybrid</h2>
+                  <p style="margin:4px 0 0;font-size:13px;color:#B9B6C8;font-weight:500">H4350 · 41.8gr · Fed 210M</p>
+                </div>
+                <span class="ico" style="width:26px;height:26px;color:#8B6BF5"><i data-lucide="crosshair"></i></span>
+              </div>
+              <div style="display:flex;gap:22px;margin-top:16px">
+                <div><p class="mono" style="margin:0;font-size:19px;font-weight:700">2820</p><p style="margin:2px 0 0;font-size:11px;color:#9E9BB0;font-weight:600">MV fps</p></div>
+                <div><p class="mono" style="margin:0;font-size:19px;font-weight:700">.607</p><p style="margin:2px 0 0;font-size:11px;color:#9E9BB0;font-weight:600">BC G1</p></div>
+                <div><p class="mono" style="margin:0;font-size:19px;font-weight:700">8.4</p><p style="margin:2px 0 0;font-size:11px;color:#9E9BB0;font-weight:600">SD fps</p></div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <div style="flex:1;background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;text-align:center">
+                <span class="ico" style="width:18px;height:18px;color:var(--mut)"><i data-lucide="thermometer"></i></span>
+                <p class="mono" style="margin:6px 0 0;font-size:15px;font-weight:700;color:var(--tx)">59°F</p>
+              </div>
+              <div style="flex:1;background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;text-align:center">
+                <span class="ico" style="width:18px;height:18px;color:var(--mut)"><i data-lucide="gauge"></i></span>
+                <p class="mono" style="margin:6px 0 0;font-size:15px;font-weight:700;color:var(--tx)">29.92</p>
+              </div>
+              <div style="flex:1;background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;text-align:center">
+                <span class="ico" style="width:18px;height:18px;color:var(--mut)"><i data-lucide="wind"></i></span>
+                <p class="mono" style="margin:6px 0 0;font-size:15px;font-weight:700;color:var(--tx)">10 mph</p>
+              </div>
+            </div>
+
+            <div style="background:var(--card);border:1px solid var(--bd);border-radius:18px;margin-top:12px;overflow:hidden">
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 16px 12px">
+                <h3 style="margin:0;font-size:15px;font-weight:800;color:var(--tx)">Dope Card</h3>
+                <span style="font-size:11px;font-weight:700;color:var(--fnt)">100yd zero · MOA</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:0 16px 8px;font-size:11px;font-weight:700;color:var(--fnt);text-transform:uppercase;letter-spacing:.4px">
+                <span>Range</span><span style="text-align:center">Elev</span><span style="text-align:right">Wind 10</span>
+              </div>
+              <sc-for list="{{ dopeRows }}" as="d" hint-placeholder-count="10">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:11px 16px;border-top:1px solid var(--line);background:{{ d.bg }}">
+                  <span class="mono" style="font-size:14px;font-weight:700;color:var(--tx)">{{ d.r }}<span style="font-size:11px;color:var(--fnt)"> yd</span></span>
+                  <span class="mono" style="text-align:center;font-size:14px;font-weight:700;color:var(--act)">{{ d.e }}</span>
+                  <span class="mono" style="text-align:right;font-size:14px;font-weight:700;color:var(--mut)">{{ d.w }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ================= CAPTURE WIZARD ================= -->
+        <sc-if value="{{ isCapture }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:6px 20px 120px;animation:fadeIn .25s ease">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+              <button onClick="{{ captureBack }}" style="width:38px;height:38px;border-radius:11px;background:var(--card);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;color:var(--tx)">
+                <span class="ico" style="width:19px;height:19px"><i data-lucide="arrow-left"></i></span>
+              </button>
+              <div>
+                <h1 style="margin:0;font-size:20px;font-weight:800;color:var(--tx)">New Session</h1>
+                <p style="margin:2px 0 0;font-size:12px;color:var(--mut);font-weight:600">Step {{ capStepNum }} of 5 · {{ capStepLabel }}</p>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:5px;margin-bottom:20px">
+              <sc-for list="{{ capDots }}" as="d" hint-placeholder-count="6">
+                <div style="flex:1;height:5px;border-radius:99px;background:{{ d.bg }}"></div>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ cap0 }}" hint-placeholder-val="{{ true }}">
+              <div style="border:2px dashed var(--ibd);border-radius:20px;padding:40px 20px;text-align:center;background:var(--inset)">
+                <div style="width:64px;height:64px;border-radius:18px;background:var(--acs);display:flex;align-items:center;justify-content:center;margin:0 auto 16px">
+                  <span class="ico" style="width:30px;height:30px;color:var(--act)"><i data-lucide="camera"></i></span>
+                </div>
+                <p style="margin:0;font-size:16px;font-weight:700;color:var(--tx)">Add a target photo</p>
+                <p style="margin:6px 0 20px;font-size:13px;color:var(--mut);font-weight:500;line-height:1.5">Photograph your target with an orange<br>marker sticker of known diameter</p>
+                <label style="display:inline-flex;align-items:center;gap:7px;padding:13px 20px;border-radius:12px;background:#6D3BEB;color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+                  <span class="ico" style="width:16px;height:16px"><i data-lucide="image"></i></span>Upload Photo
+                  <input type="file" accept="image/*" onChange="{{ pickPhoto }}" style="display:none">
+                </label>
+                <button onClick="{{ useDemo }}" style="display:block;margin:14px auto 0;font-size:13px;font-weight:700;color:var(--act)">Use a demo target instead</button>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ cap1 }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:700;color:var(--mut);margin-bottom:7px">Marker / Target Diameter</label>
+                  <div style="display:flex;align-items:center;background:var(--input);border:1px solid var(--ibd);border-radius:13px;padding:0 14px">
+                    <input type="number" step="0.1" value="{{ targetDia }}" onInput="{{ setTargetDia }}" style="flex:1;padding:14px 0;border:none;outline:none;font-size:15px;font-family:inherit;background:transparent;color:var(--tx)" class="mono">
+                    <span style="font-size:13px;color:var(--mut);font-weight:600">inches</span>
+                  </div>
+                  <p style="margin:7px 2px 0;font-size:11.5px;color:var(--fnt);font-weight:600;line-height:1.4">Used as the scale reference — you'll mark this diameter on the photo next.</p>
+                </div>
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:700;color:var(--mut);margin-bottom:7px">Rifle</label>
+                  <div style="display:flex;align-items:center;justify-content:space-between;background:var(--input);border:1px solid var(--ibd);border-radius:13px;padding:14px">
+                    <span style="font-size:15px;font-weight:600;color:var(--tx)">Impact 737R · 6.5 CM</span>
+                    <span class="ico" style="width:18px;height:18px;color:var(--fnt)"><i data-lucide="chevron-right"></i></span>
+                  </div>
+                </div>
+                <div>
+                  <label style="display:block;font-size:12px;font-weight:700;color:var(--mut);margin-bottom:7px">Load</label>
+                  <div style="display:flex;align-items:center;justify-content:space-between;background:var(--input);border:1px solid var(--ibd);border-radius:13px;padding:14px">
+                    <span style="font-size:15px;font-weight:600;color:var(--tx)">140 Hybrid / H4350</span>
+                    <span class="ico" style="width:18px;height:18px;color:var(--fnt)"><i data-lucide="chevron-right"></i></span>
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px">
+                  <div style="flex:1"><label style="display:block;font-size:12px;font-weight:700;color:var(--mut);margin-bottom:7px">Distance</label><div style="background:var(--input);border:1px solid var(--ibd);border-radius:13px;padding:14px;font-size:15px;font-weight:600;color:var(--tx)" class="mono">100 yd</div></div>
+                  <div style="flex:1"><label style="display:block;font-size:12px;font-weight:700;color:var(--mut);margin-bottom:7px">Suppressor</label><div style="background:var(--acs);border:1px solid var(--acs);border-radius:13px;padding:14px;font-size:15px;font-weight:700;color:var(--act)">Yes</div></div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ capScaleStep }}" hint-placeholder-val="{{ true }}">
+              <div>
+                <div style="padding:12px 14px;border-radius:12px;background:var(--acs);display:flex;gap:9px;align-items:center;margin-bottom:14px">
+                  <span class="ico" style="width:17px;height:17px;color:var(--act);flex:none"><i data-lucide="ruler"></i></span>
+                  <p style="margin:0;font-size:12.5px;color:var(--act);font-weight:600">Tap the two opposite edges of your marker to set the scale.</p>
+                </div>
+                <div onClick="{{ tapScale }}" style="position:relative;border-radius:18px;overflow:hidden;border:1px solid var(--bd);cursor:crosshair;background:repeating-linear-gradient(45deg,var(--st1),var(--st1) 9px,var(--st2) 9px,var(--st2) 18px);aspect-ratio:4/5">
+                  <sc-if value="{{ hasPhoto }}" hint-placeholder-val="{{ false }}"><img src="{{ photo }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none"></sc-if>
+                  <sc-if value="{{ demoTarget }}" hint-placeholder-val="{{ true }}">
+                    <svg viewBox="0 0 320 400" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+                      <circle cx="160" cy="185" r="92" fill="rgba(255,138,42,.28)" stroke="#F0872B" stroke-width="3"/>
+                      <circle cx="160" cy="185" r="3.5" fill="#F0872B"/>
+                    </svg>
+                  </sc-if>
+                  <sc-if value="{{ capHasScaleLine }}" hint-placeholder-val="{{ false }}">
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2">
+                      <line x1="{{ capScaleLine.x1 }}" y1="{{ capScaleLine.y1 }}" x2="{{ capScaleLine.x2 }}" y2="{{ capScaleLine.y2 }}" stroke="#F0872B" stroke-width="1.5" stroke-dasharray="3 2" vector-effect="non-scaling-stroke"/>
+                    </svg>
+                  </sc-if>
+                  <sc-for list="{{ capScaleDots }}" as="d" hint-placeholder-count="0">
+                    <div style="position:absolute;left:{{ d.left }};top:{{ d.top }};transform:translate(-50%,-50%);width:18px;height:18px;border-radius:50%;background:#F0872B;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.45);pointer-events:none;z-index:3"></div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+                  <p style="margin:0;font-size:12.5px;font-weight:600;color:var(--mut)"><span class="mono" style="color:var(--tx);font-weight:700">{{ capScaleCount }}</span>/2 edge points set</p>
+                  <button onClick="{{ resetScale }}" style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:700;color:var(--act)"><span class="ico" style="width:14px;height:14px"><i data-lucide="rotate-ccw"></i></span>Reset</button>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ capMarkStep }}" hint-placeholder-val="{{ true }}">
+              <div>
+                <div style="padding:12px 14px;border-radius:12px;background:var(--acs);display:flex;gap:9px;align-items:center;margin-bottom:14px">
+                  <span class="ico" style="width:17px;height:17px;color:var(--act);flex:none"><i data-lucide="crosshair"></i></span>
+                  <p style="margin:0;font-size:12.5px;color:var(--act);font-weight:600">Tap each bullet hole. Tap a marker again to remove it.</p>
+                </div>
+                <div onClick="{{ tapShot }}" style="position:relative;border-radius:18px;overflow:hidden;border:1px solid var(--bd);cursor:crosshair;background:repeating-linear-gradient(45deg,var(--st1),var(--st1) 9px,var(--st2) 9px,var(--st2) 18px);aspect-ratio:4/5">
+                  <sc-if value="{{ hasPhoto }}" hint-placeholder-val="{{ false }}"><img src="{{ photo }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none"></sc-if>
+                  <sc-if value="{{ demoTarget }}" hint-placeholder-val="{{ true }}">
+                    <svg viewBox="0 0 320 400" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+                      <circle cx="160" cy="185" r="92" fill="rgba(255,138,42,.28)" stroke="#F0872B" stroke-width="3"/>
+                      <circle cx="160" cy="185" r="3.5" fill="#F0872B"/>
+                    </svg>
+                  </sc-if>
+                  <sc-for list="{{ capShotDots }}" as="d" hint-placeholder-count="0">
+                    <button onClick="{{ d.onRemove }}" style="position:absolute;left:{{ d.left }};top:{{ d.top }};transform:translate(-50%,-50%);width:24px;height:24px;border-radius:50%;background:rgba(21,16,25,.55);border:2.5px solid #8257F0;color:#fff;font-size:10px;font-weight:800;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;z-index:3">{{ d.n }}</button>
+                  </sc-for>
+                  <div style="position:absolute;left:12px;bottom:12px;background:rgba(11,11,16,.82);color:#fff;padding:5px 10px;border-radius:8px;font-size:11px;font-weight:700;z-index:4" class="mono">{{ capShotCount }} shots · {{ capES }}"</div>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+                  <p style="margin:0;font-size:12.5px;font-weight:600;color:var(--mut)">Live group <span class="mono" style="color:var(--tx);font-weight:700">{{ capMOA }} MOA</span></p>
+                  <button onClick="{{ clearShots }}" style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:700;color:var(--act)"><span class="ico" style="width:14px;height:14px"><i data-lucide="eraser"></i></span>Clear</button>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ capReview }}" hint-placeholder-val="{{ true }}">
+              <div>
+                <div style="display:flex;align-items:center;gap:12px;padding:16px 18px;border-radius:18px;background:var(--card);border:1px solid var(--bd);margin-bottom:14px">
+                  <div style="position:relative;width:78px;height:78px;flex:none;border-radius:12px;overflow:hidden;border:1px solid var(--bd);background:repeating-linear-gradient(45deg,var(--st1),var(--st1) 6px,var(--st2) 6px,var(--st2) 12px)">
+                    <sc-if value="{{ hasPhoto }}" hint-placeholder-val="{{ false }}"><img src="{{ photo }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>
+                    <sc-if value="{{ demoTarget }}" hint-placeholder-val="{{ true }}">
+                      <svg viewBox="0 0 320 400" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%"><circle cx="160" cy="185" r="92" fill="rgba(255,138,42,.28)" stroke="#F0872B" stroke-width="4"/></svg>
+                    </sc-if>
+                    <sc-for list="{{ capShotDots }}" as="d" hint-placeholder-count="0">
+                      <div style="position:absolute;left:{{ d.left }};top:{{ d.top }};transform:translate(-50%,-50%);width:8px;height:8px;border-radius:50%;background:#8257F0;border:1px solid #fff"></div>
+                    </sc-for>
+                  </div>
+                  <div>
+                    <p style="margin:0;font-size:17px;font-weight:800;color:{{ capReviewColor }}">{{ capReviewMsg }}</p>
+                    <p style="margin:4px 0 0;font-size:13px;color:var(--mut);font-weight:600"><span class="mono">{{ capShotCount }}</span> shots · <span class="mono">{{ capES }}"</span> extreme spread</p>
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+                  <div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px"><p style="margin:0;font-size:11px;color:var(--mut);font-weight:600">GROUP SIZE</p><p class="mono" style="margin:5px 0 0;font-size:19px;font-weight:700;color:var(--tx)">{{ capES }}"</p></div>
+                  <div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px"><p style="margin:0;font-size:11px;color:var(--mut);font-weight:600">GROUP MOA</p><p class="mono" style="margin:5px 0 0;font-size:19px;font-weight:700;color:var(--tx)">{{ capMOA }}</p></div>
+                  <div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px"><p style="margin:0;font-size:11px;color:var(--mut);font-weight:600">MEAN RADIUS</p><p class="mono" style="margin:5px 0 0;font-size:19px;font-weight:700;color:var(--tx)">{{ capMR }}"</p></div>
+                  <div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px"><p style="margin:0;font-size:11px;color:var(--mut);font-weight:600">SHOTS</p><p class="mono" style="margin:5px 0 0;font-size:19px;font-weight:700;color:var(--tx)">{{ capShotCount }}</p></div>
+                </div>
+                <button onClick="{{ saveSession }}" style="width:100%;padding:16px;border-radius:14px;background:#6D3BEB;color:#fff;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px"><span class="ico" style="width:18px;height:18px"><i data-lucide="save"></i></span>Save Session</button>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ capShowNext }}" hint-placeholder-val="{{ true }}">
+              <button onClick="{{ capNextTap }}" style="width:100%;margin-top:20px;padding:16px;border-radius:14px;background:#6D3BEB;color:#fff;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;opacity:{{ capNextOpacity }}">{{ capNextLabel }}<span class="ico" style="width:18px;height:18px"><i data-lucide="arrow-right"></i></span></button>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- ================= RELOADING / LOAD DEV ================= -->
+        <sc-if value="{{ isReloading }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:6px 20px 108px;animation:fadeIn .25s ease">
+            <h1 style="margin:0 0 16px;font-size:24px;font-weight:800;letter-spacing:-.4px;color:var(--tx)">Load Development</h1>
+
+            <div style="background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:18px">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                <div>
+                  <h2 style="margin:0;font-size:17px;font-weight:800;color:var(--tx)">6 Dasher — AXSR</h2>
+                  <p style="margin:4px 0 0;font-size:13px;color:var(--mut);font-weight:500">Berger 105 Hybrid · Varget</p>
+                </div>
+                <span style="padding:6px 11px;border-radius:999px;background:var(--warns);color:var(--warnt);font-size:11px;font-weight:700">IN PROGRESS</span>
+              </div>
+              <div style="display:flex;gap:20px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)">
+                <div><p class="mono" style="margin:0;font-size:17px;font-weight:700;color:var(--tx)">≤0.5</p><p style="margin:2px 0 0;font-size:11px;color:var(--mut);font-weight:600">Goal MOA</p></div>
+                <div><p class="mono" style="margin:0;font-size:17px;font-weight:700;color:var(--tx)">90%</p><p style="margin:2px 0 0;font-size:11px;color:var(--mut);font-weight:600">Hit target</p></div>
+                <div><p class="mono" style="margin:0;font-size:17px;font-weight:700;color:var(--tx)">100</p><p style="margin:2px 0 0;font-size:11px;color:var(--mut);font-weight:600">yards</p></div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:6px;overflow-x:auto;margin:16px -20px;padding:0 20px" class="scroll">
+              <sc-for list="{{ loadDevSteps }}" as="st" hint-placeholder-count="8">
+                <button onClick="{{ st.onTap }}" style="flex:none;width:56px;text-align:center;background:none">
+                  <div style="width:40px;height:40px;border-radius:12px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;background:{{ st.bg }};color:{{ st.color }};border:1.5px solid {{ st.border }}">{{ st.mark }}</div>
+                  <p style="margin:6px 0 0;font-size:10px;font-weight:600;color:var(--mut);line-height:1.2">{{ st.label }}</p>
+                </button>
+              </sc-for>
+            </div>
+
+            <div style="background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:18px 16px;margin-top:4px">
+              <h3 style="margin:0;font-size:15px;font-weight:800;color:var(--tx)">{{ ldTitle }}</h3>
+              <p style="margin:6px 0 14px;font-size:12.5px;color:var(--mut);font-weight:500;line-height:1.45">{{ ldDesc }}</p>
+
+              <sc-if value="{{ ldBuilt }}" hint-placeholder-val="{{ true }}">
+                <div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding-bottom:8px;font-size:11px;font-weight:700;color:var(--fnt);text-transform:uppercase;letter-spacing:.4px">
+                    <span>Charge</span><span style="text-align:center">Vel</span><span style="text-align:right">Group</span>
+                  </div>
+                  <sc-for list="{{ chargeLadder }}" as="c" hint-placeholder-count="5">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;padding:11px 10px;border-radius:10px;background:{{ c.bg }}">
+                      <span class="mono" style="font-size:14px;font-weight:700;color:var(--tx)">{{ c.c }}<span style="font-size:11px;color:var(--fnt)">gr</span></span>
+                      <span class="mono" style="text-align:center;font-size:14px;font-weight:700;color:var(--mut)">{{ c.v }}</span>
+                      <span class="mono" style="text-align:right;font-size:14px;font-weight:700;color:{{ c.gc }}">{{ c.g }} {{ c.tag }}</span>
+                    </div>
+                  </sc-for>
+                  <div style="margin-top:12px;padding:12px 14px;border-radius:12px;background:var(--oks);display:flex;gap:9px;align-items:center">
+                    <span class="ico" style="width:17px;height:17px;color:#15A34A"><i data-lucide="circle-check"></i></span>
+                    <p style="margin:0;font-size:12.5px;color:var(--okt);font-weight:600">Node at <span class="mono">33.2gr</span> — flat spot, 0.29 MOA</p>
+                  </div>
+                  <button onClick="{{ lockCharge }}" style="width:100%;margin-top:14px;padding:14px;border-radius:13px;background:#6D3BEB;color:#fff;font-size:15px;font-weight:700">Lock charge → Seating Depth</button>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ ldStub }}" hint-placeholder-val="{{ false }}">
+                <div style="text-align:center;padding:26px 12px 20px">
+                  <div style="width:52px;height:52px;border-radius:15px;background:var(--inset);display:flex;align-items:center;justify-content:center;margin:0 auto 14px"><span class="ico" style="width:24px;height:24px;color:var(--fnt)"><i data-lucide="hammer"></i></span></div>
+                  <p style="margin:0;font-size:14px;font-weight:700;color:var(--tx)">Step not built yet</p>
+                  <p style="margin:6px auto 0;max-width:230px;font-size:12.5px;color:var(--mut);font-weight:500;line-height:1.5">This is a prototype vertical slice — only the charge ladder (Step 6) is interactive. Tap it in the rail above.</p>
+                  <button onClick="{{ goLadder }}" style="margin-top:16px;padding:11px 18px;border-radius:12px;background:var(--acs);color:var(--act);font-size:13px;font-weight:700">Go to Charge Ladder</button>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ================= EQUIPMENT ================= -->
+        <sc-if value="{{ isEquipment }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:6px 20px 108px;animation:fadeIn .25s ease">
+            <h1 style="margin:0 0 16px;font-size:24px;font-weight:800;letter-spacing:-.4px;color:var(--tx)">Equipment</h1>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <h3 style="margin:0;font-size:14px;font-weight:800;color:var(--tx);text-transform:uppercase;letter-spacing:.4px">Rifles</h3>
+              <button style="display:inline-flex;align-items:center;gap:5px;color:var(--act);font-size:13px;font-weight:700"><span class="ico" style="width:15px;height:15px"><i data-lucide="plus"></i></span>Add</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ rifles }}" as="r" hint-placeholder-count="3">
+                <div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:15px;display:flex;gap:13px;align-items:center">
+                  <div style="width:44px;height:44px;border-radius:12px;background:var(--acs);display:flex;align-items:center;justify-content:center;flex:none"><span class="ico" style="width:21px;height:21px;color:var(--act)"><i data-lucide="crosshair"></i></span></div>
+                  <div style="flex:1;min-width:0">
+                    <p style="margin:0;font-size:15px;font-weight:700;color:var(--tx)">{{ r.name }}</p>
+                    <p style="margin:3px 0 0;font-size:12px;color:var(--mut);font-weight:500">{{ r.spec }}</p>
+                  </div>
+                  <span class="ico" style="width:18px;height:18px;color:var(--fnt)"><i data-lucide="chevron-right"></i></span>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;margin:24px 0 10px">
+              <h3 style="margin:0;font-size:14px;font-weight:800;color:var(--tx);text-transform:uppercase;letter-spacing:.4px">Loads</h3>
+              <button style="display:inline-flex;align-items:center;gap:5px;color:var(--act);font-size:13px;font-weight:700"><span class="ico" style="width:15px;height:15px"><i data-lucide="plus"></i></span>Add</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ loads }}" as="l" hint-placeholder-count="3">
+                <div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:15px">
+                  <div style="display:flex;justify-content:space-between;align-items:center">
+                    <p style="margin:0;font-size:15px;font-weight:700;color:var(--tx)">{{ l.name }}</p>
+                    <span style="font-size:11px;font-weight:700;color:var(--act);background:var(--acs);padding:4px 9px;border-radius:999px">{{ l.caliber }}</span>
+                  </div>
+                  <div style="display:flex;gap:16px;margin-top:11px">
+                    <div><p class="mono" style="margin:0;font-size:14px;font-weight:700;color:var(--tx)">{{ l.charge }}</p><p style="margin:1px 0 0;font-size:10px;color:var(--fnt);font-weight:600">CHARGE</p></div>
+                    <div><p class="mono" style="margin:0;font-size:14px;font-weight:700;color:var(--tx)">{{ l.mv }}</p><p style="margin:1px 0 0;font-size:10px;color:var(--fnt);font-weight:600">MV</p></div>
+                    <div><p class="mono" style="margin:0;font-size:14px;font-weight:700;color:var(--tx)">{{ l.sd }}</p><p style="margin:1px 0 0;font-size:10px;color:var(--fnt);font-weight:600">SD</p></div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ================= HISTORY ================= -->
+        <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:6px 20px 108px;animation:fadeIn .25s ease">
+            <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px">
+              <div>
+                <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-.4px;color:var(--tx)">Sessions</h1>
+                <p style="margin:3px 0 0;font-size:13px;color:var(--mut);font-weight:600"><span class="mono">{{ historyCount }}</span> sessions</p>
+              </div>
+              <button onClick="{{ goCapture }}" style="display:inline-flex;align-items:center;gap:6px;padding:10px 14px;border-radius:12px;background:var(--acs);color:var(--act);font-size:13px;font-weight:700"><span class="ico" style="width:15px;height:15px"><i data-lucide="plus"></i></span>New</button>
+            </div>
+
+            <div style="display:flex;gap:8px;overflow-x:auto;margin:0 -20px 16px;padding:0 20px" class="scroll">
+              <sc-for list="{{ historyChips }}" as="c" hint-placeholder-count="4">
+                <button onClick="{{ c.onTap }}" style="flex:none;white-space:nowrap;padding:8px 14px;border-radius:999px;font-size:13px;font-weight:600;border:1px solid {{ c.border }};background:{{ c.bg }};color:{{ c.color }}">{{ c.label }}</button>
+              </sc-for>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ historyList }}" as="s" hint-placeholder-count="3">
+                <button onClick="{{ s.onOpen }}" style="text-align:left;display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:15px">
+                  <div style="width:46px;height:46px;border-radius:13px;background:var(--acs);display:flex;align-items:center;justify-content:center;flex:none"><span class="ico" style="width:21px;height:21px;color:var(--act)"><i data-lucide="crosshair"></i></span></div>
+                  <div style="flex:1;min-width:0">
+                    <p style="margin:0;font-size:14.5px;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.name }}</p>
+                    <p style="margin:3px 0 0;font-size:12px;color:var(--mut);font-weight:500">{{ s.date }} · {{ s.rifle }}</p>
+                    <p style="margin:2px 0 0;font-size:11.5px;color:var(--fnt);font-weight:600">{{ s.meta }}</p>
+                  </div>
+                  <div style="text-align:right;flex:none">
+                    <p class="mono" style="margin:0;font-size:16px;font-weight:700;color:{{ s.bestColor }}">{{ s.best }}"</p>
+                    <p style="margin:2px 0 0;font-size:10px;color:var(--fnt);font-weight:600">best</p>
+                  </div>
+                  <span class="ico" style="width:17px;height:17px;color:var(--fnt);flex:none"><i data-lucide="chevron-right"></i></span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ================= SESSION DETAIL ================= -->
+        <sc-if value="{{ isSession }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:6px 20px 108px;animation:fadeIn .25s ease">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+              <button onClick="{{ goHistory }}" style="width:38px;height:38px;border-radius:11px;background:var(--card);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;color:var(--tx)"><span class="ico" style="width:19px;height:19px"><i data-lucide="arrow-left"></i></span></button>
+              <div style="flex:1;min-width:0">
+                <h1 style="margin:0;font-size:19px;font-weight:800;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ sess.name }}</h1>
+                <p style="margin:2px 0 0;font-size:12px;color:var(--mut);font-weight:600">{{ sess.date }}</p>
+              </div>
+              <button style="width:38px;height:38px;border-radius:11px;background:var(--card);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;color:var(--act)"><span class="ico" style="width:18px;height:18px"><i data-lucide="download"></i></span></button>
+            </div>
+
+            <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px">
+              <span style="padding:7px 12px;border-radius:999px;background:var(--card);border:1px solid var(--bd);font-size:12px;font-weight:600;color:var(--tx)">{{ sess.rifle }}</span>
+              <span style="padding:7px 12px;border-radius:999px;background:var(--card);border:1px solid var(--bd);font-size:12px;font-weight:600;color:var(--tx)">{{ sess.distanceLabel }}</span>
+              <span style="padding:7px 12px;border-radius:999px;background:var(--card);border:1px solid var(--bd);font-size:12px;font-weight:600;color:var(--tx)">{{ sess.silencerLabel }}</span>
+            </div>
+
+            <div style="background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:18px;display:flex;gap:16px;align-items:center">
+              <svg viewBox="0 0 150 150" style="width:130px;height:130px;flex:none">
+                <circle cx="75" cy="75" r="66" fill="var(--tgt)" stroke="var(--grid)"/>
+                <circle cx="75" cy="75" r="42" fill="none" stroke="var(--ring)" stroke-dasharray="3 3"/>
+                <circle cx="75" cy="75" r="21" fill="none" stroke="var(--ring)" stroke-dasharray="3 3"/>
+                <line x1="75" y1="6" x2="75" y2="144" stroke="var(--grid)"/>
+                <line x1="6" y1="75" x2="144" y2="75" stroke="var(--grid)"/>
+                <sc-for list="{{ sessScatter }}" as="s" hint-placeholder-count="7">
+                  <circle cx="{{ s.cx }}" cy="{{ s.cy }}" r="4.5" fill="rgba(130,87,240,.9)"/>
+                </sc-for>
+              </svg>
+              <div style="flex:1">
+                <p style="margin:0;font-size:11px;color:var(--mut);font-weight:700">BEST GROUP</p>
+                <p class="mono" style="margin:3px 0 12px;font-size:26px;font-weight:700;color:{{ sess.bestColor }}">{{ sess.best }}"</p>
+                <p style="margin:0;font-size:11px;color:var(--mut);font-weight:700">MEAN RADIUS</p>
+                <p class="mono" style="margin:3px 0 0;font-size:18px;font-weight:700;color:var(--tx)">{{ sess.meanRadius }}"</p>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+              <div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:15px"><p style="margin:0;font-size:11px;color:var(--mut);font-weight:700">AVG VELOCITY</p><p class="mono" style="margin:5px 0 0;font-size:19px;font-weight:700;color:var(--tx)">{{ sess.mv }} <span style="font-size:11px;color:var(--fnt)">fps</span></p></div>
+              <div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:15px"><p style="margin:0;font-size:11px;color:var(--mut);font-weight:700">VELOCITY SD</p><p class="mono" style="margin:5px 0 0;font-size:19px;font-weight:700;color:var(--tx)">{{ sess.sd }} <span style="font-size:11px;color:var(--fnt)">fps</span></p></div>
+            </div>
+
+            <h3 style="margin:22px 0 10px;font-size:14px;font-weight:800;color:var(--tx);text-transform:uppercase;letter-spacing:.4px">Targets ({{ sess.targets }})</h3>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ sessTargetList }}" as="t" hint-placeholder-count="4">
+                <div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:13px 15px;display:flex;align-items:center;gap:12px">
+                  <div style="width:34px;height:34px;border-radius:10px;background:var(--acs);display:flex;align-items:center;justify-content:center;color:var(--act);font-weight:800;font-size:14px" class="mono">{{ t.n }}</div>
+                  <p style="margin:0;flex:1;font-size:13px;color:var(--mut);font-weight:600">{{ t.shots }} shots</p>
+                  <p class="mono" style="margin:0;font-size:15px;font-weight:700;color:{{ t.color }}">{{ t.group }}"</p>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ================= SETTINGS ================= -->
+        <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:6px 20px 108px;animation:fadeIn .25s ease">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+              <button onClick="{{ goHome }}" style="width:38px;height:38px;border-radius:11px;background:var(--card);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;color:var(--tx)"><span class="ico" style="width:19px;height:19px"><i data-lucide="arrow-left"></i></span></button>
+              <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-.4px;color:var(--tx)">Settings</h1>
+            </div>
+
+            <p style="margin:0 0 10px;font-size:12px;font-weight:800;color:var(--fnt);text-transform:uppercase;letter-spacing:.5px">Appearance</p>
+            <div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:16px">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+                <div style="width:40px;height:40px;border-radius:11px;background:var(--acs);display:flex;align-items:center;justify-content:center"><span class="ico" style="width:20px;height:20px;color:var(--act)"><i data-lucide="palette"></i></span></div>
+                <div><p style="margin:0;font-size:15px;font-weight:700;color:var(--tx)">Theme</p><p style="margin:2px 0 0;font-size:12px;color:var(--mut);font-weight:500">Choose light or dark</p></div>
+              </div>
+              <div style="display:flex;gap:6px;background:var(--inset);border-radius:13px;padding:5px">
+                <button onClick="{{ setLight }}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px;border-radius:9px;font-size:14px;font-weight:700;background:{{ segLightBg }};color:{{ segLightCol }};box-shadow:{{ segLightSh }}">
+                  <span class="ico" style="width:16px;height:16px"><i data-lucide="sun"></i></span>Light
+                </button>
+                <button onClick="{{ setDark }}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px;border-radius:9px;font-size:14px;font-weight:700;background:{{ segDarkBg }};color:{{ segDarkCol }};box-shadow:{{ segDarkSh }}">
+                  <span class="ico" style="width:16px;height:16px"><i data-lucide="moon"></i></span>Dark
+                </button>
+              </div>
+            </div>
+
+            <p style="margin:22px 0 10px;font-size:12px;font-weight:800;color:var(--fnt);text-transform:uppercase;letter-spacing:.5px">Units</p>
+            <div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;overflow:hidden">
+              <sc-for list="{{ unitRows }}" as="u" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-top:1px solid var(--line)">
+                  <span class="ico" style="width:19px;height:19px;color:var(--mut)"><i data-lucide="{{ u.icon }}"></i></span>
+                  <p style="margin:0;flex:1;font-size:14px;font-weight:600;color:var(--tx)">{{ u.label }}</p>
+                  <span style="font-size:13px;font-weight:700;color:var(--act);background:var(--acs);padding:5px 11px;border-radius:999px">{{ u.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+
+            <p style="margin:22px 0 10px;font-size:12px;font-weight:800;color:var(--fnt);text-transform:uppercase;letter-spacing:.5px">Data</p>
+            <div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:12px;padding:15px 16px">
+                <span class="ico" style="width:19px;height:19px;color:var(--mut)"><i data-lucide="file-down"></i></span>
+                <p style="margin:0;flex:1;font-size:14px;font-weight:600;color:var(--tx)">Export all sessions (CSV)</p>
+                <span class="ico" style="width:18px;height:18px;color:var(--fnt)"><i data-lucide="chevron-right"></i></span>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;padding:15px 16px;border-top:1px solid var(--line)">
+                <span class="ico" style="width:19px;height:19px;color:var(--mut)"><i data-lucide="sheet"></i></span>
+                <p style="margin:0;flex:1;font-size:14px;font-weight:600;color:var(--tx)">Export to Excel</p>
+                <span class="ico" style="width:18px;height:18px;color:var(--fnt)"><i data-lucide="chevron-right"></i></span>
+              </div>
+            </div>
+
+            <button onClick="{{ logout }}" style="width:100%;margin-top:22px;display:flex;align-items:center;justify-content:center;gap:8px;background:var(--dngs);color:var(--dngt);border-radius:14px;padding:15px;font-size:15px;font-weight:700">
+              <span class="ico" style="width:18px;height:18px"><i data-lucide="log-out"></i></span>Sign Out
+            </button>
+            <p style="text-align:center;margin:16px 0 0;font-size:11px;color:var(--fnt);font-weight:600">PRS Precision · v1.0.0</p>
+          </div>
+        </sc-if>
+
+      </div>
+
+      <!-- BOTTOM NAV -->
+      <sc-if value="{{ showNav }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:none;position:relative;background:var(--nav);backdrop-filter:blur(12px);border-top:1px solid var(--bd);padding:10px 18px 26px;display:flex;align-items:flex-start;justify-content:space-between">
+          <button onClick="{{ goHome }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;color:{{ navHomeC }}">
+            <span class="ico" style="width:23px;height:23px"><i data-lucide="home"></i></span>
+            <span style="font-size:10px;font-weight:700">Home</span>
+          </button>
+          <button onClick="{{ goHistory }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;color:{{ navHistoryC }}">
+            <span class="ico" style="width:23px;height:23px"><i data-lucide="history"></i></span>
+            <span style="font-size:10px;font-weight:700">Sessions</span>
+          </button>
+          <div style="flex:1;display:flex;justify-content:center">
+            <button onClick="{{ goCapture }}" style="width:56px;height:56px;margin-top:-24px;border-radius:50%;background:linear-gradient(150deg,#7B4DF0,#5A2FD0);box-shadow:0 12px 22px -6px rgba(109,59,235,.6);display:flex;align-items:center;justify-content:center;color:#fff;border:4px solid var(--bg)">
+              <span class="ico" style="width:24px;height:24px"><i data-lucide="camera"></i></span>
+            </button>
+          </div>
+          <button onClick="{{ goAnalytics }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;color:{{ navAnC }}">
+            <span class="ico" style="width:23px;height:23px"><i data-lucide="chart-column"></i></span>
+            <span style="font-size:10px;font-weight:700">Analytics</span>
+          </button>
+          <button onClick="{{ openMore }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;color:{{ navMoreC }}">
+            <span class="ico" style="width:23px;height:23px"><i data-lucide="menu"></i></span>
+            <span style="font-size:10px;font-weight:700">More</span>
+          </button>
+        </div>
+      </sc-if>
+
+      <!-- MORE SHEET -->
+      <sc-if value="{{ showMore }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ closeMore }}" style="position:absolute;inset:0;background:rgba(11,11,16,.4);z-index:20;animation:fadeIn .2s ease"></div>
+        <div style="position:absolute;left:0;right:0;bottom:0;z-index:21;background:var(--bg);border-radius:26px 26px 42px 42px;padding:10px 20px 30px;animation:sheetUp .28s cubic-bezier(.2,.8,.2,1)">
+          <div style="width:38px;height:5px;border-radius:99px;background:var(--bd);margin:0 auto 14px"></div>
+          <h3 style="margin:0 0 12px;font-size:17px;font-weight:800;color:var(--tx)">More</h3>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button onClick="{{ goBallistics }}" style="display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--bd);border-radius:15px;padding:15px;text-align:left">
+              <div style="width:40px;height:40px;border-radius:11px;background:var(--acs);display:flex;align-items:center;justify-content:center"><span class="ico" style="width:20px;height:20px;color:var(--act)"><i data-lucide="wind"></i></span></div>
+              <div style="flex:1"><p style="margin:0;font-size:15px;font-weight:700;color:var(--tx)">Ballistics</p><p style="margin:2px 0 0;font-size:12px;color:var(--mut);font-weight:500">Dope card &amp; drops</p></div>
+              <span class="ico" style="width:18px;height:18px;color:var(--fnt)"><i data-lucide="chevron-right"></i></span>
+            </button>
+            <button onClick="{{ goReloading }}" style="display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--bd);border-radius:15px;padding:15px;text-align:left">
+              <div style="width:40px;height:40px;border-radius:11px;background:var(--acs);display:flex;align-items:center;justify-content:center"><span class="ico" style="width:20px;height:20px;color:var(--act)"><i data-lucide="flask-conical"></i></span></div>
+              <div style="flex:1"><p style="margin:0;font-size:15px;font-weight:700;color:var(--tx)">Load Development</p><p style="margin:2px 0 0;font-size:12px;color:var(--mut);font-weight:500">8-step reloading wizard</p></div>
+              <span class="ico" style="width:18px;height:18px;color:var(--fnt)"><i data-lucide="chevron-right"></i></span>
+            </button>
+            <button onClick="{{ goEquipment }}" style="display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--bd);border-radius:15px;padding:15px;text-align:left">
+              <div style="width:40px;height:40px;border-radius:11px;background:var(--acs);display:flex;align-items:center;justify-content:center"><span class="ico" style="width:20px;height:20px;color:var(--act)"><i data-lucide="wrench"></i></span></div>
+              <div style="flex:1"><p style="margin:0;font-size:15px;font-weight:700;color:var(--tx)">Equipment</p><p style="margin:2px 0 0;font-size:12px;color:var(--mut);font-weight:500">Rifles &amp; loads</p></div>
+              <span class="ico" style="width:18px;height:18px;color:var(--fnt)"><i data-lucide="chevron-right"></i></span>
+            </button>
+            <button onClick="{{ goSettings }}" style="display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--bd);border-radius:15px;padding:15px;text-align:left">
+              <div style="width:40px;height:40px;border-radius:11px;background:var(--acs);display:flex;align-items:center;justify-content:center"><span class="ico" style="width:20px;height:20px;color:var(--act)"><i data-lucide="settings"></i></span></div>
+              <div style="flex:1"><p style="margin:0;font-size:15px;font-weight:700;color:var(--tx)">Settings</p><p style="margin:2px 0 0;font-size:12px;color:var(--mut);font-weight:500">Units, export, appearance</p></div>
+              <span class="ico" style="width:18px;height:18px;color:var(--fnt)"><i data-lucide="chevron-right"></i></span>
+            </button>
+            <button onClick="{{ logout }}" style="display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--bd);border-radius:15px;padding:15px;text-align:left">
+              <div style="width:40px;height:40px;border-radius:11px;background:var(--dngs);display:flex;align-items:center;justify-content:center"><span class="ico" style="width:20px;height:20px;color:var(--dngt)"><i data-lucide="log-out"></i></span></div>
+              <div style="flex:1"><p style="margin:0;font-size:15px;font-weight:700;color:var(--dngt)">Sign Out</p></div>
+            </button>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+
+  <p style="margin:0;font-size:12px;color:var(--pagetx);font-weight:600;font-family:'Manrope',sans-serif">PRS Precision · mobile GUI prototype — tap to navigate</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:470,&quot;height&quot;:960}}">
+class Component extends DCLogic {
+  state = {
+    screen: 'home',
+    showMore: false,
+    captureStep: 0,
+    selectedSessionId: 's1',
+    dark: false,
+    photo: null,
+    scalePts: [],
+    shots: [],
+    targetDia: 1.0,
+    distance: 100,
+    historyRifle: 'all',
+    analyticsRifle: 'all',
+    loadDevStep: 6
+  };
+
+  rifles = [
+    { id:'r1', name:'Impact 737R', spec:'6.5 Creedmoor · 26" Bartlein · 1:8' },
+    { id:'r2', name:'Tikka T3x TAC A1', spec:'.308 Win · 24" · 1:11' },
+    { id:'r3', name:'AI AXSR', spec:'6mm Dasher · 27" Proof · 1:7.5' }
+  ];
+  loads = [
+    { id:'l1', name:'140 Hybrid / H4350', caliber:'6.5 CM', charge:'41.8gr', mv:'2820', sd:'8.4' },
+    { id:'l2', name:'105 Hybrid / Varget', caliber:'6 Dasher', charge:'33.2gr', mv:'2915', sd:'6.1' },
+    { id:'l3', name:'175 SMK / Varget', caliber:'.308', charge:'44.0gr', mv:'2610', sd:'11.2' }
+  ];
+  sessions = [
+    { id:'s1', name:'Range Day — Steel Practice', date:'Jul 18, 2026', rifle:'Impact 737R', distance:100, silencer:true, best:'0.42', meanRadius:'0.14', sd:'8.4', mv:'2820', targets:4 },
+    { id:'s2', name:'Load Verify — 6 Dasher', date:'Jul 12, 2026', rifle:'AI AXSR', distance:100, silencer:true, best:'0.28', meanRadius:'0.11', sd:'6.1', mv:'2915', targets:3 },
+    { id:'s3', name:'308 Cold Bore Check', date:'Jul 5, 2026', rifle:'Tikka T3x TAC A1', distance:200, silencer:false, best:'0.71', meanRadius:'0.32', sd:'11.2', mv:'2610', targets:2 }
+  ];
+  capLabels = ['Photo','Setup','Scale','Mark Shots','Review'];
+  shotsIn = [
+    {x:0.05,y:-0.10},{x:-0.12,y:0.08},{x:0.02,y:0.16},{x:0.18,y:0.03},
+    {x:-0.06,y:-0.14},{x:0.10,y:0.11},{x:-0.03,y:-0.02}
+  ];
+
+  componentDidMount(){ this._ic = 0; this.refreshIcons(); }
+  componentDidUpdate(){ this.refreshIcons(); }
+  refreshIcons(){
+    if (window.lucide && window.lucide.createIcons){ window.lucide.createIcons(); }
+    else if ((this._ic||0) < 40){ this._ic=(this._ic||0)+1; setTimeout(()=>this.refreshIcons(),120); }
+  }
+
+  go(s){ this.setState({ screen:s, showMore:false }); }
+  openMore = () => this.setState({ showMore:true });
+  closeMore = () => this.setState({ showMore:false });
+  login = () => this.setState({ screen:'home' });
+  logout = () => this.setState({ screen:'login', showMore:false });
+  setDark = () => this.setState({ dark:true });
+  setLight = () => this.setState({ dark:false });
+  captureNext = () => this.setState(s => ({ captureStep: Math.min(4, s.captureStep+1) }));
+  captureBack = () => this.setState(s => s.captureStep>0 ? ({ captureStep:s.captureStep-1 }) : ({ screen:'home' }));
+  startCapture = () => this.setState({ screen:'capture', showMore:false, captureStep:0, photo:null, scalePts:[], shots:[] });
+  saveSession = () => this.setState({ screen:'history', captureStep:0, photo:null, scalePts:[], shots:[] });
+
+  pickPhoto = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    const rd = new FileReader();
+    rd.onload = () => this.setState({ photo: rd.result, captureStep: 1 });
+    rd.readAsDataURL(f);
+  };
+  useDemo = () => this.setState({ photo:null, captureStep:1 });
+  normPt = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return { x:+(((e.clientX - r.left)/r.width)).toFixed(4), y:+(((e.clientY - r.top)/r.height)).toFixed(4) };
+  };
+  tapScale = (e) => { const p=this.normPt(e); this.setState(s => ({ scalePts: s.scalePts.length>=2 ? [p] : [...s.scalePts, p] })); };
+  resetScale = () => this.setState({ scalePts: [] });
+  tapShot = (e) => { const p=this.normPt(e); this.setState(s => ({ shots:[...s.shots, p] })); };
+  removeShot = (i) => this.setState(s => ({ shots: s.shots.filter((_,j)=>j!==i) }));
+  clearShots = () => this.setState({ shots: [] });
+  setTargetDia = (e) => { const v=parseFloat(e.target.value); this.setState({ targetDia: isNaN(v)?0:v }); };
+  setHistoryRifle = (r) => this.setState({ historyRifle: r });
+  setAnalyticsRifle = (r) => this.setState({ analyticsRifle: r });
+  setLoadDevStep = (n) => this.setState({ loadDevStep: n });
+
+  analyticsData = {
+    all:               { trend:[0.71,0.62,0.58,0.55,0.49,0.44,0.38,0.31], avg:'0.58', rounds:486, latestShots:7, latestGroup:'0.42' },
+    'Impact 737R':     { trend:[0.62,0.55,0.51,0.47,0.44,0.40,0.36,0.31], avg:'0.46', rounds:214, latestShots:7, latestGroup:'0.31' },
+    'Tikka T3x TAC A1':{ trend:[0.88,0.79,0.74,0.71,0.68,0.72,0.66,0.61], avg:'0.72', rounds:132, latestShots:5, latestGroup:'0.61' },
+    'AI AXSR':         { trend:[0.44,0.39,0.35,0.33,0.30,0.31,0.29,0.26], avg:'0.34', rounds:140, latestShots:6, latestGroup:'0.28' }
+  };
+
+  scatter(shots, scale, c){
+    return shots.map(s => ({ cx:(c+s.x*scale).toFixed(1), cy:(c+s.y*scale).toFixed(1) }));
+  }
+
+  renderVals(){
+    const sc = this.state.screen;
+    const step = this.state.captureStep;
+    const dark = this.state.dark;
+
+    const ar = this.state.analyticsRifle;
+    const adata = this.analyticsData[ar] || this.analyticsData.all;
+    const trend = adata.trend;
+    const vHi=0.8, vLo=0.2, xL=34, xR=290, yT=12, yB=92, n=trend.length;
+    const yFor = (v)=> +(yT + (vHi-v)/(vHi-vLo)*(yB-yT)).toFixed(1);
+    const trendPts = trend.map((v,i)=>({
+      cx: +(xL + i*((xR-xL)/(n-1))).toFixed(1), cy: yFor(v)
+    }));
+    const trendPath = 'M ' + trendPts.map(p=>p.cx+' '+p.cy).join(' L ');
+    const trendArea = trendPath + ' L ' + trendPts[n-1].cx + ' ' + yB + ' L ' + trendPts[0].cx + ' ' + yB + ' Z';
+    const trendGrid = [0.8,0.6,0.4,0.2].map(v=>({ y:yFor(v), x2:xR, xt:xL-6, label:v.toFixed(1) }));
+
+    const dope = [
+      ['100','0.0','0.4'],['200','2.0','0.9'],['300','4.4','1.5'],['400','7.2','2.1'],
+      ['500','10.4','2.8'],['600','14.1','3.6'],['700','18.4','4.5'],['800','23.4','5.5'],
+      ['900','29.2','6.7'],['1000','35.9','8.0']
+    ];
+    const dopeRows = dope.map((d,i)=>({ r:d[0], e:d[1], w:d[2], bg: i===0 ? 'var(--inset)' : 'transparent' }));
+
+    const ladderRaw = [
+      ['33.0','2892','0.34',false],['33.2','2905','0.29',true],['33.4','2915','0.31',false],
+      ['33.6','2931','0.44',false],['33.8','2948','0.52',false]
+    ];
+    const chargeLadder = ladderRaw.map(r=>({
+      c:r[0], v:r[1], g:r[2], tag: r[3] ? '★' : '',
+      gc: r[3] ? '#15A34A' : (parseFloat(r[2])<=0.5 ? 'var(--tx)' : '#D97706'),
+      bg: r[3] ? 'var(--oks)' : 'transparent'
+    }));
+
+    const ldStep = this.state.loadDevStep;
+    const stepMeta = [
+      [1,'Goal','Define your accuracy goal and hit-rate target for this load.'],
+      [2,'Screen','Screen candidate powders and bullets for the barrel.'],
+      [3,'Max Chg','Work up to a pressure-safe maximum charge.'],
+      [4,'Accuracy','Coarse accuracy check across the charge range.'],
+      [5,'Primers','Compare primer brands for the lowest velocity SD.'],
+      [6,'Ladder','Vary charge in 0.2gr steps to find the flat velocity node.'],
+      [7,'Seating','Tune seating depth (CBTO) around the chosen node.'],
+      [8,'Ref','Confirm the reference load over full distance.']
+    ];
+    const loadDevSteps = stepMeta.map(s=>{
+      const num=s[0], done=num<6, sel=num===ldStep;
+      return {
+        n:num, label:s[1],
+        mark: done ? '✓' : String(num),
+        bg: sel ? '#6D3BEB' : (done ? 'var(--acs)' : 'var(--inset)'),
+        color: sel ? '#fff' : (done ? 'var(--act)' : 'var(--fnt)'),
+        border: sel ? '#6D3BEB' : (done ? 'var(--acs)' : 'var(--ibd)'),
+        onTap: () => this.setLoadDevStep(num)
+      };
+    });
+    const ldMeta = stepMeta[ldStep-1];
+    const ldTitle = 'Step ' + ldStep + ' — ' + ldMeta[1];
+    const ldDesc = ldMeta[2];
+    const ldBuilt = ldStep===6;
+    const ldDone = ldStep<6;
+
+    const filterChips = [{n:'all',l:'All rifles'}].concat(this.rifles.map(r=>({n:r.name,l:r.name}))).map(c=>({
+      label:c.l, active: ar===c.n,
+      bg: ar===c.n ? '#6D3BEB' : 'var(--card)',
+      color: ar===c.n ? '#fff' : 'var(--mut)',
+      border: ar===c.n ? '#6D3BEB' : 'var(--bd)',
+      onTap: () => this.setAnalyticsRifle(c.n)
+    }));
+
+    const shots = this.state.shots;
+    const sp = this.state.scalePts;
+    const td = this.state.targetDia || 1;
+    const hasScale = sp.length === 2;
+    const dnorm = hasScale ? Math.hypot(sp[0].x-sp[1].x, sp[0].y-sp[1].y) : 0;
+    const inchPerU = dnorm ? td/dnorm : null;
+    const dist = this.state.distance || 100;
+
+    let capES='—', capMOA='—', capMR='—', capGood=false;
+    if (shots.length >= 2){
+      const cx = shots.reduce((a,s)=>a+s.x,0)/shots.length;
+      const cy = shots.reduce((a,s)=>a+s.y,0)/shots.length;
+      let esN=0;
+      for(let i=0;i<shots.length;i++) for(let j=i+1;j<shots.length;j++){
+        const d=Math.hypot(shots[i].x-shots[j].x, shots[i].y-shots[j].y); if(d>esN) esN=d;
+      }
+      const mrN = shots.reduce((a,s)=>a+Math.hypot(s.x-cx,s.y-cy),0)/shots.length;
+      if (inchPerU){
+        const es = esN*inchPerU, mr = mrN*inchPerU, moa = es/(1.047*dist/100);
+        capES = es.toFixed(2); capMR = mr.toFixed(2); capMOA = moa.toFixed(2);
+        capGood = moa <= 0.5;
+      }
+    }
+
+    const capShotDots = shots.map((s,i)=>({
+      left:(s.x*100).toFixed(2)+'%', top:(s.y*100).toFixed(2)+'%', n:i+1,
+      onRemove:(e)=>{ if(e&&e.stopPropagation) e.stopPropagation(); this.removeShot(i); }
+    }));
+    const capScaleDots = sp.map((s,i)=>({ left:(s.x*100).toFixed(2)+'%', top:(s.y*100).toFixed(2)+'%', n:i+1 }));
+    const capScaleLine = hasScale ? {
+      x1:(sp[0].x*100).toFixed(2), y1:(sp[0].y*100).toFixed(2),
+      x2:(sp[1].x*100).toFixed(2), y2:(sp[1].y*100).toFixed(2)
+    } : null;
+
+    const openSession = (id) => this.setState({ screen:'session', selectedSessionId:id });
+    const recentSessions = this.sessions.slice(0,3).map(s=>({
+      name:s.name, meta: s.date + ' · ' + s.rifle, best: s.best,
+      bestColor: parseFloat(s.best)<=0.5 ? 'var(--okt)' : 'var(--tx)',
+      onOpen: () => openSession(s.id)
+    }));
+
+    const hr = this.state.historyRifle;
+    const histSessions = this.sessions.filter(s => hr==='all' || s.rifle===hr);
+    const historyList = histSessions.map(s=>({
+      name:s.name, date:s.date, rifle:s.rifle,
+      meta: (s.distance+' yd · '+s.targets+' targets'),
+      best:s.best, bestColor: parseFloat(s.best)<=0.5 ? 'var(--okt)' : 'var(--tx)',
+      onOpen: () => openSession(s.id)
+    }));
+    const historyChips = [{n:'all',l:'All rifles'}].concat(this.rifles.map(r=>({n:r.name,l:r.name}))).map(c=>({
+      label:c.l, active: hr===c.n,
+      bg: hr===c.n ? '#6D3BEB' : 'var(--card)',
+      color: hr===c.n ? '#fff' : 'var(--mut)',
+      border: hr===c.n ? '#6D3BEB' : 'var(--bd)',
+      onTap: () => this.setHistoryRifle(c.n)
+    }));
+
+    const sessObj = this.sessions.find(s=>s.id===this.state.selectedSessionId) || this.sessions[0];
+    const sess = { ...sessObj, distanceLabel: sessObj.distance + ' yd', silencerLabel: sessObj.silencer ? 'Suppressed' : 'Bare muzzle', bestColor: parseFloat(sessObj.best)<=0.5 ? '#15A34A' : 'var(--tx)' };
+    const sessScatter = this.scatter(this.shotsIn, 130, 75);
+    const sessTargetList = Array.from({length: sessObj.targets}).map((_,i)=>{
+      const g = (parseFloat(sessObj.best) + i*0.18).toFixed(2);
+      return { n:i+1, shots: 5, group:g, color: parseFloat(g)<=0.5 ? '#15A34A' : 'var(--tx)' };
+    });
+
+    const unitRows = [
+      { icon:'ruler', label:'Group size', value:'MOA' },
+      { icon:'thermometer', label:'Temperature', value:'°F' },
+      { icon:'gauge', label:'Velocity', value:'fps' }
+    ];
+
+    const navC = (on)=> on ? 'var(--act)' : 'var(--fnt)';
+    const segSh = '0 1px 3px rgba(0,0,0,.12)';
+
+    return {
+      themeClass: dark ? 'theme-dark' : '',
+      isLogin: sc==='login', isHome: sc==='home', isAnalytics: sc==='analytics',
+      isBallistics: sc==='ballistics', isCapture: sc==='capture', isReloading: sc==='reloading',
+      isEquipment: sc==='equipment', isSession: sc==='session', isSettings: sc==='settings',
+      isHistory: sc==='history',
+      showMore: this.state.showMore,
+      showNav: sc!=='login',
+
+      navHomeC: navC(sc==='home'),
+      navHistoryC: navC(sc==='history'),
+      navAnC: navC(sc==='analytics'),
+      navMoreC: navC(sc==='ballistics'||sc==='reloading'||sc==='equipment'||sc==='session'||sc==='settings'),
+
+      goHome:()=>this.go('home'), goHistory:()=>this.go('history'), goAnalytics:()=>this.go('analytics'),
+      goBallistics:()=>this.go('ballistics'), goCapture:this.startCapture,
+      goReloading:()=>this.go('reloading'), goEquipment:()=>this.go('equipment'),
+      goSettings:()=>this.go('settings'),
+      openMore:this.openMore, closeMore:this.closeMore,
+      login:this.login, logout:this.logout, setDark:this.setDark, setLight:this.setLight,
+      captureNext:this.captureNext, captureBack:this.captureBack, saveSession:this.saveSession,
+      pickPhoto:this.pickPhoto, useDemo:this.useDemo, tapScale:this.tapScale, resetScale:this.resetScale,
+      tapShot:this.tapShot, clearShots:this.clearShots, setTargetDia:this.setTargetDia,
+
+      segLightBg: !dark ? 'var(--card)' : 'transparent',
+      segLightCol: !dark ? 'var(--tx)' : 'var(--mut)',
+      segLightSh: !dark ? segSh : 'none',
+      segDarkBg: dark ? 'var(--card)' : 'transparent',
+      segDarkCol: dark ? 'var(--tx)' : 'var(--mut)',
+      segDarkSh: dark ? segSh : 'none',
+
+      capStepNum: step+1,
+      capStepLabel: this.capLabels[step],
+      capDots: this.capLabels.map((_,i)=>({ bg: i<=step ? '#6D3BEB' : 'var(--ibd)' })),
+      cap0: step===0, cap1: step===1, capScaleStep: step===2, capMarkStep: step===3, capReview: step===4,
+      capShowNext: step===1 || step===2 || step===3,
+      capNextLabel: step===3 ? 'Review Group' : (step===2 ? 'Mark Shots' : 'Continue'),
+      capNextTap: (step===2 && !hasScale) ? (()=>{}) : (step===3 && shots.length<2 ? (()=>{}) : this.captureNext),
+      capNextOpacity: (step===2 && !hasScale) ? .45 : (step===3 && shots.length<2 ? .45 : 1),
+      hasPhoto: !!this.state.photo, demoTarget: !this.state.photo, photo: this.state.photo,
+      targetDia: this.state.targetDia,
+      capShotDots, capScaleDots, capScaleLine, capHasScaleLine: hasScale,
+      capShotCount: shots.length, capScaleCount: sp.length, capHasScale: hasScale,
+      capES, capMOA, capMR, capGood,
+      capReviewMsg: capGood ? 'Tight group!' : (shots.length>=2 ? 'Group measured' : 'Mark at least 2 shots'),
+      capReviewColor: capGood ? 'var(--okt)' : 'var(--tx)',
+
+      isHistory: sc==='history', historyList, historyChips, historyCount: histSessions.length,
+
+      trendPts, trendPath, trendArea, trendGrid,
+      anAvg: adata.avg, anRounds: adata.rounds,
+      anLatestShots: adata.latestShots, anLatestGroup: adata.latestGroup,
+      scatterPts: this.scatter(this.shotsIn, 150, 85),
+      dopeRows, chargeLadder, loadDevSteps, filterChips, unitRows,
+      ldTitle, ldDesc, ldBuilt, ldStub: !ldBuilt, ldDone, ldStep,
+      lockCharge: () => this.setState({ loadDevStep: 7 }),
+      goLadder: () => this.setState({ loadDevStep: 6 }),
+      recentSessions, rifles:this.rifles, loads:this.loads,
+      sess, sessScatter, sessTargetList
+    };
+  }
+}
+</script>
+</body>
+</html>
