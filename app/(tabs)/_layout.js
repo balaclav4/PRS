@@ -1,8 +1,8 @@
 import { Tabs, useRouter } from 'expo-router';
-import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Platform, Pressable, Text } from 'react-native';
 import { Home, History, Camera, ChartColumn, Menu } from 'lucide-react-native';
 import { useTheme } from '../../lib/theme';
-import { useState } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import MoreSheet from '../../components/MoreSheet';
 
 function TabBarIcon({ icon: Icon, color, size }) {
@@ -21,6 +21,29 @@ export default function TabLayout() {
   const { colors } = useTheme();
   const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef(null);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && moreRef.current) {
+      const el = moreRef.current;
+      const handler = () => setMoreOpen(true);
+      el.addEventListener('click', handler);
+      return () => el.removeEventListener('click', handler);
+    }
+  }, []);
+
+  const MoreButton = useCallback((props) => {
+    return (
+      <View ref={moreRef} style={props.style}>
+        <Pressable
+          onPress={() => setMoreOpen(true)}
+          style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+        >
+          {props.children}
+        </Pressable>
+      </View>
+    );
+  }, []);
 
   return (
     <>
@@ -73,9 +96,7 @@ export default function TabLayout() {
           options={{
             title: 'More',
             tabBarIcon: ({ color }) => <TabBarIcon icon={Menu} color={color} />,
-            tabBarButton: (props) => (
-              <TouchableOpacity {...props} onPress={() => setMoreOpen(true)} />
-            ),
+            tabBarButton: MoreButton,
           }}
         />
       </Tabs>
@@ -97,7 +118,6 @@ const s = StyleSheet.create({
     shadowOpacity: 0.6,
     shadowRadius: 22,
     elevation: 8,
-    backgroundImage: undefined,
     backgroundColor: '#6D3BEB',
   },
 });

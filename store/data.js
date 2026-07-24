@@ -66,12 +66,44 @@ export function DataProvider({ children }) {
   }, []);
 
   const addRifle = useCallback((rifle) => {
-    setRifles(prev => [...prev, rifle]);
+    setRifles(prev => [...prev, { ...rifle, id: 'r' + Date.now() }]);
+  }, []);
+
+  const updateRifle = useCallback((id, updates) => {
+    setRifles(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+  }, []);
+
+  const deleteRifle = useCallback((id) => {
+    setRifles(prev => prev.filter(r => r.id !== id));
   }, []);
 
   const addLoad = useCallback((load) => {
-    setLoads(prev => [...prev, load]);
+    setLoads(prev => [...prev, { ...load, id: 'l' + Date.now() }]);
   }, []);
+
+  const updateLoad = useCallback((id, updates) => {
+    setLoads(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l));
+  }, []);
+
+  const deleteLoad = useCallback((id) => {
+    setLoads(prev => prev.filter(l => l.id !== id));
+  }, []);
+
+  const deleteSession = useCallback((id) => {
+    setSessions(prev => prev.filter(s => s.id !== id));
+  }, []);
+
+  const exportSessionsCSV = useCallback(() => {
+    const header = 'Name,Date,Rifle,Load,Distance (yd),Suppressed,Best Group (in),Mean Radius (in),MV (fps),SD (fps),Targets,Total Shots';
+    const rows = sessions.map(s => {
+      const rifleName = rifles.find(r => r.id === s.rifleId)?.name || '';
+      const loadName = loads.find(l => l.id === s.loadId)?.name || '';
+      const totalShots = s.targets.reduce((a, t) => a + t.shots.length, 0);
+      return [s.name, s.date, rifleName, loadName, s.distanceYd, s.suppressed ? 'Yes' : 'No', s.best, s.meanRadius, s.mv, s.sd, s.targetCount, totalShots]
+        .map(v => `"${v}"`).join(',');
+    });
+    return header + '\n' + rows.join('\n');
+  }, [sessions, rifles, loads]);
 
   const analyticsData = useMemo(() => ({
     all: { trend: [0.71, 0.62, 0.58, 0.55, 0.49, 0.44, 0.38, 0.31], avg: '0.58', rounds: 486, latestShots: 7, latestGroup: '0.42' },
@@ -84,8 +116,12 @@ export function DataProvider({ children }) {
     rifles, loads, sessions,
     getRifle, getLoad, getSession, getRifleName,
     addSession, addRifle, addLoad,
+    updateRifle, deleteRifle,
+    updateLoad, deleteLoad,
+    deleteSession,
+    exportSessionsCSV,
     analyticsData,
-  }), [rifles, loads, sessions, getRifle, getLoad, getSession, getRifleName, addSession, addRifle, addLoad, analyticsData]);
+  }), [rifles, loads, sessions, getRifle, getLoad, getSession, getRifleName, addSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, exportSessionsCSV, analyticsData]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

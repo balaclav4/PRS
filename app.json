@@ -23,7 +23,9 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": ["android.permission.CAMERA"]
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -45,7 +47,8 @@
         {
           "photosPermission": "PRS Precision needs photo library access to import target photos."
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }

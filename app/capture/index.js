@@ -8,6 +8,7 @@ import Svg, { Circle, Line } from 'react-native-svg';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { computeScale, computeGroupStats } from '../../lib/math';
+import { lightTap, mediumTap, successTap } from '../../lib/haptics';
 
 const STEP_LABELS = ['Photo', 'Setup', 'Scale', 'Mark Shots', 'Review'];
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -58,15 +59,21 @@ export default function CaptureScreen() {
   }, []);
 
   const onTapImage = useCallback((e, mode) => {
-    const { locationX, locationY } = e.nativeEvent;
+    const ne = e.nativeEvent || e;
+    const locationX = ne.locationX ?? ne.offsetX;
+    const locationY = ne.locationY ?? ne.offsetY;
+    if (locationX == null || locationY == null) return;
     const x = locationX / IMG_W;
     const y = locationY / (IMG_W * 1.25);
+    if (!isFinite(x) || !isFinite(y)) return;
     const pt = { x, y };
 
     if (mode === 'scale') {
       setScalePts(prev => prev.length >= 2 ? [pt] : [...prev, pt]);
+      mediumTap();
     } else {
       setShots(prev => [...prev, pt]);
+      lightTap();
     }
   }, []);
 
@@ -74,7 +81,8 @@ export default function CaptureScreen() {
 
   const canNext = step === 1 || (step === 2 && hasScale) || (step === 3 && shots.length >= 2);
 
-  const saveAndFinish = () => {
+  const saveAndFinish = async () => {
+    await successTap();
     const id = 's' + Date.now();
     addSession({
       id,
@@ -212,7 +220,7 @@ export default function CaptureScreen() {
                   <Circle cx="160" cy="185" r="3.5" fill="#F0872B" />
                 </Svg>
               ) : null}
-              {hasScale && (
+              {hasScale && isFinite(scalePts[0].x) && isFinite(scalePts[1].x) && (
                 <Svg viewBox="0 0 100 100" preserveAspectRatio="none" style={s.overlayLine}>
                   <Line
                     x1={scalePts[0].x * 100} y1={scalePts[0].y * 100}

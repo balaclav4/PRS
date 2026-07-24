@@ -71,7 +71,13 @@ export default function HomeScreen() {
         </View>
 
         <View style={s.recentList}>
-          {recent.map((sess) => (
+          {recent.length === 0 ? (
+            <View style={[s.emptyCard, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+              <Target size={28} color={colors.fnt} />
+              <Text style={[s.emptyText, { color: colors.mut }]}>No sessions yet</Text>
+              <Text style={[s.emptyHint, { color: colors.fnt }]}>Tap the capture button to record your first group</Text>
+            </View>
+          ) : recent.map((sess) => (
             <TouchableOpacity
               key={sess.id}
               onPress={() => router.push(`/session/${sess.id}`)}
@@ -147,4 +153,7 @@ const s = StyleSheet.create({
   quickCard: { flex: 1, borderWidth: 1, borderRadius: 16, padding: 16 },
   quickTitle: { fontSize: 14, fontWeight: '700' },
   quickSub: { fontSize: 12, fontWeight: '500', marginTop: 2 },
+  emptyCard: { borderWidth: 1, borderRadius: 16, padding: 30, alignItems: 'center', gap: 8 },
+  emptyText: { fontSize: 14, fontWeight: '700' },
+  emptyHint: { fontSize: 12, fontWeight: '500', textAlign: 'center', lineHeight: 18 },
 });

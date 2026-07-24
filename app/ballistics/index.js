@@ -1,23 +1,36 @@
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TextInput, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Crosshair, Thermometer, Gauge, Wind } from 'lucide-react-native';
+import { useState, useMemo } from 'react';
 import { useTheme } from '../../lib/theme';
-
-const DOPE = [
-  ['100', '0.0', '0.4'], ['200', '2.0', '0.9'], ['300', '4.4', '1.5'], ['400', '7.2', '2.1'],
-  ['500', '10.4', '2.8'], ['600', '14.1', '3.6'], ['700', '18.4', '4.5'], ['800', '23.4', '5.5'],
-  ['900', '29.2', '6.7'], ['1000', '35.9', '8.0'],
-];
+import { computeDopeCard } from '../../lib/math';
 
 export default function BallisticsScreen() {
   const { colors } = useTheme();
+
+  const [mvFps, setMvFps] = useState('2820');
+  const [bcG1, setBcG1] = useState('0.607');
+  const [tempF, setTempF] = useState('59');
+  const [pressureInHg, setPressureInHg] = useState('29.92');
+  const [windMph, setWindMph] = useState('10');
+
+  const dope = useMemo(() =>
+    computeDopeCard(
+      parseFloat(mvFps) || 2820,
+      parseFloat(bcG1) || 0.607,
+      1.5, 100,
+      parseFloat(tempF) || 59,
+      parseFloat(pressureInHg) || 29.92,
+      parseFloat(windMph) || 10,
+    ),
+    [mvFps, bcG1, tempF, pressureInHg, windMph]
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         <Text style={[s.title, { color: colors.tx }]}>Ballistics</Text>
 
-        {/* Active Load Card */}
         <View style={s.loadCard}>
           <View style={s.loadHeader}>
             <View>
@@ -29,11 +42,13 @@ export default function BallisticsScreen() {
           </View>
           <View style={s.loadStats}>
             <View>
-              <Text style={s.loadStatVal}>2820</Text>
+              <TextInput value={mvFps} onChangeText={setMvFps} keyboardType="number-pad"
+                style={s.loadStatInput} selectTextOnFocus />
               <Text style={s.loadStatLabel}>MV fps</Text>
             </View>
             <View>
-              <Text style={s.loadStatVal}>.607</Text>
+              <TextInput value={bcG1} onChangeText={setBcG1} keyboardType="decimal-pad"
+                style={s.loadStatInput} selectTextOnFocus />
               <Text style={s.loadStatLabel}>BC G1</Text>
             </View>
             <View>
@@ -43,21 +58,27 @@ export default function BallisticsScreen() {
           </View>
         </View>
 
-        {/* Environmentals */}
         <View style={s.envRow}>
-          {[
-            { Icon: Thermometer, val: '59°F' },
-            { Icon: Gauge, val: '29.92' },
-            { Icon: Wind, val: '10 mph' },
-          ].map((e, i) => (
-            <View key={i} style={[s.envTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
-              <e.Icon size={18} color={colors.mut} />
-              <Text style={[s.envVal, { color: colors.tx }]}>{e.val}</Text>
-            </View>
-          ))}
+          <View style={[s.envTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+            <Thermometer size={18} color={colors.mut} />
+            <TextInput value={tempF} onChangeText={setTempF} keyboardType="number-pad"
+              style={[s.envInput, { color: colors.tx }]} selectTextOnFocus />
+            <Text style={[s.envUnit, { color: colors.fnt }]}>°F</Text>
+          </View>
+          <View style={[s.envTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+            <Gauge size={18} color={colors.mut} />
+            <TextInput value={pressureInHg} onChangeText={setPressureInHg} keyboardType="decimal-pad"
+              style={[s.envInput, { color: colors.tx }]} selectTextOnFocus />
+            <Text style={[s.envUnit, { color: colors.fnt }]}>inHg</Text>
+          </View>
+          <View style={[s.envTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+            <Wind size={18} color={colors.mut} />
+            <TextInput value={windMph} onChangeText={setWindMph} keyboardType="number-pad"
+              style={[s.envInput, { color: colors.tx }]} selectTextOnFocus />
+            <Text style={[s.envUnit, { color: colors.fnt }]}>mph</Text>
+          </View>
         </View>
 
-        {/* Dope Card */}
         <View style={[s.dopeCard, { backgroundColor: colors.card, borderColor: colors.bd }]}>
           <View style={s.dopeHeader}>
             <Text style={[s.dopeTitle, { color: colors.tx }]}>Dope Card</Text>
@@ -66,13 +87,15 @@ export default function BallisticsScreen() {
           <View style={s.dopeColHeaders}>
             <Text style={[s.dopeColH, { color: colors.fnt }]}>Range</Text>
             <Text style={[s.dopeColH, { color: colors.fnt, textAlign: 'center' }]}>Elev</Text>
-            <Text style={[s.dopeColH, { color: colors.fnt, textAlign: 'right' }]}>Wind 10</Text>
+            <Text style={[s.dopeColH, { color: colors.fnt, textAlign: 'center' }]}>Vel</Text>
+            <Text style={[s.dopeColH, { color: colors.fnt, textAlign: 'right' }]}>Wind</Text>
           </View>
-          {DOPE.map((row, i) => (
+          {dope.map((row, i) => (
             <View key={i} style={[s.dopeRow, { borderTopColor: colors.line, backgroundColor: i === 0 ? colors.inset : 'transparent' }]}>
-              <Text style={[s.dopeRange, { color: colors.tx }]}>{row[0]}<Text style={{ fontSize: 11, color: colors.fnt }}> yd</Text></Text>
-              <Text style={[s.dopeElev, { color: colors.act }]}>{row[1]}</Text>
-              <Text style={[s.dopeWind, { color: colors.mut }]}>{row[2]}</Text>
+              <Text style={[s.dopeRange, { color: colors.tx }]}>{row.range}<Text style={{ fontSize: 11, color: colors.fnt }}> yd</Text></Text>
+              <Text style={[s.dopeElev, { color: colors.act }]}>{row.elevMoa}</Text>
+              <Text style={[s.dopeVel, { color: colors.mut }]}>{row.velFps}</Text>
+              <Text style={[s.dopeWind, { color: colors.mut }]}>{row.windMoa}</Text>
             </View>
           ))}
         </View>
@@ -90,11 +113,13 @@ const s = StyleSheet.create({
   loadName: { fontSize: 18, fontWeight: '800', color: '#fff', marginTop: 6 },
   loadDetail: { fontSize: 13, fontWeight: '500', color: '#B9B6C8', marginTop: 4 },
   loadStats: { flexDirection: 'row', gap: 22, marginTop: 16 },
+  loadStatInput: { fontSize: 19, fontWeight: '700', color: '#fff', fontFamily: 'JetBrainsMono_700Bold', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.2)', paddingBottom: 2, minWidth: 50 },
   loadStatVal: { fontSize: 19, fontWeight: '700', color: '#fff', fontFamily: 'JetBrainsMono_700Bold' },
-  loadStatLabel: { fontSize: 11, fontWeight: '600', color: '#9E9BB0', marginTop: 2 },
+  loadStatLabel: { fontSize: 11, fontWeight: '600', color: '#9E9BB0', marginTop: 4 },
   envRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  envTile: { flex: 1, borderWidth: 1, borderRadius: 14, padding: 12, alignItems: 'center' },
-  envVal: { fontSize: 15, fontWeight: '700', marginTop: 6, fontFamily: 'JetBrainsMono_700Bold' },
+  envTile: { flex: 1, borderWidth: 1, borderRadius: 14, padding: 10, alignItems: 'center', gap: 4 },
+  envInput: { fontSize: 15, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold', textAlign: 'center', width: '100%', padding: 2 },
+  envUnit: { fontSize: 10, fontWeight: '600' },
   dopeCard: { borderWidth: 1, borderRadius: 18, overflow: 'hidden', marginTop: 12 },
   dopeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingBottom: 12 },
   dopeTitle: { fontSize: 15, fontWeight: '800' },
@@ -104,5 +129,6 @@ const s = StyleSheet.create({
   dopeRow: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 11, borderTopWidth: 1 },
   dopeRange: { flex: 1, fontSize: 14, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' },
   dopeElev: { flex: 1, fontSize: 14, fontWeight: '700', textAlign: 'center', fontFamily: 'JetBrainsMono_700Bold' },
+  dopeVel: { flex: 1, fontSize: 14, fontWeight: '700', textAlign: 'center', fontFamily: 'JetBrainsMono_700Bold' },
   dopeWind: { flex: 1, fontSize: 14, fontWeight: '700', textAlign: 'right', fontFamily: 'JetBrainsMono_700Bold' },
 });

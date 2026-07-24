@@ -1,18 +1,68 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Palette, Sun, Moon, Ruler, Thermometer, Gauge, FileDown, Sheet, LogOut, ChevronRight } from 'lucide-react-native';
+import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
+import { useData } from '../../store/data';
 
-const UNITS = [
-  { icon: Ruler, label: 'Group size', value: 'MOA' },
-  { icon: Thermometer, label: 'Temperature', value: '°F' },
-  { icon: Gauge, label: 'Velocity', value: 'fps' },
-];
+const UNIT_OPTIONS = {
+  groupSize: ['MOA', 'MRAD', 'Inches'],
+  temperature: ['°F', '°C'],
+  velocity: ['fps', 'm/s'],
+};
 
 export default function SettingsScreen() {
   const { colors, isDark, setDark, setLight } = useTheme();
+  const { exportSessionsCSV } = useData();
   const router = useRouter();
+
+  const [groupUnit, setGroupUnit] = useState('MOA');
+  const [tempUnit, setTempUnit] = useState('°F');
+  const [velUnit, setVelUnit] = useState('fps');
+  const [exporting, setExporting] = useState(false);
+
+  const doExport = async () => {
+    setExporting(true);
+    try {
+      const csv = exportSessionsCSV();
+      if (Platform.OS === 'web') {
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'prs-sessions.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const FS = require('expo-file-system');
+        const Share = require('expo-sharing');
+        const path = FS.documentDirectory + 'prs-sessions.csv';
+        await FS.writeAsStringAsync(path, csv);
+        if (await Share.isAvailableAsync()) {
+          await Share.shareAsync(path, { mimeType: 'text/csv' });
+        } else {
+          Alert.alert('Export', 'File saved to app documents.');
+        }
+      }
+    } catch (e) {
+      const msg = 'Export failed: ' + e.message;
+      if (Platform.OS === 'web') alert(msg);
+      else Alert.alert('Export Error', msg);
+    }
+    setExporting(false);
+  };
+
+  const cycleUnit = (current, options, setter) => {
+    const idx = options.indexOf(current);
+    setter(options[(idx + 1) % options.length]);
+  };
+
+  const units = [
+    { icon: Ruler, label: 'Group size', value: groupUnit, onPress: () => cycleUnit(groupUnit, UNIT_OPTIONS.groupSize, setGroupUnit) },
+    { icon: Thermometer, label: 'Temperature', value: tempUnit, onPress: () => cycleUnit(tempUnit, UNIT_OPTIONS.temperature, setTempUnit) },
+    { icon: Gauge, label: 'Velocity', value: velUnit, onPress: () => cycleUnit(velUnit, UNIT_OPTIONS.velocity, setVelUnit) },
+  ];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
@@ -49,32 +99,32 @@ export default function SettingsScreen() {
 
         <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 22 }]}>UNITS</Text>
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd, padding: 0, overflow: 'hidden' }]}>
-          {UNITS.map((u, i) => (
-            <View key={i} style={[s.unitRow, i > 0 && { borderTopWidth: 1, borderTopColor: colors.line }]}>
+          {units.map((u, i) => (
+            <TouchableOpacity key={i} onPress={u.onPress} style={[s.unitRow, i > 0 && { borderTopWidth: 1, borderTopColor: colors.line }]}>
               <u.icon size={19} color={colors.mut} />
               <Text style={[s.unitLabel, { color: colors.tx }]}>{u.label}</Text>
               <View style={[s.unitBadge, { backgroundColor: colors.acs }]}>
                 <Text style={[s.unitValue, { color: colors.act }]}>{u.value}</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
 
         <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 22 }]}>DATA</Text>
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd, padding: 0, overflow: 'hidden' }]}>
-          <View style={s.dataRow}>
+          <TouchableOpacity onPress={doExport} disabled={exporting} style={s.dataRow}>
             <FileDown size={19} color={colors.mut} />
             <Text style={[s.dataLabel, { color: colors.tx }]}>Export all sessions (CSV)</Text>
             <ChevronRight size={18} color={colors.fnt} />
-          </View>
-          <View style={[s.dataRow, { borderTopWidth: 1, borderTopColor: colors.line }]}>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={doExport} disabled={exporting} style={[s.dataRow, { borderTopWidth: 1, borderTopColor: colors.line }]}>
             <Sheet size={19} color={colors.mut} />
             <Text style={[s.dataLabel, { color: colors.tx }]}>Export to Excel</Text>
             <ChevronRight size={18} color={colors.fnt} />
-          </View>
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={[s.signOut, { backgroundColor: colors.dngs }]}>
+        <TouchableOpacity onPress={() => router.replace('/login')} style={[s.signOut, { backgroundColor: colors.dngs }]}>
           <LogOut size={18} color={colors.dngt} />
           <Text style={[s.signOutText, { color: colors.dngt }]}>Sign Out</Text>
         </TouchableOpacity>
