@@ -1,17 +1,20 @@
 import Svg, { Circle, Line, Text as SvgText } from 'react-native-svg';
 import { useTheme } from '../lib/theme';
 
-export default function TargetPlot({ shots = [], size = 150, showLabels = false }) {
+export default function TargetPlot({ shots = [], moaShots = null, size = 150, showLabels = false }) {
   const { colors } = useTheme();
   const c = size / 2;
   const outerR = c - 9;
   const midR = outerR * 0.56;
   const innerR = outerR * 0.28;
 
-  const scatterPts = shots.map(s => ({
-    cx: c + (s.x - 0.5) * outerR * 3,
-    cy: c + (s.y - 0.45) * outerR * 3,
-  }));
+  // midR is the 1 MOA ring, so MOA offsets map to pixels at midR per MOA.
+  const scatterPts = moaShots
+    ? moaShots.map(s => ({ cx: c + s.x * midR, cy: c + s.y * midR }))
+    : shots.map(s => ({
+        cx: c + (s.x - 0.5) * outerR * 3,
+        cy: c + (s.y - 0.45) * outerR * 3,
+      }));
 
   return (
     <Svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}>

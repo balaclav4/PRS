@@ -8,6 +8,20 @@ import { useData } from '../../store/data';
 const EMPTY_RIFLE = { name: '', cartridge: '', barrelLength: '', twist: '', notes: '' };
 const EMPTY_LOAD = { rifleId: '', bullet: '', powder: '', chargeGr: '', primer: '', brass: '', coalOrCbto: '', velocityFps: '', name: '', caliber: '', sd: '' };
 
+/**
+ * Coerce a stored row into form state. Persisted rows hold numbers and may omit
+ * optional fields; TextInput needs every bound value to be a defined string, or
+ * React flips the input from controlled to uncontrolled mid-edit.
+ */
+function toFormState(template, row) {
+  const out = { ...template };
+  for (const key of Object.keys(template)) {
+    const v = row[key];
+    out[key] = v == null ? '' : String(v);
+  }
+  return { ...out, id: row.id };
+}
+
 function FormField({ label, value, onChangeText, placeholder, colors, keyboardType }) {
   return (
     <View style={s.field}>
@@ -31,9 +45,9 @@ export default function EquipmentScreen() {
   const [loadModal, setLoadModal] = useState(null);
 
   const openAddRifle = () => setRifleModal({ ...EMPTY_RIFLE, _isNew: true });
-  const openEditRifle = (r) => setRifleModal({ ...r, _isNew: false });
+  const openEditRifle = (r) => setRifleModal({ ...toFormState(EMPTY_RIFLE, r), _isNew: false });
   const openAddLoad = () => setLoadModal({ ...EMPTY_LOAD, _isNew: true, rifleId: rifles[0]?.id || '' });
-  const openEditLoad = (l) => setLoadModal({ ...l, _isNew: false });
+  const openEditLoad = (l) => setLoadModal({ ...toFormState(EMPTY_LOAD, l), _isNew: false });
 
   const saveRifle = () => {
     if (!rifleModal.name.trim()) return;

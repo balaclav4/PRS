@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
+import * as db from '../lib/db';
 
 const SEED_RIFLES = [
   { id: 'r1', name: 'Impact 737R', cartridge: '6.5 Creedmoor', barrelLength: '26"', twist: '1:8', notes: 'Bartlein barrel' },
@@ -47,10 +48,29 @@ const SEED_SESSIONS = [
 
 const DataContext = createContext();
 
+const SEED = { rifles: SEED_RIFLES, loads: SEED_LOADS, sessions: SEED_SESSIONS };
+
 export function DataProvider({ children }) {
   const [rifles, setRifles] = useState(SEED_RIFLES);
   const [loads, setLoads] = useState(SEED_LOADS);
   const [sessions, setSessions] = useState(SEED_SESSIONS);
+  const [ready, setReady] = useState(false);
+
+  // Hydrate from local storage on boot. If storage is unavailable we keep the
+  // seed data in memory rather than showing an empty app.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const data = await db.initDb(SEED);
+      if (!cancelled && data) {
+        setRifles(data.rifles);
+        setLoads(data.loads);
+        setSessions(data.sessions);
+      }
+      if (!cancelled) setReady(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const getRifle = useCallback((id) => rifles.find(r => r.id === id), [rifles]);
   const getLoad = useCallback((id) => loads.find(l => l.id === id), [loads]);
@@ -61,36 +81,67 @@ export function DataProvider({ children }) {
     return r ? r.name : 'Unknown';
   }, [rifles]);
 
+  // Writes go to React state first (so the UI is immediate) and are persisted
+  // in the background; a storage failure never blocks the interaction.
+  const persist = (fn) => { fn().catch(e => console.warn('[db] write failed:', e.message)); };
+
   const addSession = useCallback((session) => {
     setSessions(prev => [session, ...prev]);
+    persist(() => db.putSession(session));
+  }, []);
+
+  const updateSession = useCallback((id, updates) => {
+    setSessions(prev => {
+      const next = prev.map(s => s.id === id ? { ...s, ...updates } : s);
+      const row = next.find(s => s.id === id);
+      if (row) persist(() => db.putSession(row));
+      return next;
+    });
   }, []);
 
   const addRifle = useCallback((rifle) => {
-    setRifles(prev => [...prev, { ...rifle, id: 'r' + Date.now() }]);
+    const row = { ...rifle, id: 'r' + Date.now() };
+    setRifles(prev => [...prev, row]);
+    persist(() => db.putRifle(row));
   }, []);
 
   const updateRifle = useCallback((id, updates) => {
-    setRifles(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+    setRifles(prev => {
+      const next = prev.map(r => r.id === id ? { ...r, ...updates } : r);
+      const row = next.find(r => r.id === id);
+      if (row) persist(() => db.putRifle(row));
+      return next;
+    });
   }, []);
 
   const deleteRifle = useCallback((id) => {
     setRifles(prev => prev.filter(r => r.id !== id));
+    persist(() => db.removeRifle(id));
   }, []);
 
   const addLoad = useCallback((load) => {
-    setLoads(prev => [...prev, { ...load, id: 'l' + Date.now() }]);
+    const row = { ...load, id: 'l' + Date.now() };
+    setLoads(prev => [...prev, row]);
+    persist(() => db.putLoad(row));
   }, []);
 
   const updateLoad = useCallback((id, updates) => {
-    setLoads(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l));
+    setLoads(prev => {
+      const next = prev.map(l => l.id === id ? { ...l, ...updates } : l);
+      const row = next.find(l => l.id === id);
+      if (row) persist(() => db.putLoad(row));
+      return next;
+    });
   }, []);
 
   const deleteLoad = useCallback((id) => {
     setLoads(prev => prev.filter(l => l.id !== id));
+    persist(() => db.removeLoad(id));
   }, []);
 
   const deleteSession = useCallback((id) => {
     setSessions(prev => prev.filter(s => s.id !== id));
+    persist(() => db.removeSession(id));
   }, []);
 
   const exportSessionsCSV = useCallback(() => {
@@ -105,23 +156,15 @@ export function DataProvider({ children }) {
     return header + '\n' + rows.join('\n');
   }, [sessions, rifles, loads]);
 
-  const analyticsData = useMemo(() => ({
-    all: { trend: [0.71, 0.62, 0.58, 0.55, 0.49, 0.44, 0.38, 0.31], avg: '0.58', rounds: 486, latestShots: 7, latestGroup: '0.42' },
-    'Impact 737R': { trend: [0.62, 0.55, 0.51, 0.47, 0.44, 0.40, 0.36, 0.31], avg: '0.46', rounds: 214, latestShots: 7, latestGroup: '0.31' },
-    'Tikka T3x TAC A1': { trend: [0.88, 0.79, 0.74, 0.71, 0.68, 0.72, 0.66, 0.61], avg: '0.72', rounds: 132, latestShots: 5, latestGroup: '0.61' },
-    'AI AXSR': { trend: [0.44, 0.39, 0.35, 0.33, 0.30, 0.31, 0.29, 0.26], avg: '0.34', rounds: 140, latestShots: 6, latestGroup: '0.28' },
-  }), []);
-
   const value = useMemo(() => ({
-    rifles, loads, sessions,
+    rifles, loads, sessions, ready,
     getRifle, getLoad, getSession, getRifleName,
-    addSession, addRifle, addLoad,
+    addSession, updateSession, addRifle, addLoad,
     updateRifle, deleteRifle,
     updateLoad, deleteLoad,
     deleteSession,
     exportSessionsCSV,
-    analyticsData,
-  }), [rifles, loads, sessions, getRifle, getLoad, getSession, getRifleName, addSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, exportSessionsCSV, analyticsData]);
+  }), [rifles, loads, sessions, ready, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, exportSessionsCSV]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }
