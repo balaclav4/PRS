@@ -1,0 +1,198 @@
+/**
+ * Headless accuracy harness for the bullet-hole detector.
+ *
+ * Renders synthetic targets with known hole positions under progressively
+ * nastier conditions, then scores the detector on precision, recall and
+ * localisation error. Run: node scripts/test-detect.mjs
+ */
+import { detectShots } from '../lib/detect.js';
+
+// Deterministic RNG so a regression is a real regression, not a reroll.
+let seed = 12345;
+function rnd() {
+  seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+  return seed / 0x7fffffff;
+}
+function gauss() {
+  return Math.sqrt(-2 * Math.log(rnd() + 1e-9)) * Math.cos(2 * Math.PI * rnd());
+}
+
+function makeTarget({ w, h, holes, r, noise = 4, gradient = 0, bullseye = null, rings = false }) {
+  const img = new Float32Array(w * h);
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      // Paper, optionally with a lighting gradient across it.
+      let v = 232 - gradient * ((x / w) * 0.6 + (y / h) * 0.4) * 100;
+      img[y * w + x] = v;
+    }
+  }
+
+  if (bullseye) {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const d = Math.hypot(x - bullseye.x, y - bullseye.y);
+        if (d < bullseye.r) img[y * w + x] = 38;
+      }
+    }
+  }
+
+  if (rings) {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const d = Math.hypot(x - w / 2, y - h / 2);
+        for (const rr of [60, 95, 130, 165]) {
+          if (Math.abs(d - rr) < 1.2) img[y * w + x] = 60;
+        }
+      }
+    }
+  }
+
+  // Punch holes: dark disc with a soft edge, or bright where over the bullseye.
+  for (const hole of holes) {
+    const overDark = bullseye && Math.hypot(hole.x - bullseye.x, hole.y - bullseye.y) < bullseye.r;
+    const core = overDark ? 200 : 26;
+    const R = Math.ceil(r + 2);
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        const x = Math.round(hole.x + dx), y = Math.round(hole.y + dy);
+        if (x < 0 || x >= w || y < 0 || y >= h) continue;
+        const d = Math.hypot(hole.x + dx - hole.x, hole.y + dy - hole.y);
+        const t = Math.min(1, Math.max(0, (r - d) / 1.5 + 0.5)); // soft edge
+        if (t > 0) img[y * w + x] = img[y * w + x] * (1 - t) + core * t;
+      }
+    }
+  }
+
+  for (let i = 0; i < img.length; i++) {
+    img[i] = Math.max(0, Math.min(255, img[i] + gauss() * noise));
+  }
+  return img;
+}
+
+function score(truth, found, tol) {
+  const usedT = new Set(), usedF = new Set();
+  let errSum = 0, matches = 0;
+  // Greedy nearest matching, best pairs first.
+  const pairs = [];
+  found.forEach((f, fi) => truth.forEach((t, ti) => {
+    const d = Math.hypot(f.x - t.x, f.y - t.y);
+    if (d <= tol) pairs.push({ d, fi, ti });
+  }));
+  pairs.sort((a, b) => a.d - b.d);
+  for (const p of pairs) {
+    if (usedT.has(p.ti) || usedF.has(p.fi)) continue;
+    usedT.add(p.ti); usedF.add(p.fi);
+    errSum += p.d; matches++;
+  }
+  return {
+    recall: matches / truth.length,
+    precision: found.length ? matches / found.length : 0,
+    meanErr: matches ? errSum / matches : NaN,
+    matches, falsePos: found.length - matches, missed: truth.length - matches,
+  };
+}
+
+const W = 420, H = 520, R = 5;
+
+const scenarios = [
+  {
+    name: 'clean paper, 5 shots',
+    holes: [{ x: 200, y: 240 }, { x: 218, y: 252 }, { x: 190, y: 262 }, { x: 208, y: 228 }, { x: 226, y: 240 }],
+    opts: {},
+  },
+  {
+    name: 'lighting gradient + noise',
+    holes: [{ x: 150, y: 200 }, { x: 260, y: 300 }, { x: 200, y: 400 }, { x: 320, y: 180 }, { x: 110, y: 420 }],
+    opts: { gradient: 1.0, noise: 7 },
+  },
+  {
+    name: 'printed scoring rings (distractors)',
+    holes: [{ x: 200, y: 240 }, { x: 215, y: 255 }, { x: 188, y: 230 }, { x: 230, y: 270 }],
+    opts: { rings: true, noise: 5 },
+  },
+  {
+    name: 'black bullseye — holes show bright',
+    holes: [{ x: 205, y: 255 }, { x: 222, y: 268 }, { x: 190, y: 245 }],
+    opts: { bullseye: { x: 210, y: 260, r: 70 }, noise: 5 },
+  },
+  {
+    name: 'tight group, nearly touching',
+    holes: [{ x: 200, y: 250 }, { x: 211, y: 250 }, { x: 205, y: 260 }, { x: 216, y: 261 }],
+    opts: { noise: 4 },
+  },
+  {
+    name: 'wide 10-shot group',
+    holes: Array.from({ length: 10 }, (_, i) => ({
+      x: 120 + (i % 5) * 45 + (i > 4 ? 20 : 0),
+      y: 180 + Math.floor(i / 5) * 120,
+    })),
+    opts: { noise: 6, gradient: 0.5 },
+  },
+];
+
+let failures = 0;
+console.log('scenario                              recall  precision  err(px)  FP  miss');
+console.log('─'.repeat(78));
+
+for (const sc of scenarios) {
+  const img = makeTarget({ w: W, h: H, holes: sc.holes, r: R, ...sc.opts });
+  const { shots } = detectShots(img, W, H, { radiusPx: R });
+  const m = score(sc.holes, shots, R * 1.5);
+
+  const ok = m.recall >= 0.99 && m.precision >= 0.99;
+  if (!ok) failures++;
+  console.log(
+    (ok ? '✓ ' : '✗ ') + sc.name.padEnd(36) +
+    m.recall.toFixed(2).padStart(6) +
+    m.precision.toFixed(2).padStart(11) +
+    (isNaN(m.meanErr) ? '  n/a' : m.meanErr.toFixed(2).padStart(9)) +
+    String(m.falsePos).padStart(4) + String(m.missed).padStart(6)
+  );
+}
+
+console.log('─'.repeat(78));
+
+// How wrong can the radius prior be before detection degrades? The user's scale
+// taps are imprecise, so this is the most likely real-world failure mode.
+console.log('\nradius prior mismatch (true r=5, 6-shot group)');
+console.log('assumed r   ratio   recall  precision');
+console.log('─'.repeat(45));
+const rHoles = [{ x: 160, y: 200 }, { x: 200, y: 230 }, { x: 240, y: 190 },
+                { x: 180, y: 280 }, { x: 260, y: 300 }, { x: 140, y: 330 }];
+const rImg = makeTarget({ w: W, h: H, holes: rHoles, r: 5, noise: 5 });
+for (const assumed of [2.5, 3.5, 4, 5, 6, 7.5, 10]) {
+  const { shots } = detectShots(rImg, W, H, { radiusPx: assumed });
+  const m = score(rHoles, shots, 5 * 1.5);
+  console.log(
+    String(assumed).padStart(9) + (assumed / 5).toFixed(2).padStart(8) +
+    m.recall.toFixed(2).padStart(9) + m.precision.toFixed(2).padStart(11)
+  );
+}
+
+// Contrast floor: how faint can a hole get before it is lost?
+console.log('\nlow-contrast holes (thin paper / worn backer)');
+console.log('hole value  contrast  recall  precision');
+console.log('─'.repeat(45));
+for (const core of [26, 90, 140, 170, 195]) {
+  const holes = [{ x: 160, y: 200 }, { x: 210, y: 250 }, { x: 260, y: 300 }];
+  const img = new Float32Array(W * H).fill(232);
+  for (const hole of holes) {
+    for (let dy = -7; dy <= 7; dy++) for (let dx = -7; dx <= 7; dx++) {
+      const x = Math.round(hole.x + dx), y = Math.round(hole.y + dy);
+      if (x < 0 || x >= W || y < 0 || y >= H) continue;
+      const t = Math.min(1, Math.max(0, (5 - Math.hypot(dx, dy)) / 1.5 + 0.5));
+      if (t > 0) img[y * W + x] = img[y * W + x] * (1 - t) + core * t;
+    }
+  }
+  for (let i = 0; i < img.length; i++) img[i] += gauss() * 5;
+  const { shots } = detectShots(img, W, H, { radiusPx: 5 });
+  const m = score(holes, shots, 7.5);
+  console.log(
+    String(core).padStart(10) + String(232 - core).padStart(10) +
+    m.recall.toFixed(2).padStart(8) + m.precision.toFixed(2).padStart(11)
+  );
+}
+
+console.log('\n' + (failures === 0 ? 'all scenarios passed' : `${failures} scenario(s) below threshold`));
+process.exit(failures === 0 ? 0 : 1);
