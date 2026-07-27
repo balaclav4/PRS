@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, Dimensions, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight } from 'lucide-react-native';
+import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle } from 'lucide-react-native';
 import { useState, useCallback } from 'react';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -9,6 +9,9 @@ import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { computeScale, computeGroupStats } from '../../lib/math';
 import { lightTap, mediumTap, successTap } from '../../lib/haptics';
+import { loadGrayscale, imageToNormalized, coverScale } from '../../lib/pixels';
+import { detectShots } from '../../lib/detect';
+import { bulletDiameterIn } from '../../lib/calibers';
 
 const STEP_LABELS = ['Photo', 'Setup', 'Scale', 'Mark Shots', 'Review'];
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -26,6 +29,8 @@ export default function CaptureScreen() {
   const [distance, setDistance] = useState(100);
   const [scalePts, setScalePts] = useState([]);
   const [shots, setShots] = useState([]);
+  const [detecting, setDetecting] = useState(false);
+  const [detectNote, setDetectNote] = useState(null);
 
   const dia = parseFloat(targetDia) || 1;
   const hasScale = scalePts.length === 2;
@@ -63,8 +68,11 @@ export default function CaptureScreen() {
     const locationX = ne.locationX ?? ne.offsetX;
     const locationY = ne.locationY ?? ne.offsetY;
     if (locationX == null || locationY == null) return;
+    // Both axes divide by the same reference length. Dividing y by the box
+    // height instead made the coordinate space anisotropic, so hypot() mixed
+    // units and vertical distances measured 20% short.
     const x = locationX / IMG_W;
-    const y = locationY / (IMG_W * 1.25);
+    const y = locationY / IMG_W;
     if (!isFinite(x) || !isFinite(y)) return;
     const pt = { x, y };
 
@@ -78,6 +86,46 @@ export default function CaptureScreen() {
   }, []);
 
   const removeShot = (i) => setShots(prev => prev.filter((_, j) => j !== i));
+
+  /**
+   * Find bullet holes automatically.
+   *
+   * Needs the scale first: the caliber gives the hole's real diameter, and the
+   * scale converts that to pixels, which is the prior the detector runs on.
+   */
+  const autoDetect = useCallback(async () => {
+    if (!photo || !inchPerUnit) return;
+    setDetecting(true);
+    setDetectNote(null);
+    try {
+      const { gray, width, height } = await loadGrayscale(photo);
+      const boxH = IMG_W * 1.25;
+      const k = coverScale(width, height, IMG_W, boxH);
+
+      const caliberText = loads[0]?.caliber || rifles[0]?.cartridge;
+      const { diameterIn, matched } = bulletDiameterIn(caliberText);
+
+      // inches -> normalized units -> display px -> source-image px
+      const radiusPx = ((diameterIn / inchPerUnit) * IMG_W / k) / 2;
+
+      const { shots: found, reason } = detectShots(gray, width, height, { radiusPx });
+
+      if (!found.length) {
+        setDetectNote(reason || 'No holes found — mark them manually.');
+      } else {
+        setShots(found.map(f => imageToNormalized(f.x, f.y, width, height, IMG_W, boxH)));
+        setDetectNote(
+          `Found ${found.length} hole${found.length === 1 ? '' : 's'}` +
+          (matched ? '' : ' · caliber not recognised, assumed 6.5mm') +
+          ' — tap any marker to remove, tap the photo to add.'
+        );
+        await successTap();
+      }
+    } catch (e) {
+      setDetectNote('Detection failed: ' + e.message);
+    }
+    setDetecting(false);
+  }, [photo, inchPerUnit, loads, rifles]);
 
   const canNext = step === 1 || (step === 2 && hasScale) || (step === 3 && shots.length >= 2);
 
@@ -230,7 +278,7 @@ export default function CaptureScreen() {
                 </Svg>
               )}
               {scalePts.map((p, i) => (
-                <View key={i} style={[s.scaleDot, { left: p.x * IMG_W - 9, top: p.y * IMG_W * 1.25 - 9 }]} />
+                <View key={i} style={[s.scaleDot, { left: p.x * IMG_W - 9, top: p.y * IMG_W - 9 }]} />
               ))}
             </TouchableOpacity>
             <View style={s.scaleFooter}>
@@ -252,6 +300,27 @@ export default function CaptureScreen() {
               <Crosshair size={17} color={colors.act} />
               <Text style={[s.instructionText, { color: colors.act }]}>Tap each bullet hole. Tap a marker again to remove it.</Text>
             </View>
+
+            {photo && (
+              <TouchableOpacity
+                onPress={autoDetect}
+                disabled={detecting}
+                style={[s.detectBtn, { opacity: detecting ? 0.6 : 1 }]}
+              >
+                {detecting
+                  ? <LoaderCircle size={17} color="#fff" />
+                  : <Wand2 size={17} color="#fff" />}
+                <Text style={s.detectBtnText}>
+                  {detecting ? 'Scanning target…' : 'Auto-detect shots'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {detectNote && (
+              <View style={[s.detectNote, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
+                <Text style={[s.detectNoteText, { color: colors.mut }]}>{detectNote}</Text>
+              </View>
+            )}
             <TouchableOpacity
               activeOpacity={1}
               onPress={(e) => onTapImage(e, 'shots')}
@@ -269,7 +338,7 @@ export default function CaptureScreen() {
                 <TouchableOpacity
                   key={i}
                   onPress={(e) => { e.stopPropagation(); removeShot(i); }}
-                  style={[s.shotDot, { left: p.x * IMG_W - 12, top: p.y * IMG_W * 1.25 - 12 }]}
+                  style={[s.shotDot, { left: p.x * IMG_W - 12, top: p.y * IMG_W - 12 }]}
                 >
                   <Text style={s.shotDotText}>{i + 1}</Text>
                 </TouchableOpacity>
@@ -398,6 +467,10 @@ const s = StyleSheet.create({
   shotDotText: { color: '#fff', fontSize: 10, fontWeight: '800', fontFamily: 'JetBrainsMono_700Bold' },
   shotOverlay: { position: 'absolute', left: 12, bottom: 12, backgroundColor: 'rgba(11,11,16,0.82)', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 8, zIndex: 4 },
   shotOverlayText: { color: '#fff', fontSize: 11, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' },
+  detectBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#6D3BEB', padding: 13, borderRadius: 13, marginBottom: 10 },
+  detectBtnText: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
+  detectNote: { borderWidth: 1, borderRadius: 11, padding: 11, paddingHorizontal: 13, marginBottom: 10 },
+  detectNoteText: { fontSize: 12.5, fontWeight: '600', lineHeight: 18 },
   scaleFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
   scaleCount: { fontSize: 12.5, fontWeight: '600' },
   resetBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
