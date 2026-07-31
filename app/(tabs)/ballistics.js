@@ -1,12 +1,14 @@
-import { View, Text, ScrollView, TextInput, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Crosshair, Thermometer, Gauge, Wind } from 'lucide-react-native';
+import { Crosshair, Thermometer, Gauge, Wind, ArrowLeft } from 'lucide-react-native';
 import { useState, useMemo } from 'react';
+import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { computeDopeCard } from '../../lib/math';
 
 export default function BallisticsScreen() {
   const { colors } = useTheme();
+  const router = useRouter();
 
   const [mvFps, setMvFps] = useState('2820');
   const [bcG1, setBcG1] = useState('0.607');
@@ -29,7 +31,15 @@ export default function BallisticsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={[s.title, { color: colors.tx }]}>Ballistics</Text>
+        <View style={s.header}>
+          <TouchableOpacity
+            onPress={() => router.canGoBack?.() ? router.back() : router.replace('/')}
+            style={[s.backBtn, { backgroundColor: colors.card, borderColor: colors.bd }]}
+          >
+            <ArrowLeft size={19} color={colors.tx} />
+          </TouchableOpacity>
+          <Text style={[s.title, { color: colors.tx }]}>Ballistics</Text>
+        </View>
 
         <View style={s.loadCard}>
           <View style={s.loadHeader}>
@@ -106,7 +116,9 @@ export default function BallisticsScreen() {
 
 const s = StyleSheet.create({
   scroll: { padding: 20, paddingBottom: 40 },
-  title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4, marginBottom: 16 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
+  backBtn: { width: 38, height: 38, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
   loadCard: { borderRadius: 18, padding: 18, backgroundColor: '#1A1922', overflow: 'hidden' },
   loadHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   loadSub: { fontSize: 12, fontWeight: '600', color: '#9E9BB0' },

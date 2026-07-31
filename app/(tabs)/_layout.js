@@ -1,4 +1,4 @@
-import { Tabs, useRouter } from 'expo-router';
+import { Tabs, useRouter, usePathname } from 'expo-router';
 import { View, TouchableOpacity, StyleSheet, Platform, Pressable, Text } from 'react-native';
 import { Home, History, Camera, ChartColumn, Menu } from 'lucide-react-native';
 import { useTheme } from '../../lib/theme';
@@ -22,6 +22,12 @@ export default function TabLayout() {
   const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
+  const pathname = usePathname();
+
+  // Close the sheet whenever the route changes. MoreSheet's own onClose fires
+  // on tap, but the sheet was surviving the navigation and covering the tab
+  // bar on the destination screen; keying off the route is unconditional.
+  useEffect(() => { setMoreOpen(false); }, [pathname]);
 
   useEffect(() => {
     if (Platform.OS === 'web' && moreRef.current) {
@@ -99,6 +105,17 @@ export default function TabLayout() {
             tabBarButton: MoreButton,
           }}
         />
+
+        {/* Reached from the More sheet, not the bar. They live inside the tab
+            navigator so the bar stays visible — pushed on the root stack they
+            covered it, stranding the user on screens with no back button.
+            Listed explicitly: expo-router enumerates the children of <Tabs> to
+            build its route table, and a mapped array made it mis-associate
+            names, mounting several of these screens at once. */}
+        <Tabs.Screen name="ballistics" options={{ href: null }} />
+        <Tabs.Screen name="reloading" options={{ href: null }} />
+        <Tabs.Screen name="equipment" options={{ href: null }} />
+        <Tabs.Screen name="settings" options={{ href: null }} />
       </Tabs>
       <MoreSheet visible={moreOpen} onClose={() => setMoreOpen(false)} />
     </>

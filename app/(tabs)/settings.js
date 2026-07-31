@@ -68,7 +68,10 @@ export default function SettingsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         <View style={s.header}>
-          <TouchableOpacity onPress={() => router.back()} style={[s.backBtn, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+          <TouchableOpacity
+            onPress={() => router.canGoBack?.() ? router.back() : router.replace('/')}
+            style={[s.backBtn, { backgroundColor: colors.card, borderColor: colors.bd }]}
+          >
             <ArrowLeft size={19} color={colors.tx} />
           </TouchableOpacity>
           <Text style={[s.title, { color: colors.tx }]}>Settings</Text>
