@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, Dimensions, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, Dimensions, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle } from 'lucide-react-native';
 import { useState, useCallback, useMemo } from 'react';
@@ -13,6 +13,7 @@ import { lightTap, mediumTap, successTap } from '../../lib/haptics';
 import { loadGrayscale, imageToNormalized, coverScale } from '../../lib/pixels';
 import { detectShots } from '../../lib/detect';
 import { bulletDiameterIn } from '../../lib/calibers';
+import { normalizePhoto } from '../../lib/photo';
 
 const STEP_LABELS = ['Photo', 'Setup', 'Corners', 'Mark Shots', 'Review'];
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -24,11 +25,15 @@ export default function CaptureScreen() {
   const router = useRouter();
 
   const [step, setStep] = useState(0);
-  const [photo, setPhoto] = useState(null);
+  const [photo, setPhoto] = useState(null); // { uri, width, height } — normalized, upright
+  const [processing, setProcessing] = useState(false);
   const [useDemo, setUseDemo] = useState(false);
   const [refW, setRefW] = useState('8.5');
   const [refH, setRefH] = useState('11');
-  const [distance, setDistance] = useState(100);
+  const [distanceStr, setDistanceStr] = useState('100');
+  const [rifleIdx, setRifleIdx] = useState(0);
+  const [loadIdx, setLoadIdx] = useState(0);
+  const [suppressed, setSuppressed] = useState(true);
   const [corners, setCorners] = useState([]);
   const [shots, setShots] = useState([]);
   const [detecting, setDetecting] = useState(false);
@@ -36,6 +41,18 @@ export default function CaptureScreen() {
 
   const refWIn = parseFloat(refW) || 0;
   const refHIn = parseFloat(refH) || 0;
+  const distance = parseFloat(distanceStr) || 0;
+
+  // Rifle selection cycles through equipment; loads are scoped to the rifle.
+  const rifle = rifles.length ? rifles[rifleIdx % rifles.length] : null;
+  const rifleLoads = useMemo(
+    () => loads.filter(l => l.rifleId === rifle?.id),
+    [loads, rifle]
+  );
+  const load = rifleLoads.length ? rifleLoads[loadIdx % rifleLoads.length] : null;
+
+  const cycleRifle = () => { setRifleIdx(i => i + 1); setLoadIdx(0); };
+  const cycleLoad = () => setLoadIdx(i => i + 1);
 
   // Four corners of a reference rectangle of known size give both the absolute
   // scale and the perspective correction in one homography — shots project
@@ -59,17 +76,30 @@ export default function CaptureScreen() {
   );
   const stats = computeGroupStats(shotsIn, Hmat ? 1 : null, distance);
 
+  // Normalize at intake: bakes out EXIF orientation so the displayed image and
+  // the analyzed pixels can never disagree, and caps decoded size.
+  const acceptPhoto = useCallback(async (asset) => {
+    setProcessing(true);
+    try {
+      const norm = await normalizePhoto(asset.uri);
+      setPhoto(norm);
+      setUseDemo(false);
+      setStep(1);
+    } catch (e) {
+      const msg = 'Could not process that photo: ' + e.message;
+      if (Platform.OS === 'web') alert(msg);
+      else Alert.alert('Photo Error', msg);
+    }
+    setProcessing(false);
+  }, []);
+
   const pickPhoto = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.8,
     });
-    if (!result.canceled && result.assets[0]) {
-      setPhoto(result.assets[0].uri);
-      setUseDemo(false);
-      setStep(1);
-    }
-  }, []);
+    if (!result.canceled && result.assets[0]) await acceptPhoto(result.assets[0]);
+  }, [acceptPhoto]);
 
   const takePhoto = useCallback(async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -78,12 +108,8 @@ export default function CaptureScreen() {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
-    if (!result.canceled && result.assets[0]) {
-      setPhoto(result.assets[0].uri);
-      setUseDemo(false);
-      setStep(1);
-    }
-  }, []);
+    if (!result.canceled && result.assets[0]) await acceptPhoto(result.assets[0]);
+  }, [acceptPhoto]);
 
   const onTapImage = useCallback((e, mode) => {
     const ne = e.nativeEvent || e;
@@ -122,11 +148,11 @@ export default function CaptureScreen() {
     setDetecting(true);
     setDetectNote(null);
     try {
-      const { gray, width, height } = await loadGrayscale(photo);
+      const { gray, width, height } = await loadGrayscale(photo.uri);
       const boxH = IMG_W * 1.25;
       const k = coverScale(width, height, IMG_W, boxH);
 
-      const caliberText = loads[0]?.caliber || rifles[0]?.cartridge;
+      const caliberText = load?.caliber || rifle?.cartridge;
       const { diameterIn, matched } = bulletDiameterIn(caliberText);
 
       // Source-image px per inch, averaged over the quad's top and bottom
@@ -159,10 +185,10 @@ export default function CaptureScreen() {
       setDetectNote('Detection failed: ' + e.message);
     }
     setDetecting(false);
-  }, [photo, Hmat, ordered, refWIn, loads, rifles]);
+  }, [photo, Hmat, ordered, refWIn, load, rifle]);
 
   const canNext =
-    (step === 1 && refWIn > 0 && refHIn > 0) ||
+    (step === 1 && refWIn > 0 && refHIn > 0 && distance > 0) ||
     (step === 2 && !!Hmat) ||
     (step === 3 && shots.length >= 2);
 
@@ -173,14 +199,15 @@ export default function CaptureScreen() {
       id,
       name: 'Session ' + new Date().toLocaleDateString(),
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      rifleId: rifles[0]?.id || 'r1',
-      loadId: loads[0]?.id || 'l1',
+      rifleId: rifle?.id || null,
+      loadId: load?.id || null,
       distanceYd: distance,
-      suppressed: true,
+      suppressed,
       notes: '',
       targets: [{
         id: 't' + Date.now(),
         shots: shots.map(sh => ({ x: sh.x, y: sh.y })),
+        photoUri: photo?.uri && !photo.uri.startsWith('data:') ? photo.uri : null,
         scale: ordered ? { corners: ordered, widthIn: refWIn, heightIn: refHIn } : null,
       }],
       best: stats ? stats.extremeSpreadIn.toFixed(2) : '—',
@@ -229,11 +256,11 @@ export default function CaptureScreen() {
             <Text style={[s.photoTitle, { color: colors.tx }]}>Add a target photo</Text>
             <Text style={[s.photoDesc, { color: colors.mut }]}>Photograph the whole target sheet — square-on{'\n'}or at an angle, perspective is corrected</Text>
             <View style={s.photoBtns}>
-              <TouchableOpacity onPress={takePhoto} style={s.primaryBtn}>
+              <TouchableOpacity onPress={takePhoto} disabled={processing} style={[s.primaryBtn, { opacity: processing ? 0.6 : 1 }]}>
                 <Camera size={16} color="#fff" />
-                <Text style={s.primaryBtnText}>Take Photo</Text>
+                <Text style={s.primaryBtnText}>{processing ? 'Processing…' : 'Take Photo'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={pickPhoto} style={[s.secondaryBtn, { backgroundColor: colors.acs }]}>
+              <TouchableOpacity onPress={pickPhoto} disabled={processing} style={[s.secondaryBtn, { backgroundColor: colors.acs, opacity: processing ? 0.6 : 1 }]}>
                 <ImageIcon size={16} color={colors.act} />
                 <Text style={[s.secondaryBtnText, { color: colors.act }]}>Upload Photo</Text>
               </TouchableOpacity>
@@ -273,30 +300,47 @@ export default function CaptureScreen() {
             </View>
             <View style={s.field}>
               <Text style={[s.fieldLabel, { color: colors.mut }]}>Rifle</Text>
-              <View style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
-                <Text style={[s.pickerText, { color: colors.tx }]}>{rifles[0]?.name || 'Select'} · {rifles[0]?.cartridge || ''}</Text>
+              <TouchableOpacity onPress={cycleRifle} style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                <Text style={[s.pickerText, { color: colors.tx }]}>
+                  {rifle ? `${rifle.name} · ${rifle.cartridge}` : 'No rifles — add one in Equipment'}
+                </Text>
                 <ChevronRight size={18} color={colors.fnt} />
-              </View>
+              </TouchableOpacity>
             </View>
             <View style={s.field}>
               <Text style={[s.fieldLabel, { color: colors.mut }]}>Load</Text>
-              <View style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
-                <Text style={[s.pickerText, { color: colors.tx }]}>{loads[0]?.name || 'Select'}</Text>
+              <TouchableOpacity onPress={cycleLoad} style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                <Text style={[s.pickerText, { color: load ? colors.tx : colors.mut }]}>
+                  {load ? load.name : 'No loads for this rifle'}
+                </Text>
                 <ChevronRight size={18} color={colors.fnt} />
-              </View>
+              </TouchableOpacity>
             </View>
             <View style={s.twoCol}>
               <View style={{ flex: 1 }}>
                 <Text style={[s.fieldLabel, { color: colors.mut }]}>Distance</Text>
-                <View style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
-                  <Text style={[s.pickerText, { color: colors.tx, fontFamily: 'JetBrainsMono_700Bold' }]}>{distance} yd</Text>
+                <View style={[s.inputRow, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                  <TextInput
+                    value={distanceStr}
+                    onChangeText={setDistanceStr}
+                    keyboardType="number-pad"
+                    style={[s.input, { color: colors.tx, fontFamily: 'JetBrainsMono_700Bold' }]}
+                  />
+                  <Text style={[s.inputUnit, { color: colors.mut }]}>yd</Text>
                 </View>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[s.fieldLabel, { color: colors.mut }]}>Suppressor</Text>
-                <View style={[s.picker, { backgroundColor: colors.acs, borderColor: colors.acs }]}>
-                  <Text style={[s.pickerText, { color: colors.act, fontWeight: '700' }]}>Yes</Text>
-                </View>
+                <TouchableOpacity
+                  onPress={() => setSuppressed(v => !v)}
+                  style={[s.picker, suppressed
+                    ? { backgroundColor: colors.acs, borderColor: colors.acs }
+                    : { backgroundColor: colors.input, borderColor: colors.ibd }]}
+                >
+                  <Text style={[s.pickerText, { color: suppressed ? colors.act : colors.mut, fontWeight: '700' }]}>
+                    {suppressed ? 'Yes' : 'No'}
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -315,7 +359,7 @@ export default function CaptureScreen() {
               style={[s.imgContainer, { borderColor: colors.bd }]}
             >
               {photo ? (
-                <Image source={{ uri: photo }} style={s.targetImg} resizeMode="cover" />
+                <Image source={{ uri: photo.uri }} style={s.targetImg} resizeMode="cover" />
               ) : useDemo ? (
                 <Svg viewBox="0 0 320 400" style={s.demoSvg}>
                   <Circle cx="160" cy="185" r="92" fill="rgba(255,138,42,0.28)" stroke="#F0872B" strokeWidth="3" />
@@ -400,7 +444,7 @@ export default function CaptureScreen() {
               style={[s.imgContainer, { borderColor: colors.bd }]}
             >
               {photo ? (
-                <Image source={{ uri: photo }} style={s.targetImg} resizeMode="cover" />
+                <Image source={{ uri: photo.uri }} style={s.targetImg} resizeMode="cover" />
               ) : useDemo ? (
                 <Svg viewBox="0 0 320 400" style={s.demoSvg}>
                   <Circle cx="160" cy="185" r="92" fill="rgba(255,138,42,0.28)" stroke="#F0872B" strokeWidth="3" />
@@ -444,7 +488,7 @@ export default function CaptureScreen() {
                     <Circle cx="160" cy="185" r="92" fill="rgba(255,138,42,0.28)" stroke="#F0872B" strokeWidth="4" />
                   </Svg>
                 )}
-                {photo && <Image source={{ uri: photo }} style={{ position: 'absolute', width: '100%', height: '100%' }} resizeMode="cover" />}
+                {photo && <Image source={{ uri: photo.uri }} style={{ position: 'absolute', width: '100%', height: '100%' }} resizeMode="cover" />}
               </View>
               <View>
                 <Text style={[s.reviewMsg, { color: capGood ? colors.okt : colors.tx }]}>
