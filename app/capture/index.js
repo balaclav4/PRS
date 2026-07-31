@@ -1,19 +1,20 @@
 import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, Dimensions, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle } from 'lucide-react-native';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import Svg, { Circle, Line } from 'react-native-svg';
+import Svg, { Circle, Polygon } from 'react-native-svg';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
-import { computeScale, computeGroupStats } from '../../lib/math';
+import { computeGroupStats } from '../../lib/math';
+import { rectifyToInches, project, orderCorners, perspectiveSeverity } from '../../lib/homography';
 import { lightTap, mediumTap, successTap } from '../../lib/haptics';
 import { loadGrayscale, imageToNormalized, coverScale } from '../../lib/pixels';
 import { detectShots } from '../../lib/detect';
 import { bulletDiameterIn } from '../../lib/calibers';
 
-const STEP_LABELS = ['Photo', 'Setup', 'Scale', 'Mark Shots', 'Review'];
+const STEP_LABELS = ['Photo', 'Setup', 'Corners', 'Mark Shots', 'Review'];
 const { width: SCREEN_W } = Dimensions.get('window');
 const IMG_W = SCREEN_W - 40;
 
@@ -25,17 +26,38 @@ export default function CaptureScreen() {
   const [step, setStep] = useState(0);
   const [photo, setPhoto] = useState(null);
   const [useDemo, setUseDemo] = useState(false);
-  const [targetDia, setTargetDia] = useState('1.0');
+  const [refW, setRefW] = useState('8.5');
+  const [refH, setRefH] = useState('11');
   const [distance, setDistance] = useState(100);
-  const [scalePts, setScalePts] = useState([]);
+  const [corners, setCorners] = useState([]);
   const [shots, setShots] = useState([]);
   const [detecting, setDetecting] = useState(false);
   const [detectNote, setDetectNote] = useState(null);
 
-  const dia = parseFloat(targetDia) || 1;
-  const hasScale = scalePts.length === 2;
-  const inchPerUnit = hasScale ? computeScale(scalePts[0], scalePts[1], dia) : null;
-  const stats = computeGroupStats(shots, inchPerUnit, distance);
+  const refWIn = parseFloat(refW) || 0;
+  const refHIn = parseFloat(refH) || 0;
+
+  // Four corners of a reference rectangle of known size give both the absolute
+  // scale and the perspective correction in one homography — shots project
+  // straight to inches on the target plane, no marker sticker needed.
+  const { Hmat, ordered, severity } = useMemo(() => {
+    if (corners.length !== 4 || refWIn <= 0 || refHIn <= 0) {
+      return { Hmat: null, ordered: null, severity: 0 };
+    }
+    const ord = orderCorners(corners);
+    return {
+      Hmat: rectifyToInches(ord, refWIn, refHIn),
+      ordered: ord,
+      severity: perspectiveSeverity(ord),
+    };
+  }, [corners, refWIn, refHIn]);
+
+  // Shot positions on the target plane, in inches.
+  const shotsIn = useMemo(
+    () => (Hmat ? shots.map(p => project(Hmat, p)).filter(Boolean) : []),
+    [Hmat, shots]
+  );
+  const stats = computeGroupStats(shotsIn, Hmat ? 1 : null, distance);
 
   const pickPhoto = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -76,8 +98,10 @@ export default function CaptureScreen() {
     if (!isFinite(x) || !isFinite(y)) return;
     const pt = { x, y };
 
-    if (mode === 'scale') {
-      setScalePts(prev => prev.length >= 2 ? [pt] : [...prev, pt]);
+    if (mode === 'corner') {
+      // Extra taps are inert rather than restarting — a stray 5th tap must not
+      // silently destroy the calibration. Reset is the deliberate redo.
+      setCorners(prev => prev.length >= 4 ? prev : [...prev, pt]);
       mediumTap();
     } else {
       setShots(prev => [...prev, pt]);
@@ -94,7 +118,7 @@ export default function CaptureScreen() {
    * scale converts that to pixels, which is the prior the detector runs on.
    */
   const autoDetect = useCallback(async () => {
-    if (!photo || !inchPerUnit) return;
+    if (!photo || !Hmat) return;
     setDetecting(true);
     setDetectNote(null);
     try {
@@ -105,10 +129,20 @@ export default function CaptureScreen() {
       const caliberText = loads[0]?.caliber || rifles[0]?.cartridge;
       const { diameterIn, matched } = bulletDiameterIn(caliberText);
 
-      // inches -> normalized units -> display px -> source-image px
-      const radiusPx = ((diameterIn / inchPerUnit) * IMG_W / k) / 2;
+      // Source-image px per inch, averaged over the quad's top and bottom
+      // edges (display units -> display px -> source px).
+      const edge = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+      const quadWDisp = (edge(ordered[0], ordered[1]) + edge(ordered[3], ordered[2])) / 2;
+      const pxPerIn = (quadWDisp * IMG_W / k) / refWIn;
+      const radiusPx = (diameterIn * pxPerIn) / 2;
 
-      const { shots: found, reason } = detectShots(gray, width, height, { radiusPx });
+      // Corner-derived scale is exact, and a hole cannot be smaller than the
+      // bullet, so skip the sub-caliber sweep scale — on the real-photo
+      // harness it produced every junction false positive.
+      const { shots: found, reason } = detectShots(gray, width, height, {
+        radiusPx,
+        scales: [1.0, 1.35],
+      });
 
       if (!found.length) {
         setDetectNote(reason || 'No holes found — mark them manually.');
@@ -125,9 +159,12 @@ export default function CaptureScreen() {
       setDetectNote('Detection failed: ' + e.message);
     }
     setDetecting(false);
-  }, [photo, inchPerUnit, loads, rifles]);
+  }, [photo, Hmat, ordered, refWIn, loads, rifles]);
 
-  const canNext = step === 1 || (step === 2 && hasScale) || (step === 3 && shots.length >= 2);
+  const canNext =
+    (step === 1 && refWIn > 0 && refHIn > 0) ||
+    (step === 2 && !!Hmat) ||
+    (step === 3 && shots.length >= 2);
 
   const saveAndFinish = async () => {
     await successTap();
@@ -141,14 +178,20 @@ export default function CaptureScreen() {
       distanceYd: distance,
       suppressed: true,
       notes: '',
-      targets: [{ id: 't' + Date.now(), shots: shots.map(s => ({ x: s.x, y: s.y })) }],
+      targets: [{
+        id: 't' + Date.now(),
+        shots: shots.map(sh => ({ x: sh.x, y: sh.y })),
+        scale: ordered ? { corners: ordered, widthIn: refWIn, heightIn: refHIn } : null,
+      }],
       best: stats ? stats.extremeSpreadIn.toFixed(2) : '—',
       meanRadius: stats ? stats.meanRadiusIn.toFixed(2) : '—',
       sd: 0,
       mv: 0,
       targetCount: 1,
     });
-    router.back();
+    // On web a deep link straight to /capture has no history to pop.
+    if (router.canGoBack?.()) router.back();
+    else router.replace('/');
   };
 
   const capGood = stats && stats.groupMoa <= 0.5;
@@ -159,7 +202,7 @@ export default function CaptureScreen() {
         {/* Header */}
         <View style={s.header}>
           <TouchableOpacity
-            onPress={() => step > 0 ? setStep(step - 1) : router.back()}
+            onPress={() => step > 0 ? setStep(step - 1) : (router.canGoBack?.() ? router.back() : router.replace('/'))}
             style={[s.backBtn, { backgroundColor: colors.card, borderColor: colors.bd }]}
           >
             <ArrowLeft size={19} color={colors.tx} />
@@ -184,7 +227,7 @@ export default function CaptureScreen() {
               <Camera size={30} color={colors.act} />
             </View>
             <Text style={[s.photoTitle, { color: colors.tx }]}>Add a target photo</Text>
-            <Text style={[s.photoDesc, { color: colors.mut }]}>Photograph your target with an orange{'\n'}marker sticker of known diameter</Text>
+            <Text style={[s.photoDesc, { color: colors.mut }]}>Photograph the whole target sheet — square-on{'\n'}or at an angle, perspective is corrected</Text>
             <View style={s.photoBtns}>
               <TouchableOpacity onPress={takePhoto} style={s.primaryBtn}>
                 <Camera size={16} color="#fff" />
@@ -205,17 +248,28 @@ export default function CaptureScreen() {
         {step === 1 && (
           <View style={s.setupWrap}>
             <View style={s.field}>
-              <Text style={[s.fieldLabel, { color: colors.mut }]}>Marker / Target Diameter</Text>
-              <View style={[s.inputRow, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
-                <TextInput
-                  value={targetDia}
-                  onChangeText={setTargetDia}
-                  keyboardType="decimal-pad"
-                  style={[s.input, { color: colors.tx, fontFamily: 'JetBrainsMono_500Medium' }]}
-                />
-                <Text style={[s.inputUnit, { color: colors.mut }]}>inches</Text>
+              <Text style={[s.fieldLabel, { color: colors.mut }]}>Reference Size (width × height)</Text>
+              <View style={s.twoCol}>
+                <View style={[s.inputRow, { flex: 1, backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                  <TextInput
+                    value={refW}
+                    onChangeText={setRefW}
+                    keyboardType="decimal-pad"
+                    style={[s.input, { color: colors.tx, fontFamily: 'JetBrainsMono_500Medium' }]}
+                  />
+                  <Text style={[s.inputUnit, { color: colors.mut }]}>in</Text>
+                </View>
+                <View style={[s.inputRow, { flex: 1, backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                  <TextInput
+                    value={refH}
+                    onChangeText={setRefH}
+                    keyboardType="decimal-pad"
+                    style={[s.input, { color: colors.tx, fontFamily: 'JetBrainsMono_500Medium' }]}
+                  />
+                  <Text style={[s.inputUnit, { color: colors.mut }]}>in</Text>
+                </View>
               </View>
-              <Text style={[s.fieldHint, { color: colors.fnt }]}>Used as the scale reference — you'll mark this diameter on the photo next.</Text>
+              <Text style={[s.fieldHint, { color: colors.fnt }]}>The printed size of your target sheet or backer — you'll tap its four corners next. Sets the scale and corrects off-axis photos. Letter paper is 8.5 × 11.</Text>
             </View>
             <View style={s.field}>
               <Text style={[s.fieldLabel, { color: colors.mut }]}>Rifle</Text>
@@ -248,16 +302,16 @@ export default function CaptureScreen() {
           </View>
         )}
 
-        {/* Step 2: Scale */}
+        {/* Step 2: Corners */}
         {step === 2 && (
           <View>
             <View style={[s.instruction, { backgroundColor: colors.acs }]}>
               <Ruler size={17} color={colors.act} />
-              <Text style={[s.instructionText, { color: colors.act }]}>Tap the two opposite edges of your marker to set the scale.</Text>
+              <Text style={[s.instructionText, { color: colors.act }]}>Tap the four corners of your {refW}″ × {refH}″ reference, in any order.</Text>
             </View>
             <TouchableOpacity
               activeOpacity={1}
-              onPress={(e) => onTapImage(e, 'scale')}
+              onPress={(e) => onTapImage(e, 'corner')}
               style={[s.imgContainer, { borderColor: colors.bd }]}
             >
               {photo ? (
@@ -268,24 +322,43 @@ export default function CaptureScreen() {
                   <Circle cx="160" cy="185" r="3.5" fill="#F0872B" />
                 </Svg>
               ) : null}
-              {hasScale && isFinite(scalePts[0].x) && isFinite(scalePts[1].x) && (
-                <Svg viewBox="0 0 100 100" preserveAspectRatio="none" style={s.overlayLine}>
-                  <Line
-                    x1={scalePts[0].x * 100} y1={scalePts[0].y * 100}
-                    x2={scalePts[1].x * 100} y2={scalePts[1].y * 100}
+              {ordered && (
+                // Corners are normalized by the box *width*, so y spans 0..1.25
+                // in a 1.25-aspect box: the viewBox must be 100x125 for a
+                // uniform x100 mapping on both axes.
+                <Svg viewBox="0 0 100 125" preserveAspectRatio="none" style={s.overlayLine}>
+                  <Polygon
+                    points={ordered.map(p => `${p.x * 100},${p.y * 100}`).join(' ')}
+                    fill="rgba(240,135,43,0.10)"
                     stroke="#F0872B" strokeWidth="1.5" strokeDasharray="3 2" vectorEffect="non-scaling-stroke"
                   />
                 </Svg>
               )}
-              {scalePts.map((p, i) => (
-                <View key={i} style={[s.scaleDot, { left: p.x * IMG_W - 9, top: p.y * IMG_W - 9 }]} />
+              {corners.map((p, i) => (
+                <View key={i} style={[s.cornerDot, { left: p.x * IMG_W - 12, top: p.y * IMG_W - 12 }]}>
+                  <Text style={s.cornerDotText}>{i + 1}</Text>
+                </View>
               ))}
             </TouchableOpacity>
+            {Hmat && severity > 0.04 && (
+              <View style={[s.detectNote, { backgroundColor: colors.acs, borderColor: colors.acs, marginTop: 10, marginBottom: 0 }]}>
+                <Text style={[s.detectNoteText, { color: colors.act }]}>
+                  Off-axis photo detected ({(severity * 100).toFixed(0)}% skew) — measurements are perspective-corrected.
+                </Text>
+              </View>
+            )}
+            {corners.length === 4 && !Hmat && (
+              <View style={[s.detectNote, { backgroundColor: colors.inset, borderColor: colors.ibd, marginTop: 10, marginBottom: 0 }]}>
+                <Text style={[s.detectNoteText, { color: colors.mut }]}>
+                  Those corners don't form a usable rectangle — tap Reset and try again.
+                </Text>
+              </View>
+            )}
             <View style={s.scaleFooter}>
               <Text style={[s.scaleCount, { color: colors.mut }]}>
-                <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{scalePts.length}</Text>/2 edge points set
+                <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{corners.length}</Text>/4 corners set
               </Text>
-              <TouchableOpacity onPress={() => setScalePts([])} style={s.resetBtn}>
+              <TouchableOpacity onPress={() => setCorners([])} style={s.resetBtn}>
                 <RotateCcw size={14} color={colors.act} />
                 <Text style={[s.resetText, { color: colors.act }]}>Reset</Text>
               </TouchableOpacity>
@@ -462,7 +535,8 @@ const s = StyleSheet.create({
   targetImg: { position: 'absolute', width: '100%', height: '100%' },
   demoSvg: { position: 'absolute', width: '100%', height: '100%' },
   overlayLine: { position: 'absolute', width: '100%', height: '100%' },
-  scaleDot: { position: 'absolute', width: 18, height: 18, borderRadius: 9, backgroundColor: '#F0872B', borderWidth: 2, borderColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.45, shadowRadius: 5, elevation: 4 },
+  cornerDot: { position: 'absolute', width: 24, height: 24, borderRadius: 12, backgroundColor: '#F0872B', borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.45, shadowRadius: 5, elevation: 4 },
+  cornerDotText: { color: '#fff', fontSize: 11, fontWeight: '800', fontFamily: 'JetBrainsMono_700Bold' },
   shotDot: { position: 'absolute', width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(21,16,25,0.55)', borderWidth: 2.5, borderColor: '#8257F0', alignItems: 'center', justifyContent: 'center', zIndex: 3 },
   shotDotText: { color: '#fff', fontSize: 10, fontWeight: '800', fontFamily: 'JetBrainsMono_700Bold' },
   shotOverlay: { position: 'absolute', left: 12, bottom: 12, backgroundColor: 'rgba(11,11,16,0.82)', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 8, zIndex: 4 },

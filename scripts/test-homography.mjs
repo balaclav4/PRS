@@ -2,7 +2,7 @@
  * Verifies perspective correction against known ground truth.
  * Run: node scripts/test-homography.mjs
  */
-import { solveHomography, project, rectifyToInches, perspectiveSeverity } from '../lib/homography.js';
+import { solveHomography, project, rectifyToInches, perspectiveSeverity, orderCorners } from '../lib/homography.js';
 
 let fails = 0;
 const check = (name, ok, detail = '') => {
@@ -103,6 +103,31 @@ function makeCamera(tiltDeg, panDeg, f = 1400, dist = 40) {
   const collinear = [{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }];
   check('collinear corners rejected', rectifyToInches(collinear, 12, 12) === null);
   check('bad arity rejected', solveHomography([{ x: 0, y: 0 }], [{ x: 0, y: 0 }]) === null);
+}
+
+// --- corner auto-ordering ---------------------------------------------------
+{
+  const TL = { x: 10, y: 12 }, TR = { x: 90, y: 14 }, BR = { x: 88, y: 95 }, BL = { x: 8, y: 93 };
+  const want = [TL, TR, BR, BL];
+  // Every tap order must come back as TL, TR, BR, BL.
+  const perms = [
+    [TL, TR, BR, BL], [BL, TL, BR, TR], [BR, BL, TR, TL], [TR, BR, TL, BL],
+  ];
+  const ok = perms.every(p => {
+    const o = orderCorners(p);
+    return o.every((c, i) => c.x === want[i].x && c.y === want[i].y);
+  });
+  check('corner ordering is tap-order invariant', ok);
+
+  // A skewed quad (rotated ~20deg) still orders consistently.
+  const rot = (p, a) => ({
+    x: 50 + (p.x - 50) * Math.cos(a) - (p.y - 50) * Math.sin(a),
+    y: 50 + (p.x - 50) * Math.sin(a) + (p.y - 50) * Math.cos(a),
+  });
+  const rq = [BR, TL, TR, BL].map(p => rot(p, 0.35));
+  const ro = orderCorners(rq);
+  const H2 = rectifyToInches(ro, 10, 10);
+  check('rotated quad still yields valid homography', H2 !== null);
 }
 
 // --- error across tilt range ------------------------------------------------
