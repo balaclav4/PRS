@@ -46,14 +46,42 @@ const SEED_SESSIONS = [
   },
 ];
 
+// One demo ladder so the screen isn't empty on first run. Unlike the old
+// hardcoded table, the node and its confidence are computed from these rungs
+// at render time — the conclusion is derived, not asserted.
+const SEED_PROJECTS = [
+  {
+    id: 'p1',
+    name: '6 Dasher — AXSR',
+    rifleId: 'r3',
+    loadId: 'l2',
+    goalMoa: 0.5,
+    hitRatePct: 90,
+    testDistanceYd: 100,
+    shotsPerCharge: 3,
+    currentStep: 6,
+    createdAt: '2026-07-01T00:00:00.000Z',
+    rungs: [
+      { id: 'g1', charge: '32.6', velocity: '2856', groupMoa: '0.52' },
+      { id: 'g2', charge: '32.8', velocity: '2872', groupMoa: '0.44' },
+      { id: 'g3', charge: '33.0', velocity: '2892', groupMoa: '0.34' },
+      { id: 'g4', charge: '33.2', velocity: '2905', groupMoa: '0.29' },
+      { id: 'g5', charge: '33.4', velocity: '2909', groupMoa: '0.31' },
+      { id: 'g6', charge: '33.6', velocity: '2931', groupMoa: '0.44' },
+      { id: 'g7', charge: '33.8', velocity: '2948', groupMoa: '0.52' },
+    ],
+  },
+];
+
 const DataContext = createContext();
 
-const SEED = { rifles: SEED_RIFLES, loads: SEED_LOADS, sessions: SEED_SESSIONS };
+const SEED = { rifles: SEED_RIFLES, loads: SEED_LOADS, sessions: SEED_SESSIONS, projects: SEED_PROJECTS };
 
 export function DataProvider({ children }) {
   const [rifles, setRifles] = useState(SEED_RIFLES);
   const [loads, setLoads] = useState(SEED_LOADS);
   const [sessions, setSessions] = useState(SEED_SESSIONS);
+  const [projects, setProjects] = useState(SEED_PROJECTS);
   const [ready, setReady] = useState(false);
 
   // Hydrate from local storage on boot. If storage is unavailable we keep the
@@ -66,6 +94,8 @@ export function DataProvider({ children }) {
         setRifles(data.rifles);
         setLoads(data.loads);
         setSessions(data.sessions);
+        // Storage predating load-dev has no projects key; fall back to seed.
+        setProjects(data.projects?.length ? data.projects : SEED_PROJECTS);
       }
       if (!cancelled) setReady(true);
     })();
@@ -144,6 +174,29 @@ export function DataProvider({ children }) {
     persist(() => db.removeSession(id));
   }, []);
 
+  const getProject = useCallback((id) => projects.find(p => p.id === id), [projects]);
+
+  const addProject = useCallback((project) => {
+    const row = { ...project, id: 'p' + Date.now(), createdAt: new Date().toISOString() };
+    setProjects(prev => [...prev, row]);
+    persist(() => db.putProject(row));
+    return row;
+  }, []);
+
+  const updateProject = useCallback((id, updates) => {
+    setProjects(prev => {
+      const next = prev.map(p => p.id === id ? { ...p, ...updates } : p);
+      const row = next.find(p => p.id === id);
+      if (row) persist(() => db.putProject(row));
+      return next;
+    });
+  }, []);
+
+  const deleteProject = useCallback((id) => {
+    setProjects(prev => prev.filter(p => p.id !== id));
+    persist(() => db.removeProject(id));
+  }, []);
+
   /**
    * CSV for every session, or just the ones whose ids are passed.
    * Values are quoted and embedded quotes doubled per RFC 4180 — a session
@@ -164,14 +217,15 @@ export function DataProvider({ children }) {
   }, [sessions, rifles, loads]);
 
   const value = useMemo(() => ({
-    rifles, loads, sessions, ready,
+    rifles, loads, sessions, projects, ready,
     getRifle, getLoad, getSession, getRifleName,
     addSession, updateSession, addRifle, addLoad,
     updateRifle, deleteRifle,
     updateLoad, deleteLoad,
     deleteSession,
+    getProject, addProject, updateProject, deleteProject,
     exportSessionsCSV,
-  }), [rifles, loads, sessions, ready, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, exportSessionsCSV]);
+  }), [rifles, loads, sessions, projects, ready, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, exportSessionsCSV]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

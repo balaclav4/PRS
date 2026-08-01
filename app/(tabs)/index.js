@@ -8,7 +8,7 @@ import { LinearGradient } from '../../components/Gradient';
 
 export default function HomeScreen() {
   const { colors } = useTheme();
-  const { sessions, rifles, getRifleName } = useData();
+  const { sessions, rifles, projects, getRifleName } = useData();
   const router = useRouter();
 
   const recent = sessions.slice(0, 3);
@@ -107,7 +107,11 @@ export default function HomeScreen() {
           <TouchableOpacity onPress={() => router.push('/reloading')} style={[s.quickCard, { backgroundColor: colors.card, borderColor: colors.bd }]}>
             <FlaskConical size={22} color={colors.act} style={{ marginBottom: 10 }} />
             <Text style={[s.quickTitle, { color: colors.tx }]}>Load Dev</Text>
-            <Text style={[s.quickSub, { color: colors.mut }]}>6 Dasher · Step 6</Text>
+            <Text style={[s.quickSub, { color: colors.mut }]}>
+              {projects?.length
+                ? `${projects[0].name} · Step ${projects[0].currentStep || 1}`
+                : 'No project yet'}
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
