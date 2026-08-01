@@ -182,80 +182,88 @@ export default function EquipmentScreen() {
       </ScrollView>
 
       {/* Rifle Modal */}
+      {/* Body is gated on the state object, not just Modal's visible prop:
+          React Native Web keeps Modal children mounted when visible flips to
+          false, so on save/delete the fields re-rendered once with value
+          undefined and React flipped every input controlled -> uncontrolled. */}
       <Modal visible={rifleModal !== null} transparent animationType="slide">
-        <View style={s.modalOverlay}>
-          <View style={[s.modalContent, { backgroundColor: colors.bg }]}>
-            <View style={s.modalHeader}>
-              <Text style={[s.modalTitle, { color: colors.tx }]}>{rifleModal?._isNew ? 'Add Rifle' : 'Edit Rifle'}</Text>
-              <TouchableOpacity onPress={() => setRifleModal(null)}><X size={22} color={colors.mut} /></TouchableOpacity>
-            </View>
-            <ScrollView style={s.modalScroll} showsVerticalScrollIndicator={false}>
-              <FormField label="Name" value={rifleModal?.name} onChangeText={v => updateRifleField('name', v)} placeholder="e.g. Impact 737R" colors={colors} />
-              <FormField label="Cartridge" value={rifleModal?.cartridge} onChangeText={v => updateRifleField('cartridge', v)} placeholder="e.g. 6.5 Creedmoor" colors={colors} />
-              <FormField label="Barrel Length" value={rifleModal?.barrelLength} onChangeText={v => updateRifleField('barrelLength', v)} placeholder={'e.g. 26"'} colors={colors} />
-              <FormField label="Twist Rate" value={rifleModal?.twist} onChangeText={v => updateRifleField('twist', v)} placeholder="e.g. 1:8" colors={colors} />
-              <FormField label="Notes" value={rifleModal?.notes} onChangeText={v => updateRifleField('notes', v)} placeholder="Optional" colors={colors} />
-            </ScrollView>
-            <View style={s.modalActions}>
-              {!rifleModal?._isNew && (
-                <TouchableOpacity onPress={confirmDeleteRifle} style={[s.deleteBtn, { backgroundColor: colors.dngs }]}>
-                  <Trash2 size={17} color={colors.dngt} />
+        {rifleModal && (
+          <View style={s.modalOverlay}>
+            <View style={[s.modalContent, { backgroundColor: colors.bg }]}>
+              <View style={s.modalHeader}>
+                <Text style={[s.modalTitle, { color: colors.tx }]}>{rifleModal._isNew ? 'Add Rifle' : 'Edit Rifle'}</Text>
+                <TouchableOpacity onPress={() => setRifleModal(null)}><X size={22} color={colors.mut} /></TouchableOpacity>
+              </View>
+              <ScrollView style={s.modalScroll} showsVerticalScrollIndicator={false}>
+                <FormField label="Name" value={rifleModal.name} onChangeText={v => updateRifleField('name', v)} placeholder="e.g. Impact 737R" colors={colors} />
+                <FormField label="Cartridge" value={rifleModal.cartridge} onChangeText={v => updateRifleField('cartridge', v)} placeholder="e.g. 6.5 Creedmoor" colors={colors} />
+                <FormField label="Barrel Length" value={rifleModal.barrelLength} onChangeText={v => updateRifleField('barrelLength', v)} placeholder={'e.g. 26"'} colors={colors} />
+                <FormField label="Twist Rate" value={rifleModal.twist} onChangeText={v => updateRifleField('twist', v)} placeholder="e.g. 1:8" colors={colors} />
+                <FormField label="Notes" value={rifleModal.notes} onChangeText={v => updateRifleField('notes', v)} placeholder="Optional" colors={colors} />
+              </ScrollView>
+              <View style={s.modalActions}>
+                {!rifleModal._isNew && (
+                  <TouchableOpacity onPress={confirmDeleteRifle} style={[s.deleteBtn, { backgroundColor: colors.dngs }]}>
+                    <Trash2 size={17} color={colors.dngt} />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={saveRifle} style={[s.saveBtn, { opacity: rifleModal.name?.trim() ? 1 : 0.4 }]}>
+                  <Check size={17} color="#fff" />
+                  <Text style={s.saveBtnText}>Save</Text>
                 </TouchableOpacity>
-              )}
-              <TouchableOpacity onPress={saveRifle} style={[s.saveBtn, { opacity: rifleModal?.name?.trim() ? 1 : 0.4 }]}>
-                <Check size={17} color="#fff" />
-                <Text style={s.saveBtnText}>Save</Text>
-              </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        )}
       </Modal>
 
       {/* Load Modal */}
       <Modal visible={loadModal !== null} transparent animationType="slide">
-        <View style={s.modalOverlay}>
-          <View style={[s.modalContent, { backgroundColor: colors.bg }]}>
-            <View style={s.modalHeader}>
-              <Text style={[s.modalTitle, { color: colors.tx }]}>{loadModal?._isNew ? 'Add Load' : 'Edit Load'}</Text>
-              <TouchableOpacity onPress={() => setLoadModal(null)}><X size={22} color={colors.mut} /></TouchableOpacity>
-            </View>
-            <ScrollView style={s.modalScroll} showsVerticalScrollIndicator={false}>
-              <View style={s.field}>
-                <Text style={[s.fieldLabel, { color: colors.mut }]}>Rifle</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
-                  <View style={{ flexDirection: 'row', gap: 6 }}>
-                    {rifles.map(r => (
-                      <TouchableOpacity key={r.id} onPress={() => updateLoadField('rifleId', r.id)}
-                        style={[s.chipBtn, { backgroundColor: loadModal?.rifleId === r.id ? colors.act : colors.inset, borderColor: loadModal?.rifleId === r.id ? colors.act : colors.ibd }]}>
-                        <Text style={[s.chipText, { color: loadModal?.rifleId === r.id ? '#fff' : colors.tx }]}>{r.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
+        {loadModal && (
+          <View style={s.modalOverlay}>
+            <View style={[s.modalContent, { backgroundColor: colors.bg }]}>
+              <View style={s.modalHeader}>
+                <Text style={[s.modalTitle, { color: colors.tx }]}>{loadModal._isNew ? 'Add Load' : 'Edit Load'}</Text>
+                <TouchableOpacity onPress={() => setLoadModal(null)}><X size={22} color={colors.mut} /></TouchableOpacity>
               </View>
-              <FormField label="Caliber" value={loadModal?.caliber} onChangeText={v => updateLoadField('caliber', v)} placeholder="e.g. 6.5 CM" colors={colors} />
-              <FormField label="Bullet" value={loadModal?.bullet} onChangeText={v => updateLoadField('bullet', v)} placeholder="e.g. 140 Hybrid" colors={colors} />
-              <FormField label="Powder" value={loadModal?.powder} onChangeText={v => updateLoadField('powder', v)} placeholder="e.g. H4350" colors={colors} />
-              <FormField label="Charge (gr)" value={String(loadModal?.chargeGr || '')} onChangeText={v => updateLoadField('chargeGr', v)} placeholder="e.g. 41.8" colors={colors} keyboardType="decimal-pad" />
-              <FormField label="Primer" value={loadModal?.primer} onChangeText={v => updateLoadField('primer', v)} placeholder="e.g. Fed 210M" colors={colors} />
-              <FormField label="Brass" value={loadModal?.brass} onChangeText={v => updateLoadField('brass', v)} placeholder="e.g. Lapua" colors={colors} />
-              <FormField label="COAL / CBTO" value={String(loadModal?.coalOrCbto || '')} onChangeText={v => updateLoadField('coalOrCbto', v)} placeholder="e.g. 2.825" colors={colors} keyboardType="decimal-pad" />
-              <FormField label="Velocity (fps)" value={String(loadModal?.velocityFps || '')} onChangeText={v => updateLoadField('velocityFps', v)} placeholder="e.g. 2820" colors={colors} keyboardType="number-pad" />
-              <FormField label="SD (fps)" value={String(loadModal?.sd || '')} onChangeText={v => updateLoadField('sd', v)} placeholder="e.g. 8.4" colors={colors} keyboardType="decimal-pad" />
-            </ScrollView>
-            <View style={s.modalActions}>
-              {!loadModal?._isNew && (
-                <TouchableOpacity onPress={confirmDeleteLoad} style={[s.deleteBtn, { backgroundColor: colors.dngs }]}>
-                  <Trash2 size={17} color={colors.dngt} />
+              <ScrollView style={s.modalScroll} showsVerticalScrollIndicator={false}>
+                <View style={s.field}>
+                  <Text style={[s.fieldLabel, { color: colors.mut }]}>Rifle</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      {rifles.map(r => (
+                        <TouchableOpacity key={r.id} onPress={() => updateLoadField('rifleId', r.id)}
+                          style={[s.chipBtn, { backgroundColor: loadModal.rifleId === r.id ? colors.act : colors.inset, borderColor: loadModal.rifleId === r.id ? colors.act : colors.ibd }]}>
+                          <Text style={[s.chipText, { color: loadModal.rifleId === r.id ? '#fff' : colors.tx }]}>{r.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+                <FormField label="Caliber" value={loadModal.caliber} onChangeText={v => updateLoadField('caliber', v)} placeholder="e.g. 6.5 CM" colors={colors} />
+                <FormField label="Bullet" value={loadModal.bullet} onChangeText={v => updateLoadField('bullet', v)} placeholder="e.g. 140 Hybrid" colors={colors} />
+                <FormField label="Powder" value={loadModal.powder} onChangeText={v => updateLoadField('powder', v)} placeholder="e.g. H4350" colors={colors} />
+                <FormField label="Charge (gr)" value={loadModal.chargeGr} onChangeText={v => updateLoadField('chargeGr', v)} placeholder="e.g. 41.8" colors={colors} keyboardType="decimal-pad" />
+                <FormField label="Primer" value={loadModal.primer} onChangeText={v => updateLoadField('primer', v)} placeholder="e.g. Fed 210M" colors={colors} />
+                <FormField label="Brass" value={loadModal.brass} onChangeText={v => updateLoadField('brass', v)} placeholder="e.g. Lapua" colors={colors} />
+                <FormField label="COAL / CBTO" value={loadModal.coalOrCbto} onChangeText={v => updateLoadField('coalOrCbto', v)} placeholder="e.g. 2.825" colors={colors} keyboardType="decimal-pad" />
+                <FormField label="Velocity (fps)" value={loadModal.velocityFps} onChangeText={v => updateLoadField('velocityFps', v)} placeholder="e.g. 2820" colors={colors} keyboardType="number-pad" />
+                <FormField label="SD (fps)" value={loadModal.sd} onChangeText={v => updateLoadField('sd', v)} placeholder="e.g. 8.4" colors={colors} keyboardType="decimal-pad" />
+              </ScrollView>
+              <View style={s.modalActions}>
+                {!loadModal._isNew && (
+                  <TouchableOpacity onPress={confirmDeleteLoad} style={[s.deleteBtn, { backgroundColor: colors.dngs }]}>
+                    <Trash2 size={17} color={colors.dngt} />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={saveLoad} style={[s.saveBtn, { opacity: (loadModal.bullet?.trim() && loadModal.powder?.trim()) ? 1 : 0.4 }]}>
+                  <Check size={17} color="#fff" />
+                  <Text style={s.saveBtnText}>Save</Text>
                 </TouchableOpacity>
-              )}
-              <TouchableOpacity onPress={saveLoad} style={[s.saveBtn, { opacity: (loadModal?.bullet?.trim() && loadModal?.powder?.trim()) ? 1 : 0.4 }]}>
-                <Check size={17} color="#fff" />
-                <Text style={s.saveBtnText}>Save</Text>
-              </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        )}
       </Modal>
     </SafeAreaView>
   );

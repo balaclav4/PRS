@@ -51,17 +51,17 @@ export default function BallisticsScreen() {
             <Crosshair size={26} color="#8B6BF5" />
           </View>
           <View style={s.loadStats}>
-            <View>
+            <View style={s.loadStatCol}>
               <TextInput value={mvFps} onChangeText={setMvFps} keyboardType="number-pad"
                 style={s.loadStatInput} selectTextOnFocus />
               <Text style={s.loadStatLabel}>MV fps</Text>
             </View>
-            <View>
+            <View style={s.loadStatCol}>
               <TextInput value={bcG1} onChangeText={setBcG1} keyboardType="decimal-pad"
                 style={s.loadStatInput} selectTextOnFocus />
               <Text style={s.loadStatLabel}>BC G1</Text>
             </View>
-            <View>
+            <View style={s.loadStatCol}>
               <Text style={s.loadStatVal}>8.4</Text>
               <Text style={s.loadStatLabel}>SD fps</Text>
             </View>
@@ -124,8 +124,13 @@ const s = StyleSheet.create({
   loadSub: { fontSize: 12, fontWeight: '600', color: '#9E9BB0' },
   loadName: { fontSize: 18, fontWeight: '800', color: '#fff', marginTop: 6 },
   loadDetail: { fontSize: 13, fontWeight: '500', color: '#B9B6C8', marginTop: 4 },
-  loadStats: { flexDirection: 'row', gap: 22, marginTop: 16 },
-  loadStatInput: { fontSize: 19, fontWeight: '700', color: '#fff', fontFamily: 'JetBrainsMono_700Bold', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.2)', paddingBottom: 2, minWidth: 50 },
+  loadStats: { flexDirection: 'row', gap: 12, marginTop: 16 },
+  // Each column must claim an equal share of the row. Without flex:1 the
+  // TextInputs fell back to the browser's default input width (~180px each),
+  // so three columns overflowed a phone viewport and loadCard's overflow:hidden
+  // silently clipped the third stat entirely off-screen.
+  loadStatCol: { flex: 1, minWidth: 0 },
+  loadStatInput: { fontSize: 19, fontWeight: '700', color: '#fff', fontFamily: 'JetBrainsMono_700Bold', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.2)', paddingBottom: 2, width: '100%' },
   loadStatVal: { fontSize: 19, fontWeight: '700', color: '#fff', fontFamily: 'JetBrainsMono_700Bold' },
   loadStatLabel: { fontSize: 11, fontWeight: '600', color: '#9E9BB0', marginTop: 4 },
   envRow: { flexDirection: 'row', gap: 8, marginTop: 12 },

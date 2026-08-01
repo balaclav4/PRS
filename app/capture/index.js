@@ -1,7 +1,7 @@
-import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, Dimensions, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, useWindowDimensions, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle } from 'lucide-react-native';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import Svg, { Circle, Polygon } from 'react-native-svg';
@@ -16,13 +16,20 @@ import { bulletDiameterIn } from '../../lib/calibers';
 import { normalizePhoto } from '../../lib/photo';
 
 const STEP_LABELS = ['Photo', 'Setup', 'Corners', 'Mark Shots', 'Review'];
-const { width: SCREEN_W } = Dimensions.get('window');
-const IMG_W = SCREEN_W - 40;
+const IMG_ASPECT = 1.25;
 
 export default function CaptureScreen() {
   const { colors } = useTheme();
   const { addSession, rifles, loads } = useData();
   const router = useRouter();
+
+  // Reactive, not Dimensions.get() at module scope: that captured the width
+  // once at first load, so a browser resize or device rotation left the photo
+  // box at a stale width and it overflowed the viewport. Tap coordinates are
+  // normalised fractions of this width, so they stay valid across a resize.
+  const { width: SCREEN_W } = useWindowDimensions();
+  const IMG_W = SCREEN_W - 40;
+  const IMG_H = IMG_W * IMG_ASPECT;
 
   const [step, setStep] = useState(0);
   const [photo, setPhoto] = useState(null); // { uri, width, height } — normalized, upright
@@ -34,14 +41,29 @@ export default function CaptureScreen() {
   const [rifleIdx, setRifleIdx] = useState(0);
   const [loadIdx, setLoadIdx] = useState(0);
   const [suppressed, setSuppressed] = useState(true);
+  const [sessionName, setSessionName] = useState('');
   const [corners, setCorners] = useState([]);
   const [shots, setShots] = useState([]);
   const [detecting, setDetecting] = useState(false);
   const [detectNote, setDetectNote] = useState(null);
+  // True while the shot set is exactly what detection produced. Re-running
+  // detection then is idempotent and needs no confirmation; any hand edit
+  // clears it so the next run warns before overwriting that work.
+  const detectedRef = useRef(false);
 
   const refWIn = parseFloat(refW) || 0;
   const refHIn = parseFloat(refH) || 0;
   const distance = parseFloat(distanceStr) || 0;
+
+  // Continue is disabled on bad input; say why rather than just greying it out.
+  const badNum = (raw, parsed) => raw.trim() !== '' && parsed <= 0;
+  const refSizeError =
+    badNum(refW, refWIn) || badNum(refH, refHIn)
+      ? 'Width and height must be positive numbers.'
+      : null;
+  const distanceError = badNum(distanceStr, distance)
+    ? 'Distance must be a positive number.'
+    : null;
 
   // Rifle selection cycles through equipment; loads are scoped to the rifle.
   const rifle = rifles.length ? rifles[rifleIdx % rifles.length] : null;
@@ -53,6 +75,12 @@ export default function CaptureScreen() {
 
   const cycleRifle = () => { setRifleIdx(i => i + 1); setLoadIdx(0); };
   const cycleLoad = () => setLoadIdx(i => i + 1);
+
+  // Suggested name follows the selections, so leaving the field blank still
+  // yields something more useful than a bare date.
+  const defaultSessionName = rifle
+    ? `${rifle.name} · ${distance || '—'}yd`
+    : 'Session ' + new Date().toLocaleDateString();
 
   // Four corners of a reference rectangle of known size give both the absolute
   // scale and the perspective correction in one homography — shots project
@@ -75,6 +103,21 @@ export default function CaptureScreen() {
     [Hmat, shots]
   );
   const stats = computeGroupStats(shotsIn, Hmat ? 1 : null, distance);
+
+  // Shrink the markers when the group is tight enough that fixed 24px badges
+  // would overlap and make individual shots impossible to tap. Floors at 14px
+  // so they stay a usable target.
+  const dotSize = useMemo(() => {
+    if (shots.length < 2) return 24;
+    let min = Infinity;
+    for (let i = 0; i < shots.length; i++) {
+      for (let j = i + 1; j < shots.length; j++) {
+        const d = Math.hypot(shots[i].x - shots[j].x, shots[i].y - shots[j].y) * IMG_W;
+        if (d < min) min = d;
+      }
+    }
+    return Math.max(14, Math.min(24, min));
+  }, [shots, IMG_W]);
 
   // Normalize at intake: bakes out EXIF orientation so the displayed image and
   // the analyzed pixels can never disagree, and caps decoded size.
@@ -107,7 +150,10 @@ export default function CaptureScreen() {
       Alert.alert('Camera Permission', 'Camera access is needed to photograph targets.');
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+    // capture:'back' sets the file input's capture attribute on web, so mobile
+    // browsers open the camera instead of the generic file browser — without it
+    // this button behaved identically to Upload Photo.
+    const result = await ImagePicker.launchCameraAsync({ quality: 0.8, capture: 'back' });
     if (!result.canceled && result.assets[0]) await acceptPhoto(result.assets[0]);
   }, [acceptPhoto]);
 
@@ -130,12 +176,22 @@ export default function CaptureScreen() {
       setCorners(prev => prev.length >= 4 ? prev : [...prev, pt]);
       mediumTap();
     } else {
+      detectedRef.current = false;
       setShots(prev => [...prev, pt]);
       lightTap();
     }
-  }, []);
+  }, [IMG_W]);
 
-  const removeShot = (i) => setShots(prev => prev.filter((_, j) => j !== i));
+  const removeShot = (i) => {
+    detectedRef.current = false;
+    setShots(prev => prev.filter((_, j) => j !== i));
+  };
+
+  const clearShots = () => {
+    detectedRef.current = false;
+    setShots([]);
+    setDetectNote(null);
+  };
 
   /**
    * Find bullet holes automatically.
@@ -145,11 +201,25 @@ export default function CaptureScreen() {
    */
   const autoDetect = useCallback(async () => {
     if (!photo || !Hmat) return;
+
+    // Detection replaces the whole set, so confirm before discarding manual work.
+    if (shots.length && !detectedRef.current) {
+      const ok = Platform.OS === 'web'
+        ? confirm('Replace your marked shots with auto-detected ones?')
+        : await new Promise(res => Alert.alert(
+            'Replace marked shots?',
+            'Auto-detect will discard the shots you marked by hand.',
+            [{ text: 'Cancel', style: 'cancel', onPress: () => res(false) },
+             { text: 'Replace', style: 'destructive', onPress: () => res(true) }]
+          ));
+      if (!ok) return;
+    }
+
     setDetecting(true);
     setDetectNote(null);
     try {
       const { gray, width, height } = await loadGrayscale(photo.uri);
-      const boxH = IMG_W * 1.25;
+      const boxH = IMG_H;
       const k = coverScale(width, height, IMG_W, boxH);
 
       const caliberText = load?.caliber || rifle?.cartridge;
@@ -174,6 +244,7 @@ export default function CaptureScreen() {
         setDetectNote(reason || 'No holes found — mark them manually.');
       } else {
         setShots(found.map(f => imageToNormalized(f.x, f.y, width, height, IMG_W, boxH)));
+        detectedRef.current = true;
         setDetectNote(
           `Found ${found.length} hole${found.length === 1 ? '' : 's'}` +
           (matched ? '' : ' · caliber not recognised, assumed 6.5mm') +
@@ -185,7 +256,7 @@ export default function CaptureScreen() {
       setDetectNote('Detection failed: ' + e.message);
     }
     setDetecting(false);
-  }, [photo, Hmat, ordered, refWIn, load, rifle]);
+  }, [photo, Hmat, ordered, refWIn, load, rifle, shots.length, IMG_W, IMG_H]);
 
   const canNext =
     (step === 1 && refWIn > 0 && refHIn > 0 && distance > 0) ||
@@ -197,7 +268,7 @@ export default function CaptureScreen() {
     const id = 's' + Date.now();
     addSession({
       id,
-      name: 'Session ' + new Date().toLocaleDateString(),
+      name: sessionName.trim() || defaultSessionName,
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       rifleId: rifle?.id || null,
       loadId: load?.id || null,
@@ -296,24 +367,38 @@ export default function CaptureScreen() {
                   <Text style={[s.inputUnit, { color: colors.mut }]}>in</Text>
                 </View>
               </View>
-              <Text style={[s.fieldHint, { color: colors.fnt }]}>The printed size of your target sheet or backer — you'll tap its four corners next. Sets the scale and corrects off-axis photos. Letter paper is 8.5 × 11.</Text>
+              {refSizeError
+                ? <Text style={[s.fieldError, { color: colors.dngt }]}>{refSizeError}</Text>
+                : <Text style={[s.fieldHint, { color: colors.fnt }]}>The printed size of your target sheet or backer — you'll tap its four corners next. Sets the scale and corrects off-axis photos. Letter paper is 8.5 × 11.</Text>}
             </View>
+            {/* Tapping cycles rather than opening a list, so the control says so
+                and shows the position — a bare chevron promised a picker. */}
             <View style={s.field}>
               <Text style={[s.fieldLabel, { color: colors.mut }]}>Rifle</Text>
-              <TouchableOpacity onPress={cycleRifle} style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
-                <Text style={[s.pickerText, { color: colors.tx }]}>
+              <TouchableOpacity onPress={cycleRifle} disabled={rifles.length < 2} style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                <Text style={[s.pickerText, { color: rifle ? colors.tx : colors.mut }]}>
                   {rifle ? `${rifle.name} · ${rifle.cartridge}` : 'No rifles — add one in Equipment'}
                 </Text>
-                <ChevronRight size={18} color={colors.fnt} />
+                {rifles.length > 1 && (
+                  <View style={s.pickerCycle}>
+                    <Text style={[s.pickerCount, { color: colors.mut }]}>{(rifleIdx % rifles.length) + 1}/{rifles.length}</Text>
+                    <ChevronRight size={18} color={colors.act} />
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
             <View style={s.field}>
               <Text style={[s.fieldLabel, { color: colors.mut }]}>Load</Text>
-              <TouchableOpacity onPress={cycleLoad} style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+              <TouchableOpacity onPress={cycleLoad} disabled={rifleLoads.length < 2} style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
                 <Text style={[s.pickerText, { color: load ? colors.tx : colors.mut }]}>
                   {load ? load.name : 'No loads for this rifle'}
                 </Text>
-                <ChevronRight size={18} color={colors.fnt} />
+                {rifleLoads.length > 1 && (
+                  <View style={s.pickerCycle}>
+                    <Text style={[s.pickerCount, { color: colors.mut }]}>{(loadIdx % rifleLoads.length) + 1}/{rifleLoads.length}</Text>
+                    <ChevronRight size={18} color={colors.act} />
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
             <View style={s.twoCol}>
@@ -328,6 +413,7 @@ export default function CaptureScreen() {
                   />
                   <Text style={[s.inputUnit, { color: colors.mut }]}>yd</Text>
                 </View>
+                {distanceError && <Text style={[s.fieldError, { color: colors.dngt }]}>{distanceError}</Text>}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[s.fieldLabel, { color: colors.mut }]}>Suppressor</Text>
@@ -356,7 +442,7 @@ export default function CaptureScreen() {
             <TouchableOpacity
               activeOpacity={1}
               onPress={(e) => onTapImage(e, 'corner')}
-              style={[s.imgContainer, { borderColor: colors.bd }]}
+              style={[s.imgContainer, { borderColor: colors.bd, width: IMG_W, height: IMG_H }]}
             >
               {photo ? (
                 <Image source={{ uri: photo.uri }} style={s.targetImg} resizeMode="cover" />
@@ -441,7 +527,7 @@ export default function CaptureScreen() {
             <TouchableOpacity
               activeOpacity={1}
               onPress={(e) => onTapImage(e, 'shots')}
-              style={[s.imgContainer, { borderColor: colors.bd }]}
+              style={[s.imgContainer, { borderColor: colors.bd, width: IMG_W, height: IMG_H }]}
             >
               {photo ? (
                 <Image source={{ uri: photo.uri }} style={s.targetImg} resizeMode="cover" />
@@ -455,9 +541,12 @@ export default function CaptureScreen() {
                 <TouchableOpacity
                   key={i}
                   onPress={(e) => { e.stopPropagation(); removeShot(i); }}
-                  style={[s.shotDot, { left: p.x * IMG_W - 12, top: p.y * IMG_W - 12 }]}
+                  style={[s.shotDot, {
+                    width: dotSize, height: dotSize, borderRadius: dotSize / 2,
+                    left: p.x * IMG_W - dotSize / 2, top: p.y * IMG_W - dotSize / 2,
+                  }]}
                 >
-                  <Text style={s.shotDotText}>{i + 1}</Text>
+                  <Text style={[s.shotDotText, { fontSize: dotSize < 20 ? 8 : 10 }]}>{i + 1}</Text>
                 </TouchableOpacity>
               ))}
               <View style={s.shotOverlay}>
@@ -470,7 +559,7 @@ export default function CaptureScreen() {
               <Text style={[s.scaleCount, { color: colors.mut }]}>
                 Live group <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{stats ? stats.groupMoa.toFixed(2) : '—'} MOA</Text>
               </Text>
-              <TouchableOpacity onPress={() => setShots([])} style={s.resetBtn}>
+              <TouchableOpacity onPress={clearShots} style={s.resetBtn}>
                 <Eraser size={14} color={colors.act} />
                 <Text style={[s.resetText, { color: colors.act }]}>Clear</Text>
               </TouchableOpacity>
@@ -512,6 +601,19 @@ export default function CaptureScreen() {
                   <Text style={[s.reviewTileVal, { color: colors.tx }]}>{val}</Text>
                 </View>
               ))}
+            </View>
+
+            <View style={s.field}>
+              <Text style={[s.fieldLabel, { color: colors.mut }]}>Session Name</Text>
+              <View style={[s.inputRow, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                <TextInput
+                  value={sessionName}
+                  onChangeText={setSessionName}
+                  placeholder={defaultSessionName}
+                  placeholderTextColor={colors.fnt}
+                  style={[s.input, { color: colors.tx }]}
+                />
+              </View>
             </View>
 
             <TouchableOpacity onPress={saveAndFinish} style={s.saveBtn}>
@@ -568,14 +670,17 @@ const s = StyleSheet.create({
   input: { flex: 1, paddingVertical: 14, fontSize: 15 },
   inputUnit: { fontSize: 13, fontWeight: '600' },
   fieldHint: { fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 7, marginHorizontal: 2 },
-  picker: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderRadius: 13, padding: 14 },
-  pickerText: { fontSize: 15, fontWeight: '600' },
+  fieldError: { fontSize: 11.5, fontWeight: '700', lineHeight: 16, marginTop: 7, marginHorizontal: 2 },
+  picker: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderRadius: 13, padding: 14, gap: 8 },
+  pickerText: { flex: 1, fontSize: 15, fontWeight: '600' },
+  pickerCycle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  pickerCount: { fontSize: 12, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' },
   twoCol: { flexDirection: 'row', gap: 10 },
 
   // Scale / Shots
   instruction: { flexDirection: 'row', gap: 9, alignItems: 'center', padding: 12, paddingHorizontal: 14, borderRadius: 12, marginBottom: 14 },
   instructionText: { flex: 1, fontSize: 12.5, fontWeight: '600' },
-  imgContainer: { position: 'relative', borderRadius: 18, overflow: 'hidden', borderWidth: 1, width: IMG_W, height: IMG_W * 1.25, backgroundColor: '#222' },
+  imgContainer: { position: 'relative', borderRadius: 18, overflow: 'hidden', borderWidth: 1, backgroundColor: '#222' },
   targetImg: { position: 'absolute', width: '100%', height: '100%' },
   demoSvg: { position: 'absolute', width: '100%', height: '100%' },
   overlayLine: { position: 'absolute', width: '100%', height: '100%' },
@@ -600,7 +705,7 @@ const s = StyleSheet.create({
   reviewMsg: { fontSize: 17, fontWeight: '800' },
   reviewSub: { fontSize: 13, fontWeight: '600', marginTop: 4 },
   reviewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 },
-  reviewTile: { width: (IMG_W - 10) / 2, borderWidth: 1, borderRadius: 14, padding: 14 },
+  reviewTile: { flexGrow: 1, flexBasis: '47%', borderWidth: 1, borderRadius: 14, padding: 14 },
   reviewTileLabel: { fontSize: 11, fontWeight: '600' },
   reviewTileVal: { fontSize: 19, fontWeight: '700', marginTop: 5, fontFamily: 'JetBrainsMono_700Bold' },
 

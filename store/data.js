@@ -144,14 +144,21 @@ export function DataProvider({ children }) {
     persist(() => db.removeSession(id));
   }, []);
 
-  const exportSessionsCSV = useCallback(() => {
+  /**
+   * CSV for every session, or just the ones whose ids are passed.
+   * Values are quoted and embedded quotes doubled per RFC 4180 — a session
+   * named `6.5 "hot" load` previously produced a malformed row.
+   */
+  const exportSessionsCSV = useCallback((ids = null) => {
+    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const header = 'Name,Date,Rifle,Load,Distance (yd),Suppressed,Best Group (in),Mean Radius (in),MV (fps),SD (fps),Targets,Total Shots';
-    const rows = sessions.map(s => {
+    const scoped = ids ? sessions.filter(s => ids.includes(s.id)) : sessions;
+    const rows = scoped.map(s => {
       const rifleName = rifles.find(r => r.id === s.rifleId)?.name || '';
       const loadName = loads.find(l => l.id === s.loadId)?.name || '';
       const totalShots = s.targets.reduce((a, t) => a + t.shots.length, 0);
       return [s.name, s.date, rifleName, loadName, s.distanceYd, s.suppressed ? 'Yes' : 'No', s.best, s.meanRadius, s.mv, s.sd, s.targetCount, totalShots]
-        .map(v => `"${v}"`).join(',');
+        .map(cell).join(',');
     });
     return header + '\n' + rows.join('\n');
   }, [sessions, rifles, loads]);

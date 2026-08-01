@@ -4,13 +4,14 @@ import { ArrowLeft, Download } from 'lucide-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
+import { saveCSV, slugify } from '../../lib/export';
 import TargetPlot from '../../components/TargetPlot';
 
 export default function SessionDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const { colors } = useTheme();
-  const { getSession, getRifleName } = useData();
+  const { getSession, getRifleName, exportSessionsCSV } = useData();
 
   const sess = getSession(id);
   if (!sess) return null;
@@ -29,7 +30,10 @@ export default function SessionDetailScreen() {
             <Text numberOfLines={1} style={[s.title, { color: colors.tx }]}>{sess.name}</Text>
             <Text style={[s.date, { color: colors.mut }]}>{sess.date}</Text>
           </View>
-          <TouchableOpacity style={[s.backBtn, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+          <TouchableOpacity
+            onPress={() => saveCSV(exportSessionsCSV([sess.id]), `${slugify(sess.name)}.csv`)}
+            style={[s.backBtn, { backgroundColor: colors.card, borderColor: colors.bd }]}
+          >
             <Download size={18} color={colors.act} />
           </TouchableOpacity>
         </View>
@@ -53,14 +57,21 @@ export default function SessionDetailScreen() {
           </View>
         </View>
 
+        {/* No chronograph import yet, so these are unmeasured on captured
+            sessions. Show an em dash rather than 0 fps, which reads as a real
+            reading of zero. */}
         <View style={s.velRow}>
           <View style={[s.velTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
             <Text style={[s.velLabel, { color: colors.mut }]}>AVG VELOCITY</Text>
-            <Text style={[s.velVal, { color: colors.tx }]}>{sess.mv} <Text style={{ fontSize: 11, color: colors.fnt }}>fps</Text></Text>
+            {sess.mv > 0
+              ? <Text style={[s.velVal, { color: colors.tx }]}>{sess.mv} <Text style={{ fontSize: 11, color: colors.fnt }}>fps</Text></Text>
+              : <Text style={[s.velVal, { color: colors.fnt }]}>—</Text>}
           </View>
           <View style={[s.velTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
             <Text style={[s.velLabel, { color: colors.mut }]}>VELOCITY SD</Text>
-            <Text style={[s.velVal, { color: colors.tx }]}>{sess.sd} <Text style={{ fontSize: 11, color: colors.fnt }}>fps</Text></Text>
+            {sess.sd > 0
+              ? <Text style={[s.velVal, { color: colors.tx }]}>{sess.sd} <Text style={{ fontSize: 11, color: colors.fnt }}>fps</Text></Text>
+              : <Text style={[s.velVal, { color: colors.fnt }]}>—</Text>}
           </View>
         </View>
 

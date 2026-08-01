@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Download, TrendingDown, TrendingUp, CircleCheck, Info, ChartColumn } from 'lucide-react-native';
 import Svg, { Line, Path, Circle, Text as SvgText } from 'react-native-svg';
@@ -6,6 +6,7 @@ import { useState, useMemo } from 'react';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { deriveAnalytics } from '../../lib/analytics';
+import { saveCSV } from '../../lib/export';
 import FilterChips from '../../components/FilterChips';
 import TargetPlot from '../../components/TargetPlot';
 
@@ -34,6 +35,12 @@ export default function AnalyticsScreen() {
     [sessions, rifles, loads, filter]
   );
 
+  const scopedIds = useMemo(() => {
+    if (filter === 'all') return null;
+    const rifleId = rifles.find(r => r.name === filter)?.id;
+    return sessions.filter(s => s.rifleId === rifleId).map(s => s.id);
+  }, [sessions, rifles, filter]);
+
   const trend = data.trend;
   const { lo: vLo, hi: vHi } = trendDomain(trend);
   const xL = 34, xR = 290, yT = 12, yB = 92;
@@ -59,30 +66,11 @@ export default function AnalyticsScreen() {
   const improving = n >= 2 && trend[n - 1] < trend[0];
   const cmp = data.comparison;
 
-  const doExport = async () => {
-    try {
-      const csv = exportSessionsCSV();
-      if (Platform.OS === 'web') {
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'prs-sessions.csv';
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        const FS = require('expo-file-system');
-        const Share = require('expo-sharing');
-        const path = FS.documentDirectory + 'prs-sessions.csv';
-        await FS.writeAsStringAsync(path, csv);
-        if (await Share.isAvailableAsync()) await Share.shareAsync(path, { mimeType: 'text/csv' });
-      }
-    } catch (e) {
-      const msg = 'Export failed: ' + e.message;
-      if (Platform.OS === 'web') alert(msg);
-      else Alert.alert('Export Error', msg);
-    }
-  };
+  // Exports what the rifle filter is currently showing, not always everything.
+  const doExport = () => saveCSV(
+    exportSessionsCSV(scopedIds),
+    filter === 'all' ? 'prs-sessions.csv' : `prs-${filter.replace(/\s+/g, '-').toLowerCase()}.csv`
+  );
 
   const empty = data.sessionCount === 0;
 

@@ -1,10 +1,11 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Palette, Sun, Moon, Ruler, Thermometer, Gauge, FileDown, Sheet, LogOut, ChevronRight } from 'lucide-react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
+import { saveCSV } from '../../lib/export';
 
 const UNIT_OPTIONS = {
   groupSize: ['MOA', 'MRAD', 'Inches'],
@@ -24,32 +25,7 @@ export default function SettingsScreen() {
 
   const doExport = async () => {
     setExporting(true);
-    try {
-      const csv = exportSessionsCSV();
-      if (Platform.OS === 'web') {
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'prs-sessions.csv';
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        const FS = require('expo-file-system');
-        const Share = require('expo-sharing');
-        const path = FS.documentDirectory + 'prs-sessions.csv';
-        await FS.writeAsStringAsync(path, csv);
-        if (await Share.isAvailableAsync()) {
-          await Share.shareAsync(path, { mimeType: 'text/csv' });
-        } else {
-          Alert.alert('Export', 'File saved to app documents.');
-        }
-      }
-    } catch (e) {
-      const msg = 'Export failed: ' + e.message;
-      if (Platform.OS === 'web') alert(msg);
-      else Alert.alert('Export Error', msg);
-    }
+    await saveCSV(exportSessionsCSV(), 'prs-sessions.csv');
     setExporting(false);
   };
 
