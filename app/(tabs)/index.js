@@ -12,10 +12,12 @@ export default function HomeScreen() {
   const router = useRouter();
 
   const recent = sessions.slice(0, 3);
-  const bestGroup = sessions.reduce((best, s) => {
+  const bestSession = sessions.reduce((best, s) => {
     const v = parseFloat(s.best);
-    return v < best ? v : best;
-  }, Infinity);
+    if (!isFinite(v)) return best;
+    return !best || v < parseFloat(best.best) ? s : best;
+  }, null);
+  const bestGroup = bestSession ? parseFloat(bestSession.best) : Infinity;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
@@ -45,22 +47,34 @@ export default function HomeScreen() {
           </View>
         </TouchableOpacity>
 
+        {/* Each tile navigates to the screen that explains its number. Best
+            Group jumps straight to the session that set it. */}
         <View style={s.statsRow}>
-          <View style={[s.statTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+          <TouchableOpacity
+            onPress={() => router.push('/sessions')}
+            style={[s.statTile, { backgroundColor: colors.card, borderColor: colors.bd }]}
+          >
             <Target size={20} color={colors.act} />
             <Text style={[s.statVal, { color: colors.tx }]}>{sessions.length}</Text>
             <Text style={[s.statLabel, { color: colors.mut }]}>Sessions</Text>
-          </View>
-          <View style={[s.statTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+          </TouchableOpacity>
+          <TouchableOpacity
+            disabled={!bestSession}
+            onPress={() => bestSession && router.push(`/session/${bestSession.id}`)}
+            style={[s.statTile, { backgroundColor: colors.card, borderColor: colors.bd }]}
+          >
             <TrendingUp size={20} color="#15A34A" />
             <Text style={[s.statVal, { color: colors.tx }]}>{bestGroup === Infinity ? '—' : bestGroup.toFixed(2) + '"'}</Text>
             <Text style={[s.statLabel, { color: colors.mut }]}>Best Group</Text>
-          </View>
-          <View style={[s.statTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push('/equipment')}
+            style={[s.statTile, { backgroundColor: colors.card, borderColor: colors.bd }]}
+          >
             <Crosshair size={20} color="#D97706" />
             <Text style={[s.statVal, { color: colors.tx }]}>{rifles.length}</Text>
             <Text style={[s.statLabel, { color: colors.mut }]}>Rifles</Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
         <View style={s.sectionHeader}>

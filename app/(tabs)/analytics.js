@@ -5,7 +5,7 @@ import Svg, { Line, Path, Circle, Text as SvgText } from 'react-native-svg';
 import { useState, useMemo } from 'react';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
-import { deriveAnalytics } from '../../lib/analytics';
+import { deriveAnalytics, comparisonBuckets, compareBuckets } from '../../lib/analytics';
 import { saveCSV } from '../../lib/export';
 import FilterChips from '../../components/FilterChips';
 import TargetPlot from '../../components/TargetPlot';
@@ -40,6 +40,26 @@ export default function AnalyticsScreen() {
     const rifleId = rifles.find(r => r.name === filter)?.id;
     return sessions.filter(s => s.rifleId === rifleId).map(s => s.id);
   }, [sessions, rifles, filter]);
+
+  // Statistical comparison: pick the dimension, then the two things to compare.
+  const [cmpDim, setCmpDim] = useState('loads');
+  const [cmpA, setCmpA] = useState(null);
+  const [cmpB, setCmpB] = useState(null);
+
+  const buckets = useMemo(
+    () => comparisonBuckets(sessions, rifles, loads, cmpDim),
+    [sessions, rifles, loads, cmpDim]
+  );
+
+  // Default to the two best-sampled options whenever the dimension changes.
+  const aKey = cmpA ?? buckets[0]?.key ?? null;
+  const bKey = cmpB ?? buckets.find(x => x.key !== aKey)?.key ?? null;
+  const result = useMemo(
+    () => compareBuckets(buckets.find(x => x.key === aKey), buckets.find(x => x.key === bKey)),
+    [buckets, aKey, bKey]
+  );
+
+  const pickDim = (d) => { setCmpDim(d); setCmpA(null); setCmpB(null); };
 
   const trend = data.trend;
   const { lo: vLo, hi: vHi } = trendDomain(trend);
@@ -176,43 +196,89 @@ export default function AnalyticsScreen() {
               <TargetPlot moaShots={data.moaShots} size={140} showLabels />
             </View>
 
-            {/* Load Comparison */}
+            {/* Statistical Comparison — pick the dimension, then the two sides */}
             <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
-              <Text style={[s.cardTitle, { color: colors.tx, marginBottom: 14 }]}>Load Comparison</Text>
-              {cmp.insufficient ? (
+              <Text style={[s.cardTitle, { color: colors.tx, marginBottom: 12 }]}>Statistical Comparison</Text>
+
+              <View style={[s.segmented, { backgroundColor: colors.inset }]}>
+                {[['loads', 'Loads'], ['rifles', 'Rifles'], ['sessions', 'Sessions']].map(([key, label]) => (
+                  <TouchableOpacity
+                    key={key}
+                    onPress={() => pickDim(key)}
+                    style={[s.seg, cmpDim === key && { backgroundColor: colors.card }]}
+                  >
+                    <Text style={[s.segText, { color: cmpDim === key ? colors.tx : colors.mut }]}>{label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {buckets.length < 2 ? (
                 <View style={[s.tTestResult, { backgroundColor: colors.inset }]}>
                   <Info size={18} color={colors.mut} style={{ marginTop: 1 }} />
                   <Text style={[s.tTestText, { color: colors.mut }]}>
-                    Not enough data to compare. Need {cmp.needed.toLowerCase()}.
+                    Only {buckets.length} {cmpDim.slice(0, -1)}{buckets.length === 1 ? '' : 's'} with recorded groups — need two to compare.
                   </Text>
                 </View>
               ) : (
                 <>
-                  <View style={s.compareRow}>
-                    <View style={[s.compareBox, { backgroundColor: colors.inset }]}>
-                      <Text style={[s.compareName, { color: colors.mut }]} numberOfLines={2}>{cmp.a.name}</Text>
-                      <Text style={[s.compareVal, { color: colors.tx }]}>{cmp.a.mean.toFixed(2)}"</Text>
-                      <Text style={[s.compareN, { color: colors.fnt }]}>n={cmp.a.n}</Text>
+                  {[['A', aKey, setCmpA, bKey], ['B', bKey, setCmpB, aKey]].map(([side, sel, setSel, other]) => (
+                    <View key={side} style={s.pickRow}>
+                      <Text style={[s.pickLabel, { color: colors.mut }]}>{side}</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                        {buckets.map(b => {
+                          const active = b.key === sel;
+                          const disabled = b.key === other;
+                          return (
+                            <TouchableOpacity
+                              key={b.key}
+                              disabled={disabled}
+                              onPress={() => setSel(b.key)}
+                              style={[s.pickChip, {
+                                backgroundColor: active ? colors.act : colors.inset,
+                                borderColor: active ? colors.act : colors.ibd,
+                                opacity: disabled ? 0.35 : 1,
+                              }]}
+                            >
+                              <Text style={[s.pickChipText, { color: active ? '#fff' : colors.tx }]} numberOfLines={1}>
+                                {b.label} ({b.n})
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
                     </View>
-                    <Text style={[s.vs, { color: colors.fnt }]}>vs</Text>
-                    <View style={[s.compareBox, { backgroundColor: colors.oks, borderColor: colors.okbd, borderWidth: 1 }]}>
-                      <Text style={[s.compareName, { color: colors.okt, fontWeight: '700' }]} numberOfLines={2}>{cmp.b.name}</Text>
-                      <Text style={[s.compareVal, { color: colors.okt }]}>{cmp.b.mean.toFixed(2)}"</Text>
-                      <Text style={[s.compareN, { color: colors.okt }]}>n={cmp.b.n}</Text>
+                  ))}
+
+                  {result.error ? (
+                    <View style={[s.tTestResult, { backgroundColor: colors.inset }]}>
+                      <Info size={18} color={colors.mut} style={{ marginTop: 1 }} />
+                      <Text style={[s.tTestText, { color: colors.mut }]}>{result.error}</Text>
                     </View>
-                  </View>
-                  <View style={[s.tTestResult, { backgroundColor: cmp.test?.significant ? colors.acs : colors.inset }]}>
-                    {cmp.test?.significant
-                      ? <CircleCheck size={18} color={colors.act} style={{ marginTop: 1 }} />
-                      : <Info size={18} color={colors.mut} style={{ marginTop: 1 }} />}
-                    <Text style={[s.tTestText, { color: cmp.test?.significant ? colors.act : colors.mut }]}>
-                      {!cmp.test
-                        ? 'Groups are identical — no test possible.'
-                        : cmp.test.significant
-                          ? `${cmp.b.name} is significantly tighter — t=${Math.abs(cmp.test.t)}, df=${cmp.test.df}, p<0.05`
-                          : `No significant difference — t=${Math.abs(cmp.test.t)}, df=${cmp.test.df}. Shoot more groups to tell them apart.`}
-                    </Text>
-                  </View>
+                  ) : (
+                    <>
+                      <View style={s.compareRow}>
+                        <View style={[s.compareBox, { backgroundColor: colors.inset }]}>
+                          <Text style={[s.compareName, { color: colors.mut }]} numberOfLines={2}>{result.a.label}</Text>
+                          <Text style={[s.compareVal, { color: colors.tx }]}>{result.a.mean.toFixed(2)}"</Text>
+                          <Text style={[s.compareN, { color: colors.fnt }]}>n={result.a.n} · SD {result.a.sd.toFixed(2)}</Text>
+                        </View>
+                        <Text style={[s.vs, { color: colors.fnt }]}>vs</Text>
+                        <View style={[s.compareBox, { backgroundColor: colors.oks, borderColor: colors.okbd, borderWidth: 1 }]}>
+                          <Text style={[s.compareName, { color: colors.okt, fontWeight: '700' }]} numberOfLines={2}>{result.b.label}</Text>
+                          <Text style={[s.compareVal, { color: colors.okt }]}>{result.b.mean.toFixed(2)}"</Text>
+                          <Text style={[s.compareN, { color: colors.okt }]}>n={result.b.n} · SD {result.b.sd.toFixed(2)}</Text>
+                        </View>
+                      </View>
+                      <View style={[s.tTestResult, { backgroundColor: result.test?.significant ? colors.acs : colors.inset }]}>
+                        {result.test?.significant
+                          ? <CircleCheck size={18} color={colors.act} style={{ marginTop: 1 }} />
+                          : <Info size={18} color={colors.mut} style={{ marginTop: 1 }} />}
+                        <Text style={[s.tTestText, { color: result.test?.significant ? colors.act : colors.mut }]}>
+                          {result.verdict}
+                        </Text>
+                      </View>
+                    </>
+                  )}
                 </>
               )}
             </View>
@@ -242,7 +308,14 @@ const s = StyleSheet.create({
   trendFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, marginHorizontal: 4, marginLeft: 34 },
   trendLabel: { fontSize: 11, fontWeight: '600' },
   distSub: { fontSize: 12, fontWeight: '500', lineHeight: 18 },
-  compareRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  segmented: { flexDirection: 'row', gap: 4, borderRadius: 11, padding: 4, marginBottom: 12 },
+  seg: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8 },
+  segText: { fontSize: 13, fontWeight: '700' },
+  pickRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  pickLabel: { width: 14, fontSize: 12, fontWeight: '800' },
+  pickChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, maxWidth: 190 },
+  pickChipText: { fontSize: 12.5, fontWeight: '600' },
+  compareRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   compareBox: { flex: 1, alignItems: 'center', padding: 12, borderRadius: 12 },
   compareName: { fontSize: 12, fontWeight: '600', textAlign: 'center' },
   compareVal: { fontSize: 19, fontWeight: '700', marginTop: 6, fontFamily: 'JetBrainsMono_700Bold' },
