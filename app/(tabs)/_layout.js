@@ -116,6 +116,7 @@ export default function TabLayout() {
         <Tabs.Screen name="reloading" options={{ href: null }} />
         <Tabs.Screen name="equipment" options={{ href: null }} />
         <Tabs.Screen name="settings" options={{ href: null }} />
+        <Tabs.Screen name="dopecards" options={{ href: null }} />
       </Tabs>
       <MoreSheet visible={moreOpen} onClose={() => setMoreOpen(false)} />
     </>

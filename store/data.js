@@ -82,6 +82,7 @@ export function DataProvider({ children }) {
   const [loads, setLoads] = useState(SEED_LOADS);
   const [sessions, setSessions] = useState(SEED_SESSIONS);
   const [projects, setProjects] = useState(SEED_PROJECTS);
+  const [dopeCards, setDopeCards] = useState([]);
   const [ready, setReady] = useState(false);
 
   // Hydrate from local storage on boot. If storage is unavailable we keep the
@@ -96,6 +97,7 @@ export function DataProvider({ children }) {
         setSessions(data.sessions);
         // Storage predating load-dev has no projects key; fall back to seed.
         setProjects(data.projects?.length ? data.projects : SEED_PROJECTS);
+        setDopeCards(data.dopeCards || []);
       }
       if (!cancelled) setReady(true);
     })();
@@ -197,6 +199,20 @@ export function DataProvider({ children }) {
     persist(() => db.removeProject(id));
   }, []);
 
+  const getDopeCard = useCallback((id) => dopeCards.find(c => c.id === id), [dopeCards]);
+
+  const addDopeCard = useCallback((card) => {
+    const row = { ...card, id: 'd' + Date.now(), createdAt: new Date().toISOString() };
+    setDopeCards(prev => [row, ...prev]);
+    persist(() => db.putDopeCard(row));
+    return row;
+  }, []);
+
+  const deleteDopeCard = useCallback((id) => {
+    setDopeCards(prev => prev.filter(c => c.id !== id));
+    persist(() => db.removeDopeCard(id));
+  }, []);
+
   /**
    * CSV for every session, or just the ones whose ids are passed.
    * Values are quoted and embedded quotes doubled per RFC 4180 — a session
@@ -217,15 +233,16 @@ export function DataProvider({ children }) {
   }, [sessions, rifles, loads]);
 
   const value = useMemo(() => ({
-    rifles, loads, sessions, projects, ready,
+    rifles, loads, sessions, projects, dopeCards, ready,
     getRifle, getLoad, getSession, getRifleName,
     addSession, updateSession, addRifle, addLoad,
     updateRifle, deleteRifle,
     updateLoad, deleteLoad,
     deleteSession,
     getProject, addProject, updateProject, deleteProject,
+    getDopeCard, addDopeCard, deleteDopeCard,
     exportSessionsCSV,
-  }), [rifles, loads, sessions, projects, ready, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, exportSessionsCSV]);
+  }), [rifles, loads, sessions, projects, dopeCards, ready, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, getDopeCard, addDopeCard, deleteDopeCard, exportSessionsCSV]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, TextInput, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Crosshair, Thermometer, Gauge, Wind, ArrowLeft, ChevronDown, Mountain, Droplets, Compass, Target, Plus, Trash2, TriangleAlert, Check } from 'lucide-react-native';
+import { Crosshair, Thermometer, Gauge, Wind, ArrowLeft, ChevronDown, Mountain, Droplets, Compass, Target, Plus, Trash2, TriangleAlert, Check, BookOpen } from 'lucide-react-native';
 import { useState, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
@@ -44,7 +44,7 @@ function Segmented({ options, value, onChange, colors }) {
 export default function BallisticsScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { loads, rifles } = useData();
+  const { loads, rifles, addDopeCard } = useData();
 
   const [loadIdx, setLoadIdx] = useState(0);
   const [picking, setPicking] = useState(false);
@@ -99,6 +99,22 @@ export default function BallisticsScreen() {
     const r = trueBC(opts, observations);
     setTruedResult(r);
     if (r) setBc(String(r.bc));
+  };
+
+  const [justSaved, setJustSaved] = useState(false);
+  const saveCard = () => {
+    // Freeze the rows as solved, not the inputs — a saved card is the answer
+    // you confirmed, and re-solving it later under different defaults would
+    // quietly change the numbers you are dialling at the range.
+    addDopeCard({
+      name: `${load?.name || 'Custom'} · ${opts.zeroYd}yd · ${opts.tempF}°F`,
+      loadId: load?.id ?? null,
+      rifleId: rifle?.id ?? null,
+      opts,
+      rows: card.rows,
+    });
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2000);
   };
 
   return (
@@ -203,10 +219,16 @@ export default function BallisticsScreen() {
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
           <View style={s.cardHead}>
             <Text style={[s.cardTitle, { color: colors.tx }]}>Dope Card</Text>
-            <Text style={[s.cardSub, { color: colors.fnt }]}>
-              {opts.zeroYd}yd zero · {unitLabel}
-            </Text>
+            <TouchableOpacity onPress={saveCard} style={[s.saveCardBtn, { backgroundColor: colors.acs }]}>
+              <BookOpen size={14} color={colors.act} />
+              <Text style={[s.saveCardText, { color: colors.act }]}>
+                {justSaved ? 'Saved' : 'Save card'}
+              </Text>
+            </TouchableOpacity>
           </View>
+          <Text style={[s.cardSub, { color: colors.fnt, marginBottom: 10 }]}>
+            {opts.zeroYd}yd zero · {unitLabel} · {opts.tempF}°F
+          </Text>
 
           <View style={s.tableHead}>
             <Text style={[s.th, { color: colors.fnt, flex: 1.1 }]}>RANGE</Text>
@@ -364,6 +386,8 @@ const s = StyleSheet.create({
   cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   cardTitle: { fontSize: 15, fontWeight: '800' },
   cardSub: { fontSize: 11, fontWeight: '600' },
+  saveCardBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 999 },
+  saveCardText: { fontSize: 12, fontWeight: '700' },
   cardBody: { fontSize: 12.5, fontWeight: '500', lineHeight: 18, marginBottom: 12 },
   tableHead: { flexDirection: 'row', paddingBottom: 6, paddingHorizontal: 8 },
   th: { flex: 1, fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },

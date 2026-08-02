@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Target, TrendingUp, Crosshair, Camera, Wind, FlaskConical } from 'lucide-react-native';
+import { Target, TrendingUp, Crosshair, Camera, Wind, FlaskConical, BookOpen } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
@@ -8,7 +8,7 @@ import { LinearGradient } from '../../components/Gradient';
 
 export default function HomeScreen() {
   const { colors } = useTheme();
-  const { sessions, rifles, projects, getRifleName } = useData();
+  const { sessions, rifles, projects, dopeCards, getRifleName } = useData();
   const router = useRouter();
 
   const recent = sessions.slice(0, 3);
@@ -74,6 +74,14 @@ export default function HomeScreen() {
             <Crosshair size={20} color="#D97706" />
             <Text style={[s.statVal, { color: colors.tx }]}>{rifles.length}</Text>
             <Text style={[s.statLabel, { color: colors.mut }]}>Rifles</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push('/dopecards')}
+            style={[s.statTile, { backgroundColor: colors.card, borderColor: colors.bd }]}
+          >
+            <BookOpen size={20} color="#0EA5E9" />
+            <Text style={[s.statVal, { color: colors.tx }]}>{dopeCards.length}</Text>
+            <Text style={[s.statLabel, { color: colors.mut }]}>Dope Cards</Text>
           </TouchableOpacity>
         </View>
 
@@ -151,8 +159,9 @@ const s = StyleSheet.create({
   heroTitle: { fontSize: 22, fontWeight: '800', color: '#fff', lineHeight: 28, maxWidth: 220, marginTop: 8, marginBottom: 16 },
   heroBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', paddingVertical: 12, paddingHorizontal: 18, borderRadius: 12, alignSelf: 'flex-start' },
   heroBtnText: { fontSize: 14, fontWeight: '700', color: '#5A2FD0' },
-  statsRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
-  statTile: { flex: 1, borderWidth: 1, borderRadius: 16, padding: 14, paddingHorizontal: 12 },
+  // Four tiles are too narrow for one phone row, so they wrap to a 2x2 grid.
+  statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 },
+  statTile: { flexGrow: 1, flexBasis: '46%', borderWidth: 1, borderRadius: 16, padding: 14, paddingHorizontal: 12 },
   statVal: { fontSize: 22, fontWeight: '700', marginTop: 10, fontFamily: 'JetBrainsMono_700Bold' },
   statLabel: { fontSize: 11, fontWeight: '600', marginTop: 2 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 10 },
