@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { parseRungs, findNode, bestGroup } from '../../lib/loaddev';
+import ChronoImport from '../../components/ChronoImport';
 
 const STEP_META = [
   { num: 1, label: 'Goal', icon: Target, desc: 'Define your accuracy goal and hit-rate target for this load.' },
@@ -39,6 +40,7 @@ export default function ReloadingScreen() {
 
   const project = projects[0] || null;
   const [step, setStep] = useState(project?.currentStep || 6);
+  const [chronoRung, setChronoRung] = useState(null);
 
   const meta = STEP_META[step - 1];
   const StepIcon = meta.icon;
@@ -236,7 +238,7 @@ export default function ReloadingScreen() {
                 <Text style={[cs.colH, { color: colors.fnt, flex: 1 }]}>CHARGE</Text>
                 <Text style={[cs.colH, { color: colors.fnt, flex: 1, textAlign: 'center' }]}>VEL</Text>
                 <Text style={[cs.colH, { color: colors.fnt, flex: 1, textAlign: 'center' }]}>GROUP</Text>
-                <View style={{ width: 30 }} />
+                <View style={{ width: 52 }} />
               </View>
 
               {rungs.length === 0 && (
@@ -254,17 +256,35 @@ export default function ReloadingScreen() {
                         placeholder="gr" placeholderTextColor={colors.fnt}
                         keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
                     </View>
-                    <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
-                      <TextInput value={r.velocity} onChangeText={v => setRung(r.id, 'velocity', v)}
-                        placeholder="fps" placeholderTextColor={colors.fnt}
-                        keyboardType="number-pad" style={[cs.cellText, { color: colors.tx }]} />
-                    </View>
+                    {/* A rung with an imported string shows its mean and shot
+                        count and is no longer hand-editable — the string is
+                        the source of truth for both velocity and spread. */}
+                    {r.velocities?.length ? (
+                      <TouchableOpacity
+                        onPress={() => setChronoRung(r.id)}
+                        style={[cs.cell, cs.cellImported, { backgroundColor: colors.acs, borderColor: colors.act }]}
+                      >
+                        <Text style={[cs.cellText, { color: colors.act, paddingVertical: 10 }]}>
+                          {Math.round(r.velocities.reduce((a, b) => a + b, 0) / r.velocities.length)}
+                        </Text>
+                        <Text style={[cs.cellBadge, { color: colors.act }]}>×{r.velocities.length}</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                        <TextInput value={r.velocity} onChangeText={v => setRung(r.id, 'velocity', v)}
+                          placeholder="fps" placeholderTextColor={colors.fnt}
+                          keyboardType="number-pad" style={[cs.cellText, { color: colors.tx }]} />
+                      </View>
+                    )}
                     <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
                       <TextInput value={r.groupMoa} onChangeText={v => setRung(r.id, 'groupMoa', v)}
                         placeholder="MOA" placeholderTextColor={colors.fnt}
                         keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
                     </View>
-                    <TouchableOpacity onPress={() => removeRung(r.id)} style={cs.rowDel}>
+                    <TouchableOpacity onPress={() => setChronoRung(r.id)} style={cs.rowAct}>
+                      <Gauge size={15} color={r.velocities?.length ? colors.act : colors.fnt} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => removeRung(r.id)} style={cs.rowAct}>
                       <Trash2 size={15} color={colors.fnt} />
                     </TouchableOpacity>
                   </View>
@@ -313,8 +333,9 @@ export default function ReloadingScreen() {
                     </Text>
                     <Text style={[cs.resultMeta, { color: analysis.node.significant ? colors.okt : colors.warnt }]}>
                       {analysis.node.slope} fps/gr across the flat window vs {analysis.node.overallSlope} overall
-                      {analysis.velocitySd != null && ` · residual SD ${analysis.velocitySd} fps`}
-                      {analysis.sdIsWeak && ' (few rungs — treat as rough)'}
+                      {analysis.velocitySd != null && ` · noise ${analysis.velocitySd} fps (${analysis.sdSource})`}
+                      {analysis.sdIsWeak && ' — treat as rough'}
+                      {analysis.sdSource !== 'measured' && '\nImport a chrono string per rung for a measured noise figure.'}
                     </Text>
                   </View>
                 </View>
@@ -337,6 +358,12 @@ export default function ReloadingScreen() {
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      <ChronoImport
+        visible={chronoRung !== null}
+        onClose={() => setChronoRung(null)}
+        onImport={({ velocities }) => setRung(chronoRung, 'velocities', velocities)}
+      />
     </SafeAreaView>
   );
 }
@@ -357,7 +384,9 @@ const cs = StyleSheet.create({
   ladderRow: { flexDirection: 'row', gap: 8, alignItems: 'center', borderRadius: 10, paddingVertical: 3 },
   cell: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10 },
   cellText: { paddingVertical: 10, fontSize: 14, fontFamily: 'JetBrainsMono_700Bold', width: '100%' },
-  rowDel: { width: 30, alignItems: 'center', justifyContent: 'center' },
+  cellImported: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4 },
+  cellBadge: { fontSize: 10, fontWeight: '800' },
+  rowAct: { width: 26, alignItems: 'center', justifyContent: 'center' },
   addRung: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderStyle: 'dashed', borderRadius: 11, paddingVertical: 11, marginTop: 2 },
   addRungText: { fontSize: 13.5, fontWeight: '700' },
   emptyLadder: { fontSize: 12.5, fontWeight: '600', paddingVertical: 10, textAlign: 'center' },

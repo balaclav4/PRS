@@ -7,7 +7,7 @@
  *
  * Run: node scripts/test-loaddev.mjs
  */
-import { parseRungs, findNode, residualSd, bestGroup } from '../lib/loaddev.js';
+import { parseRungs, findNode, residualSd, bestGroup, pooledWithinSd } from '../lib/loaddev.js';
 
 let seed = 987654321;
 function rnd() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
@@ -114,6 +114,35 @@ const rows = (arr) => arr.map(([c, v, g], i) => ({ id: String(i), charge: String
   const sd = residualSd(parsed);
   check('residual SD reported and flagged weak when short', sd.sd != null && sd.weak === true,
     `sd=${sd.sd?.toFixed(1)} fps`);
+}
+
+
+// --- measured noise from per-rung strings ------------------------------------
+{
+  // Same ladder, but each rung carries a real chrono string. The pooled
+  // within-rung SD should be used instead of the residual-from-trend estimate.
+  const mk = (c, vs) => ({ id: 'x' + c, charge: String(c), velocity: '', groupMoa: '', velocities: vs });
+  const jitter = (base) => [base - 6, base, base + 6];
+  const ladder = [
+    mk(32.6, jitter(2830)), mk(32.8, jitter(2846)), mk(33.0, jitter(2862)),
+    mk(33.2, jitter(2878)), mk(33.4, jitter(2880)), mk(33.6, jitter(2882)),
+    mk(33.8, jitter(2898)), mk(34.0, jitter(2914)),
+  ];
+  const parsed = parseRungs(ladder);
+  check('velocity comes from the string mean', parsed[0].velocity === 2830, String(parsed[0].velocity));
+
+  const pooled = pooledWithinSd(parsed);
+  // SD of [-6, 0, +6] is 6 exactly.
+  check('pooled within-rung SD is measured', Math.abs(pooled.sd - 6) < 1e-9, `${pooled.sd.toFixed(2)} fps`);
+
+  const r = findNode(parsed);
+  check('node uses measured noise', r.sdSource === 'measured', r.sdSource);
+  check('shots per rung derived from data', r.shotsPerRung === 3, String(r.shotsPerRung));
+  check('verdict names measured noise', /measured noise/.test(r.verdict) || !r.node.significant);
+
+  // Without strings the same ladder falls back.
+  const bare = parseRungs(ladder.map(x => ({ ...x, velocities: [], velocity: String(x.velocities[1]) })));
+  check('falls back to residual without strings', findNode(bare).sdSource === 'residual');
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));
