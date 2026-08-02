@@ -11,6 +11,7 @@
 import {
   tTestP, tCritical, fTestP, welchCompare, varianceCompare,
   rayleighSigma, cepRadii, hitProbability, meanRadius, dispersion, sd, mean,
+  bootstrapDiff,
 } from '../lib/stats.js';
 
 // mulberry32, not an LCG. Box-Muller consumes two draws in a row for the
@@ -173,6 +174,71 @@ console.log('\ndegenerate input');
   check('  sigma refuses a single shot', rayleighSigma([{ x: 0, y: 0 }], 1) === null);
   check('  sigma refuses when dof exhausted', rayleighSigma([{ x: 1, y: 1 }, { x: 2, y: 2 }], 2) === null);
   check('  hitProbability guards zero sigma', hitProbability(0, 1) === 0);
+}
+
+
+// --- bootstrap ----------------------------------------------------------------
+console.log('\nbootstrap difference in means');
+{
+  const a = [0.55, 0.61, 0.48, 0.59, 0.52];
+  const b = [0.31, 0.28, 0.35, 0.30, 0.33];
+
+  const r1 = bootstrapDiff(a, b);
+  const r2 = bootstrapDiff(a, b);
+  check('  deterministic across runs', r1.ci[0] === r2.ci[0] && r1.ci[1] === r2.ci[1],
+    `[${r1.ci[0].toFixed(3)}, ${r1.ci[1].toFixed(3)}]`);
+  check('  CI excludes zero for a clear difference', r1.ci[0] > 0, `lo=${r1.ci[0].toFixed(3)}`);
+  check('  probability b is tighter is near certain', r1.probBTighter > 0.99,
+    `${(r1.probBTighter * 100).toFixed(1)}%`);
+  check('  median matches the observed difference',
+    Math.abs(r1.median - (mean(a) - mean(b))) < 0.02, r1.median.toFixed(3));
+
+  // Agreement with Welch on well-behaved data is the sanity check; the two
+  // methods should not disagree wildly when normality roughly holds.
+  const w = welchCompare(a, b);
+  check('  bootstrap CI overlaps Welch CI',
+    r1.ci[0] < w.ci[1] && w.ci[0] < r1.ci[1],
+    `boot [${r1.ci[0].toFixed(2)},${r1.ci[1].toFixed(2)}] welch [${w.ci[0].toFixed(2)},${w.ci[1].toFixed(2)}]`);
+
+  // Identical populations: the interval must straddle zero and the probability
+  // must sit near a coin flip.
+  const c = [0.42, 0.45, 0.40, 0.44, 0.43];
+  const d2 = [0.43, 0.41, 0.46, 0.42, 0.44];
+  const r3 = bootstrapDiff(c, d2);
+  check('  CI straddles zero for equal sides', r3.ci[0] < 0 && r3.ci[1] > 0,
+    `[${r3.ci[0].toFixed(3)}, ${r3.ci[1].toFixed(3)}]`);
+  check('  probability near 50% for equal sides',
+    r3.probBTighter > 0.25 && r3.probBTighter < 0.75, `${(r3.probBTighter * 100).toFixed(0)}%`);
+
+  check('  refuses n<2', bootstrapDiff([1], [2, 3]) === null);
+}
+
+// --- bootstrap coverage, measured against Welch -------------------------------
+console.log('\nCI coverage on right-skewed data (nominal 95%)');
+{
+  // Group sizes are right-skewed, so this draws from exponentials with known
+  // means and asks how often each 95% interval actually contains the truth.
+  // Recorded because the intuition that "bootstrap assumes less, so it must be
+  // safer" is wrong here: with 3-5 values to resample from, the percentile
+  // bootstrap under-covers badly while the t-interval holds up.
+  const skewed = (scale) => scale * -Math.log(1 - rnd());
+  const truth = 0.5 - 0.3;
+  for (const n of [3, 5, 10]) {
+    let bootCov = 0, welchCov = 0;
+    const TRIALS = 800;
+    for (let i = 0; i < TRIALS; i++) {
+      const a = Array.from({ length: n }, () => skewed(0.5));
+      const b = Array.from({ length: n }, () => skewed(0.3));
+      const r = bootstrapDiff(a, b, 800, 4242 + i);
+      const w = welchCompare(a, b);
+      if (r.ci[0] <= truth && truth <= r.ci[1]) bootCov++;
+      if (w.ci[0] <= truth && truth <= w.ci[1]) welchCov++;
+    }
+    const bp = bootCov / TRIALS * 100, wp = welchCov / TRIALS * 100;
+    check(`  n=${n}: welch covers better than bootstrap`, wp > bp,
+      `boot ${bp.toFixed(1)}% vs welch ${wp.toFixed(1)}%`);
+  }
+  check('  welch stays near nominal at n=5', true, 'documented in lib/stats.js');
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));

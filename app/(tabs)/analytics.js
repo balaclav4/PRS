@@ -327,6 +327,19 @@ export default function AnalyticsScreen() {
                         </Text>
                       </View>
 
+                      {result.boot && (
+                        <View style={[s.confRow, { borderColor: colors.line }]}>
+                          <Text style={[s.confLabel, { color: colors.mut }]}>
+                            Chance {result.b.label} is genuinely tighter
+                          </Text>
+                          <Text style={[s.confVal, {
+                            color: result.boot.probBTighter >= 0.9 ? colors.okt : colors.tx,
+                          }]}>
+                            {(result.boot.probBTighter * 100).toFixed(0)}%
+                          </Text>
+                        </View>
+                      )}
+
                       {result.welch && (
                         <Text style={[s.fineprint, { color: colors.fnt }]}>
                           Welch t={result.welch.t}, df={result.welch.df}, p={fmtP(result.welch.p)} · Cohen d={result.welch.cohenD}
@@ -394,6 +407,9 @@ const s = StyleSheet.create({
   plateInput: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, width: 108 },
   plateInputText: { flex: 1, paddingVertical: 9, fontSize: 14, fontFamily: 'JetBrainsMono_700Bold' },
   plateUnit: { fontSize: 11, fontWeight: '700' },
+  confRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 11, padding: 12, marginTop: 10 },
+  confLabel: { flex: 1, fontSize: 12, fontWeight: '600' },
+  confVal: { fontSize: 18, fontWeight: '800', fontFamily: 'JetBrainsMono_700Bold' },
   fineprint: { fontSize: 10.5, fontWeight: '600', lineHeight: 15, marginTop: 10, marginHorizontal: 2 },
   compareRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   compareBox: { flex: 1, alignItems: 'center', padding: 12, borderRadius: 12 },
