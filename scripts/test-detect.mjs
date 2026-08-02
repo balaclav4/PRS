@@ -151,6 +151,45 @@ for (const sc of scenarios) {
   );
 }
 
+
+// --- merged holes -------------------------------------------------------------
+// The case every published target-scoring approach names as unsolved: bullets
+// landing close enough that the torn paper is one region. Knowing the expected
+// radius makes an over-large region unambiguous evidence of a merge, and the
+// distance transform's peaks are the individual centres.
+console.log('\nmerged (overlapping) holes');
+{
+  const scenarios = [
+    ['two holes 1.2r apart', [{ x: 200, y: 250 }, { x: 200 + 1.2 * R, y: 250 }], 2],
+    ['two holes 1.5r apart', [{ x: 200, y: 250 }, { x: 200 + 1.5 * R, y: 250 }], 2],
+    ['three in a row 1.3r apart',
+      [{ x: 190, y: 250 }, { x: 190 + 1.3 * R, y: 250 }, { x: 190 + 2.6 * R, y: 250 }], 3],
+    ['single hole is not split', [{ x: 200, y: 250 }], 1],
+  ];
+
+  for (const [name, holes, want] of scenarios) {
+    const img = makeTarget({ w: W, h: H, holes, r: R, noise: 4 });
+    const { shots } = detectShots(img, W, H, { radiusPx: R });
+    const m = score(holes, shots, R * 1.6);
+    const ok = shots.length === want && m.recall >= 0.99;
+    if (!ok) failures++;
+    console.log((ok ? '✓ ' : '✗ ') + name.padEnd(36) +
+      `found ${shots.length}/${want}, recall ${m.recall.toFixed(2)}, err ${isNaN(m.meanErr) ? '—' : m.meanErr.toFixed(2)}px`);
+  }
+
+  // Splitting must not manufacture holes out of a shape that is merely large.
+  // A long printed bar is over-size but has no interior disc of hole radius.
+  const bar = new Float32Array(W * H).fill(232);
+  for (let y = 245; y < 245 + Math.round(R * 0.7); y++) {
+    for (let x = 150; x < 300; x++) bar[y * W + x] = 30;
+  }
+  const barShots = detectShots(bar, W, H, { radiusPx: R }).shots;
+  const barOk = barShots.length === 0;
+  if (!barOk) failures++;
+  console.log((barOk ? '✓ ' : '✗ ') + 'thin bar is not split into holes'.padEnd(36) +
+    `${barShots.length} detections`);
+}
+
 console.log('─'.repeat(78));
 
 // How wrong can the radius prior be before detection degrades? The user's scale
