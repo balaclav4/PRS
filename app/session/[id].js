@@ -1,17 +1,20 @@
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Download } from 'lucide-react-native';
+import { ArrowLeft, Download, Gauge } from 'lucide-react-native';
+import { useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { saveCSV, slugify } from '../../lib/export';
 import TargetPlot from '../../components/TargetPlot';
+import ChronoImport from '../../components/ChronoImport';
 
 export default function SessionDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const { colors } = useTheme();
-  const { getSession, getRifleName, exportSessionsCSV } = useData();
+  const { getSession, getRifleName, exportSessionsCSV, updateSession } = useData();
+  const [importing, setImporting] = useState(false);
 
   const sess = getSession(id);
   if (!sess) return null;
@@ -75,6 +78,27 @@ export default function SessionDetailScreen() {
           </View>
         </View>
 
+        {sess.velocities?.length > 0 && (
+          <View style={[s.chronoCard, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+            <Text style={[s.chronoLabel, { color: colors.mut }]}>
+              CHRONO · {sess.velocities.length} SHOTS · ES {sess.velocityEs ?? '—'} fps
+            </Text>
+            <Text style={[s.chronoList, { color: colors.tx }]} numberOfLines={3}>
+              {sess.velocities.join(', ')}
+            </Text>
+          </View>
+        )}
+
+        <TouchableOpacity
+          onPress={() => setImporting(true)}
+          style={[s.chronoBtn, { backgroundColor: colors.acs }]}
+        >
+          <Gauge size={17} color={colors.act} />
+          <Text style={[s.chronoBtnText, { color: colors.act }]}>
+            {sess.velocities?.length ? 'Replace chrono data' : 'Import chrono string'}
+          </Text>
+        </TouchableOpacity>
+
         <Text style={[s.targetsTitle, { color: colors.tx }]}>Targets ({sess.targetCount})</Text>
         <View style={s.targetsList}>
           {sess.targets.map((t, i) => {
@@ -91,6 +115,17 @@ export default function SessionDetailScreen() {
           })}
         </View>
       </ScrollView>
+
+      <ChronoImport
+        visible={importing}
+        onClose={() => setImporting(false)}
+        onImport={({ velocities, stats }) => updateSession(sess.id, {
+          velocities,
+          mv: stats.mean,
+          sd: stats.sd ?? 0,
+          velocityEs: stats.es,
+        })}
+      />
     </SafeAreaView>
   );
 }
@@ -114,6 +149,11 @@ const s = StyleSheet.create({
   velTile: { flex: 1, borderWidth: 1, borderRadius: 14, padding: 15 },
   velLabel: { fontSize: 11, fontWeight: '700' },
   velVal: { fontSize: 19, fontWeight: '700', marginTop: 5, fontFamily: 'JetBrainsMono_700Bold' },
+  chronoCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 10 },
+  chronoLabel: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.4 },
+  chronoList: { fontSize: 12.5, fontWeight: '600', lineHeight: 18, marginTop: 6, fontFamily: 'JetBrainsMono_500Medium' },
+  chronoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 13, padding: 13, marginTop: 10 },
+  chronoBtnText: { fontSize: 14, fontWeight: '700' },
   targetsTitle: { fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 22, marginBottom: 10 },
   targetsList: { gap: 10 },
   targetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 14, paddingVertical: 13, paddingHorizontal: 15 },
