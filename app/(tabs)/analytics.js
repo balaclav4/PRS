@@ -1,14 +1,30 @@
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, TextInput, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Download, TrendingDown, TrendingUp, CircleCheck, Info, ChartColumn } from 'lucide-react-native';
+import { Download, TrendingDown, TrendingUp, CircleCheck, Info, ChartColumn, ChevronDown } from 'lucide-react-native';
 import Svg, { Line, Path, Circle, Text as SvgText } from 'react-native-svg';
 import { useState, useMemo } from 'react';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
-import { deriveAnalytics, comparisonBuckets, compareBuckets } from '../../lib/analytics';
+import { deriveAnalytics, comparisonBuckets, compareBuckets, fmtP } from '../../lib/analytics';
 import { saveCSV } from '../../lib/export';
 import FilterChips from '../../components/FilterChips';
 import TargetPlot from '../../components/TargetPlot';
+import PickerSheet from '../../components/PickerSheet';
+
+const fmtMoa = (v) => (v == null ? '—' : v.toFixed(2) + ' MOA');
+
+/**
+ * Hit probability saturates near 100% for tight groups on a generous target,
+ * where a flat "100%" hides which side is actually better. Add decimals as it
+ * approaches the ceiling rather than rounding the difference away.
+ */
+const fmtPct = (v) => {
+  if (v == null) return '—';
+  if (v >= 99.995) return '>99.99%';
+  if (v >= 99.9) return v.toFixed(3) + '%';
+  if (v >= 99) return v.toFixed(2) + '%';
+  return v.toFixed(1) + '%';
+};
 
 // Trend y-axis: keep the spec's 0.2–0.8 window unless real data runs outside it.
 function trendDomain(trend) {
@@ -45,6 +61,8 @@ export default function AnalyticsScreen() {
   const [cmpDim, setCmpDim] = useState('loads');
   const [cmpA, setCmpA] = useState(null);
   const [cmpB, setCmpB] = useState(null);
+  const [picking, setPicking] = useState(null); // 'A' | 'B' | null
+  const [plateMoa, setPlateMoa] = useState('2');
 
   const buckets = useMemo(
     () => comparisonBuckets(sessions, rifles, loads, cmpDim),
@@ -54,12 +72,22 @@ export default function AnalyticsScreen() {
   // Default to the two best-sampled options whenever the dimension changes.
   const aKey = cmpA ?? buckets[0]?.key ?? null;
   const bKey = cmpB ?? buckets.find(x => x.key !== aKey)?.key ?? null;
+  const plate = parseFloat(plateMoa) || 2;
   const result = useMemo(
-    () => compareBuckets(buckets.find(x => x.key === aKey), buckets.find(x => x.key === bKey)),
-    [buckets, aKey, bKey]
+    () => compareBuckets(
+      buckets.find(x => x.key === aKey),
+      buckets.find(x => x.key === bKey),
+      plate
+    ),
+    [buckets, aKey, bKey, plate]
   );
 
   const pickDim = (d) => { setCmpDim(d); setCmpA(null); setCmpB(null); };
+  const pickerOptions = buckets.map(b => ({
+    key: b.key, label: b.label, sub: b.sub,
+    meta: `${b.n} group${b.n === 1 ? '' : 's'}`,
+  }));
+  const labelOf = (k) => buckets.find(x => x.key === k)?.label || 'Select';
 
   const trend = data.trend;
   const { lo: vLo, hi: vHi } = trendDomain(trend);
@@ -221,32 +249,16 @@ export default function AnalyticsScreen() {
                 </View>
               ) : (
                 <>
-                  {[['A', aKey, setCmpA, bKey], ['B', bKey, setCmpB, aKey]].map(([side, sel, setSel, other]) => (
-                    <View key={side} style={s.pickRow}>
+                  {[['A', aKey], ['B', bKey]].map(([side, sel]) => (
+                    <TouchableOpacity
+                      key={side}
+                      onPress={() => setPicking(side)}
+                      style={[s.pickBtn, { backgroundColor: colors.input, borderColor: colors.ibd }]}
+                    >
                       <Text style={[s.pickLabel, { color: colors.mut }]}>{side}</Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                        {buckets.map(b => {
-                          const active = b.key === sel;
-                          const disabled = b.key === other;
-                          return (
-                            <TouchableOpacity
-                              key={b.key}
-                              disabled={disabled}
-                              onPress={() => setSel(b.key)}
-                              style={[s.pickChip, {
-                                backgroundColor: active ? colors.act : colors.inset,
-                                borderColor: active ? colors.act : colors.ibd,
-                                opacity: disabled ? 0.35 : 1,
-                              }]}
-                            >
-                              <Text style={[s.pickChipText, { color: active ? '#fff' : colors.tx }]} numberOfLines={1}>
-                                {b.label} ({b.n})
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </ScrollView>
-                    </View>
+                      <Text style={[s.pickValue, { color: colors.tx }]} numberOfLines={1}>{labelOf(sel)}</Text>
+                      <ChevronDown size={17} color={colors.fnt} />
+                    </TouchableOpacity>
                   ))}
 
                   {result.error ? (
@@ -256,27 +268,72 @@ export default function AnalyticsScreen() {
                     </View>
                   ) : (
                     <>
-                      <View style={s.compareRow}>
-                        <View style={[s.compareBox, { backgroundColor: colors.inset }]}>
-                          <Text style={[s.compareName, { color: colors.mut }]} numberOfLines={2}>{result.a.label}</Text>
-                          <Text style={[s.compareVal, { color: colors.tx }]}>{result.a.mean.toFixed(2)}"</Text>
-                          <Text style={[s.compareN, { color: colors.fnt }]}>n={result.a.n} · SD {result.a.sd.toFixed(2)}</Text>
-                        </View>
-                        <Text style={[s.vs, { color: colors.fnt }]}>vs</Text>
-                        <View style={[s.compareBox, { backgroundColor: colors.oks, borderColor: colors.okbd, borderWidth: 1 }]}>
-                          <Text style={[s.compareName, { color: colors.okt, fontWeight: '700' }]} numberOfLines={2}>{result.b.label}</Text>
-                          <Text style={[s.compareVal, { color: colors.okt }]}>{result.b.mean.toFixed(2)}"</Text>
-                          <Text style={[s.compareN, { color: colors.okt }]}>n={result.b.n} · SD {result.b.sd.toFixed(2)}</Text>
+                      {/* Side-by-side shot scatter — the groups behind the numbers */}
+                      <View style={s.plotRow}>
+                        {[result.a, result.b].map((sideData, i) => (
+                          <View key={i} style={[s.plotBox, {
+                            backgroundColor: i === 1 ? colors.oks : colors.inset,
+                            borderColor: i === 1 ? colors.okbd : colors.ibd,
+                          }]}>
+                            <Text style={[s.plotName, { color: i === 1 ? colors.okt : colors.mut }]} numberOfLines={1}>
+                              {sideData.label}
+                            </Text>
+                            <TargetPlot moaShots={sideData.moaOffsets} size={116} showLabels />
+                            <Text style={[s.plotMeta, { color: i === 1 ? colors.okt : colors.fnt }]}>
+                              {sideData.shots} shots · {sideData.n} groups
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+
+                      {/* Metric table: every row uses all shots, unlike extreme spread */}
+                      <View style={[s.statTable, { borderColor: colors.line }]}>
+                        {[
+                          ['Avg group (ES)', fmtMoa(result.a.mean), fmtMoa(result.b.mean)],
+                          ['Group SD', fmtMoa(result.a.sd), fmtMoa(result.b.sd)],
+                          ['Mean radius', fmtMoa(result.a.dispersion?.meanRadius), fmtMoa(result.b.dispersion?.meanRadius)],
+                          ['Sigma (dispersion)', fmtMoa(result.a.dispersion?.sigma), fmtMoa(result.b.dispersion?.sigma)],
+                          ['CEP R50', fmtMoa(result.a.dispersion?.r50), fmtMoa(result.b.dispersion?.r50)],
+                          ['R90', fmtMoa(result.a.dispersion?.r90), fmtMoa(result.b.dispersion?.r90)],
+                          [`P(hit) ${plate} MOA`, fmtPct(result.a.hitPct), fmtPct(result.b.hitPct)],
+                        ].map(([label, av, bv], i) => (
+                          <View key={i} style={[s.statRow, i > 0 && { borderTopWidth: 1, borderTopColor: colors.line }]}>
+                            <Text style={[s.statLabel, { color: colors.mut }]}>{label}</Text>
+                            <Text style={[s.statCell, { color: colors.tx }]}>{av}</Text>
+                            <Text style={[s.statCell, { color: colors.okt, fontWeight: '800' }]}>{bv}</Text>
+                          </View>
+                        ))}
+                      </View>
+
+                      <View style={s.plateRow}>
+                        <Text style={[s.plateLabel, { color: colors.mut }]}>Target size for P(hit)</Text>
+                        <View style={[s.plateInput, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                          <TextInput
+                            value={plateMoa}
+                            onChangeText={setPlateMoa}
+                            keyboardType="decimal-pad"
+                            style={[s.plateInputText, { color: colors.tx }]}
+                          />
+                          <Text style={[s.plateUnit, { color: colors.fnt }]}>MOA</Text>
                         </View>
                       </View>
-                      <View style={[s.tTestResult, { backgroundColor: result.test?.significant ? colors.acs : colors.inset }]}>
-                        {result.test?.significant
+
+                      <View style={[s.tTestResult, { backgroundColor: result.welch?.significant ? colors.acs : colors.inset }]}>
+                        {result.welch?.significant
                           ? <CircleCheck size={18} color={colors.act} style={{ marginTop: 1 }} />
                           : <Info size={18} color={colors.mut} style={{ marginTop: 1 }} />}
-                        <Text style={[s.tTestText, { color: result.test?.significant ? colors.act : colors.mut }]}>
+                        <Text style={[s.tTestText, { color: result.welch?.significant ? colors.act : colors.mut }]}>
                           {result.verdict}
                         </Text>
                       </View>
+
+                      {result.welch && (
+                        <Text style={[s.fineprint, { color: colors.fnt }]}>
+                          Welch t={result.welch.t}, df={result.welch.df}, p={fmtP(result.welch.p)} · Cohen d={result.welch.cohenD}
+                          {result.variance && ` · consistency F=${result.variance.f}, p=${fmtP(result.variance.p)}${result.variance.significant ? ' (differs)' : ''}`}
+                          {'\n'}Group test uses {result.a.n}+{result.b.n} groups; dispersion uses {result.a.shots}+{result.b.shots} shots.
+                        </Text>
+                      )}
                     </>
                   )}
                 </>
@@ -285,6 +342,16 @@ export default function AnalyticsScreen() {
           </>
         )}
       </ScrollView>
+
+      <PickerSheet
+        visible={picking !== null}
+        title={`Compare ${picking === 'B' ? 'B' : 'A'} — pick a ${cmpDim.slice(0, -1)}`}
+        options={pickerOptions}
+        selectedKey={picking === 'B' ? bKey : aKey}
+        disabledKey={picking === 'B' ? aKey : bKey}
+        onSelect={(k) => (picking === 'B' ? setCmpB(k) : setCmpA(k))}
+        onClose={() => setPicking(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -311,10 +378,23 @@ const s = StyleSheet.create({
   segmented: { flexDirection: 'row', gap: 4, borderRadius: 11, padding: 4, marginBottom: 12 },
   seg: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8 },
   segText: { fontSize: 13, fontWeight: '700' },
-  pickRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  pickBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 12, marginBottom: 8 },
   pickLabel: { width: 14, fontSize: 12, fontWeight: '800' },
-  pickChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, maxWidth: 190 },
-  pickChipText: { fontSize: 12.5, fontWeight: '600' },
+  pickValue: { flex: 1, fontSize: 14.5, fontWeight: '700' },
+  plotRow: { flexDirection: 'row', gap: 10, marginTop: 6, marginBottom: 12 },
+  plotBox: { flex: 1, alignItems: 'center', borderWidth: 1, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 6, gap: 6 },
+  plotName: { fontSize: 12, fontWeight: '700', maxWidth: '100%' },
+  plotMeta: { fontSize: 10.5, fontWeight: '600' },
+  statTable: { borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
+  statRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 12 },
+  statLabel: { flex: 1.4, fontSize: 12, fontWeight: '600' },
+  statCell: { flex: 1, fontSize: 12.5, fontWeight: '700', textAlign: 'right', fontFamily: 'JetBrainsMono_700Bold' },
+  plateRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
+  plateLabel: { flex: 1, fontSize: 12, fontWeight: '600' },
+  plateInput: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, width: 108 },
+  plateInputText: { flex: 1, paddingVertical: 9, fontSize: 14, fontFamily: 'JetBrainsMono_700Bold' },
+  plateUnit: { fontSize: 11, fontWeight: '700' },
+  fineprint: { fontSize: 10.5, fontWeight: '600', lineHeight: 15, marginTop: 10, marginHorizontal: 2 },
   compareRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   compareBox: { flex: 1, alignItems: 'center', padding: 12, borderRadius: 12 },
   compareName: { fontSize: 12, fontWeight: '600', textAlign: 'center' },
