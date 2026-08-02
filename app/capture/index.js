@@ -1,6 +1,6 @@
-import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, useWindowDimensions, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, useWindowDimensions, Alert, Platform, PanResponder } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle } from 'lucide-react-native';
+import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react-native';
 import { useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -14,6 +14,7 @@ import { loadGrayscale, imageToNormalized, coverScale } from '../../lib/pixels';
 import { detectShots } from '../../lib/detect';
 import { bulletDiameterIn } from '../../lib/calibers';
 import { normalizePhoto } from '../../lib/photo';
+import { toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre } from '../../lib/viewport';
 
 const STEP_LABELS = ['Photo', 'Setup', 'Corners', 'Mark Shots', 'Review'];
 const IMG_ASPECT = 1.25;
@@ -50,6 +51,13 @@ export default function CaptureScreen() {
   // detection then is idempotent and needs no confirmation; any hand edit
   // clears it so the next run warns before overwriting that work.
   const detectedRef = useRef(false);
+
+  // Photo viewport. Zooming is what makes marking a tight group possible at
+  // all — at 6x a shaky 3px touch resolves to half an image pixel.
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const draggedRef = useRef(false);
+  const gestureRef = useRef({ startPan: null, startDist: null, startZoom: 1 });
 
   const refWIn = parseFloat(refW) || 0;
   const refHIn = parseFloat(refH) || 0;
@@ -158,15 +166,23 @@ export default function CaptureScreen() {
   }, [acceptPhoto]);
 
   const onTapImage = useCallback((e, mode) => {
+    // A pan gesture ends with a release over the photo, which would otherwise
+    // drop a shot wherever the drag finished.
+    if (draggedRef.current) { draggedRef.current = false; return; }
+
     const ne = e.nativeEvent || e;
     const locationX = ne.locationX ?? ne.offsetX;
     const locationY = ne.locationY ?? ne.offsetY;
     if (locationX == null || locationY == null) return;
+    // Undo zoom/pan first: the tap is in screen space, the stored point is in
+    // the unzoomed image space.
+    const img = toImage({ x: locationX, y: locationY }, zoom, pan);
+
     // Both axes divide by the same reference length. Dividing y by the box
     // height instead made the coordinate space anisotropic, so hypot() mixed
     // units and vertical distances measured 20% short.
-    const x = locationX / IMG_W;
-    const y = locationY / IMG_W;
+    const x = img.x / IMG_W;
+    const y = img.y / IMG_W;
     if (!isFinite(x) || !isFinite(y)) return;
     const pt = { x, y };
 
@@ -181,6 +197,56 @@ export default function CaptureScreen() {
       lightTap();
     }
   }, [IMG_W]);
+
+  /**
+   * One responder handles both panning and pinching, and decides at release
+   * whether the gesture was a tap. Doing this with a single PanResponder keeps
+   * it identical on web and native rather than depending on gesture-handler's
+   * differing web behaviour.
+   */
+  const panResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_e, g) =>
+      Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3 || _e.nativeEvent.touches?.length === 2,
+
+    onPanResponderGrant: () => {
+      draggedRef.current = false;
+      gestureRef.current = { startPan: pan, startDist: null, startZoom: zoom };
+    },
+
+    onPanResponderMove: (e, g) => {
+      const touches = e.nativeEvent.touches;
+      const dist = pinchDistance(touches);
+
+      if (dist != null) {
+        // Pinch: scale about the midpoint so the group stays under the fingers.
+        draggedRef.current = true;
+        const st = gestureRef.current;
+        if (st.startDist == null) { st.startDist = dist; st.startZoom = zoom; st.startPan = pan; }
+        const centre = pinchCentre(touches, 0, 0) || { x: IMG_W / 2, y: IMG_H / 2 };
+        const next = zoomAbout(centre, st.startZoom * (dist / st.startDist), zoom, pan, IMG_W, IMG_H);
+        setZoom(next.zoom);
+        setPan(next.pan);
+        return;
+      }
+
+      if (Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3) draggedRef.current = true;
+      if (zoom > 1 && gestureRef.current.startPan) {
+        const base = gestureRef.current.startPan;
+        setPan(clampPan({ x: base.x + g.dx, y: base.y + g.dy }, zoom, IMG_W, IMG_H));
+      }
+    },
+
+    onPanResponderRelease: () => { gestureRef.current.startDist = null; },
+    onPanResponderTerminate: () => { gestureRef.current.startDist = null; },
+  }), [zoom, pan, IMG_W, IMG_H]);
+
+  const stepZoom = (factor) => {
+    const next = zoomAbout({ x: IMG_W / 2, y: IMG_H / 2 }, zoom * factor, zoom, pan, IMG_W, IMG_H);
+    setZoom(next.zoom);
+    setPan(next.pan);
+  };
+  const resetView = () => { const f = fitViewport(); setZoom(f.zoom); setPan(f.pan); };
 
   const removeShot = (i) => {
     detectedRef.current = false;
@@ -443,20 +509,31 @@ export default function CaptureScreen() {
               activeOpacity={1}
               onPress={(e) => onTapImage(e, 'corner')}
               style={[s.imgContainer, { borderColor: colors.bd, width: IMG_W, height: IMG_H }]}
+              {...panResponder.panHandlers}
             >
-              {photo ? (
-                <Image source={{ uri: photo.uri }} style={s.targetImg} resizeMode="cover" />
-              ) : useDemo ? (
-                <Svg viewBox="0 0 320 400" style={s.demoSvg}>
-                  <Circle cx="160" cy="185" r="92" fill="rgba(255,138,42,0.28)" stroke="#F0872B" strokeWidth="3" />
-                  <Circle cx="160" cy="185" r="3.5" fill="#F0872B" />
-                </Svg>
-              ) : null}
+              <View style={{
+                position: 'absolute',
+                left: pan.x, top: pan.y,
+                width: IMG_W * zoom, height: IMG_H * zoom,
+              }}>
+                {photo ? (
+                  <Image source={{ uri: photo.uri }} style={s.targetImg} resizeMode="cover" />
+                ) : useDemo ? (
+                  <Svg viewBox="0 0 320 400" style={s.demoSvg}>
+                    <Circle cx="160" cy="185" r="92" fill="rgba(255,138,42,0.28)" stroke="#F0872B" strokeWidth="3" />
+                    <Circle cx="160" cy="185" r="3.5" fill="#F0872B" />
+                  </Svg>
+                ) : null}
+              </View>
               {ordered && (
                 // Corners are normalized by the box *width*, so y spans 0..1.25
                 // in a 1.25-aspect box: the viewBox must be 100x125 for a
                 // uniform x100 mapping on both axes.
-                <Svg viewBox="0 0 100 125" preserveAspectRatio="none" style={s.overlayLine}>
+                <Svg viewBox="0 0 100 125" preserveAspectRatio="none" style={{
+                  position: 'absolute',
+                  left: pan.x, top: pan.y,
+                  width: IMG_W * zoom, height: IMG_H * zoom,
+                }}>
                   <Polygon
                     points={ordered.map(p => `${p.x * 100},${p.y * 100}`).join(' ')}
                     fill="rgba(240,135,43,0.10)"
@@ -465,7 +542,7 @@ export default function CaptureScreen() {
                 </Svg>
               )}
               {corners.map((p, i) => (
-                <View key={i} style={[s.cornerDot, { left: p.x * IMG_W - 12, top: p.y * IMG_W - 12 }]}>
+                <View key={i} style={[s.cornerDot, { left: p.x * IMG_W * zoom + pan.x - 12, top: p.y * IMG_W * zoom + pan.y - 12 }]}>
                   <Text style={s.cornerDotText}>{i + 1}</Text>
                 </View>
               ))}
@@ -484,6 +561,24 @@ export default function CaptureScreen() {
                 </Text>
               </View>
             )}
+            <View style={s.zoomBar}>
+              <TouchableOpacity onPress={() => stepZoom(1 / 1.6)} disabled={zoom <= 1}
+                style={[s.zoomBtn, { backgroundColor: colors.card, borderColor: colors.bd, opacity: zoom <= 1 ? 0.4 : 1 }]}>
+                <ZoomOut size={16} color={colors.tx} />
+              </TouchableOpacity>
+              <Text style={[s.zoomLabel, { color: colors.mut }]}>{zoom.toFixed(1)}x</Text>
+              <TouchableOpacity onPress={() => stepZoom(1.6)} disabled={zoom >= 8}
+                style={[s.zoomBtn, { backgroundColor: colors.card, borderColor: colors.bd, opacity: zoom >= 8 ? 0.4 : 1 }]}>
+                <ZoomIn size={16} color={colors.tx} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={resetView} disabled={zoom === 1}
+                style={[s.zoomBtn, { backgroundColor: colors.card, borderColor: colors.bd, opacity: zoom === 1 ? 0.4 : 1 }]}>
+                <Maximize2 size={15} color={colors.tx} />
+              </TouchableOpacity>
+              <Text style={[s.zoomHint, { color: colors.fnt }]}>
+                {zoom > 1 ? 'Drag to pan' : 'Pinch or zoom in to place precisely'}
+              </Text>
+            </View>
             <View style={s.scaleFooter}>
               <Text style={[s.scaleCount, { color: colors.mut }]}>
                 <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{corners.length}</Text>/4 corners set
@@ -528,22 +623,30 @@ export default function CaptureScreen() {
               activeOpacity={1}
               onPress={(e) => onTapImage(e, 'shots')}
               style={[s.imgContainer, { borderColor: colors.bd, width: IMG_W, height: IMG_H }]}
+              {...panResponder.panHandlers}
             >
-              {photo ? (
-                <Image source={{ uri: photo.uri }} style={s.targetImg} resizeMode="cover" />
-              ) : useDemo ? (
-                <Svg viewBox="0 0 320 400" style={s.demoSvg}>
-                  <Circle cx="160" cy="185" r="92" fill="rgba(255,138,42,0.28)" stroke="#F0872B" strokeWidth="3" />
-                  <Circle cx="160" cy="185" r="3.5" fill="#F0872B" />
-                </Svg>
-              ) : null}
+              <View style={{
+                position: 'absolute',
+                left: pan.x, top: pan.y,
+                width: IMG_W * zoom, height: IMG_H * zoom,
+              }}>
+                {photo ? (
+                  <Image source={{ uri: photo.uri }} style={s.targetImg} resizeMode="cover" />
+                ) : useDemo ? (
+                  <Svg viewBox="0 0 320 400" style={s.demoSvg}>
+                    <Circle cx="160" cy="185" r="92" fill="rgba(255,138,42,0.28)" stroke="#F0872B" strokeWidth="3" />
+                    <Circle cx="160" cy="185" r="3.5" fill="#F0872B" />
+                  </Svg>
+                ) : null}
+              </View>
               {shots.map((p, i) => (
                 <TouchableOpacity
                   key={i}
                   onPress={(e) => { e.stopPropagation(); removeShot(i); }}
                   style={[s.shotDot, {
                     width: dotSize, height: dotSize, borderRadius: dotSize / 2,
-                    left: p.x * IMG_W - dotSize / 2, top: p.y * IMG_W - dotSize / 2,
+                    left: p.x * IMG_W * zoom + pan.x - dotSize / 2,
+                    top: p.y * IMG_W * zoom + pan.y - dotSize / 2,
                   }]}
                 >
                   <Text style={[s.shotDotText, { fontSize: dotSize < 20 ? 8 : 10 }]}>{i + 1}</Text>
@@ -555,6 +658,24 @@ export default function CaptureScreen() {
                 </Text>
               </View>
             </TouchableOpacity>
+            <View style={s.zoomBar}>
+              <TouchableOpacity onPress={() => stepZoom(1 / 1.6)} disabled={zoom <= 1}
+                style={[s.zoomBtn, { backgroundColor: colors.card, borderColor: colors.bd, opacity: zoom <= 1 ? 0.4 : 1 }]}>
+                <ZoomOut size={16} color={colors.tx} />
+              </TouchableOpacity>
+              <Text style={[s.zoomLabel, { color: colors.mut }]}>{zoom.toFixed(1)}x</Text>
+              <TouchableOpacity onPress={() => stepZoom(1.6)} disabled={zoom >= 8}
+                style={[s.zoomBtn, { backgroundColor: colors.card, borderColor: colors.bd, opacity: zoom >= 8 ? 0.4 : 1 }]}>
+                <ZoomIn size={16} color={colors.tx} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={resetView} disabled={zoom === 1}
+                style={[s.zoomBtn, { backgroundColor: colors.card, borderColor: colors.bd, opacity: zoom === 1 ? 0.4 : 1 }]}>
+                <Maximize2 size={15} color={colors.tx} />
+              </TouchableOpacity>
+              <Text style={[s.zoomHint, { color: colors.fnt }]}>
+                {zoom > 1 ? 'Drag to pan' : 'Pinch or zoom in to place precisely'}
+              </Text>
+            </View>
             <View style={s.scaleFooter}>
               <Text style={[s.scaleCount, { color: colors.mut }]}>
                 Live group <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{stats ? stats.groupMoa.toFixed(2) : '—'} MOA</Text>
@@ -694,6 +815,10 @@ const s = StyleSheet.create({
   detectBtnText: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
   detectNote: { borderWidth: 1, borderRadius: 11, padding: 11, paddingHorizontal: 13, marginBottom: 10 },
   detectNoteText: { fontSize: 12.5, fontWeight: '600', lineHeight: 18 },
+  zoomBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  zoomBtn: { width: 34, height: 34, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  zoomLabel: { fontSize: 12.5, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold', minWidth: 34, textAlign: 'center' },
+  zoomHint: { flex: 1, fontSize: 10.5, fontWeight: '600', textAlign: 'right' },
   scaleFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
   scaleCount: { fontSize: 12.5, fontWeight: '600' },
   resetBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
