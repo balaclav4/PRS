@@ -6,6 +6,8 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { dopeCard, trueBC } from '../../lib/ballistics';
+import { sightTape, tapeToRows } from '../../lib/sighttape';
+import { saveCSV, slugify } from '../../lib/export';
 import { bulletDiameterIn } from '../../lib/calibers';
 import PickerSheet from '../../components/PickerSheet';
 
@@ -67,6 +69,10 @@ export default function BallisticsScreen() {
   const [maxRangeYd, setMaxRangeYd] = useState('1000');
   const [stepYd, setStepYd] = useState('100');
 
+  const [turretDia, setTurretDia] = useState('1.5');
+  const [perRev, setPerRev] = useState('15');
+  const [clickValue, setClickValue] = useState('0.25');
+  const [showTape, setShowTape] = useState(false);
   const [truing, setTruing] = useState(false);
   const [observations, setObservations] = useState([]);
   const [truedResult, setTruedResult] = useState(null);
@@ -100,6 +106,14 @@ export default function BallisticsScreen() {
     setTruedResult(r);
     if (r) setBc(String(r.bc));
   };
+
+  // Per-revolution defaults differ by unit: 15 MOA and 10 mil are the common
+  // scope conventions, and a click is 0.25 MOA or 0.1 mil.
+  const tape = useMemo(() => sightTape(card.rows, {
+    turretDiameterIn: turretDia,
+    perRev,
+    clickValue,
+  }), [card.rows, turretDia, perRev, clickValue]);
 
   const [justSaved, setJustSaved] = useState(false);
   const saveCard = () => {
@@ -266,6 +280,83 @@ export default function BallisticsScreen() {
           )}
         </View>
 
+        {/* Sight tape */}
+        <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+          <View style={s.cardHead}>
+            <Text style={[s.cardTitle, { color: colors.tx }]}>Sight Tape</Text>
+            <TouchableOpacity onPress={() => setShowTape(v => !v)}
+              style={[s.saveCardBtn, { backgroundColor: colors.acs }]}>
+              <Text style={[s.saveCardText, { color: colors.act }]}>{showTape ? 'Hide' : 'Build'}</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={[s.cardBody, { color: colors.mut }]}>
+            A strip printed at 1:1 and wrapped round the elevation turret, marked with
+            the yardage each position dials to.
+          </Text>
+
+          {showTape && (
+            <>
+              <View style={s.row}>
+                <Field label="Turret dia" value={turretDia} onChange={setTurretDia} unit="in" colors={colors} />
+                <Field label={`Per turn`} value={perRev} onChange={setPerRev} unit={unitLabel} colors={colors} />
+                <Field label="Click" value={clickValue} onChange={setClickValue} unit={unitLabel} colors={colors} />
+              </View>
+
+              {tape.error ? (
+                <View style={[s.warn, { backgroundColor: colors.inset }]}>
+                  <TriangleAlert size={16} color={colors.mut} style={{ marginTop: 1 }} />
+                  <Text style={[s.warnText, { color: colors.mut }]}>{tape.error}</Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={[s.note, { color: colors.fnt, marginBottom: 10 }]}>
+                    {tape.circumferenceIn}" circumference · {tape.revolutionsNeeded} turn
+                    {tape.revolutionsNeeded === 1 ? '' : 's'} to reach {tape.maxElevation} {unitLabel}
+                  </Text>
+
+                  {/* Marks are drawn at their true fraction round the turret, so
+                      the preview is a scale picture of the printed strip. */}
+                  {tape.revolutions.map(rev => (
+                    <View key={rev.index} style={s.tapeWrap}>
+                      <Text style={[s.tapeRev, { color: colors.mut }]}>Turn {rev.index + 1}</Text>
+                      <View style={[s.tapeStrip, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
+                        {rev.marks.map(m => (
+                          <View key={m.rangeYd} style={[s.tapeMark, {
+                            left: `${(m.offsetIn / tape.circumferenceIn) * 100}%`,
+                          }]}>
+                            <View style={[s.tapeTick, { backgroundColor: m.transonic ? colors.warnt : colors.act }]} />
+                            <Text style={[s.tapeLabel, { color: m.transonic ? colors.warnt : colors.tx }]}>
+                              {m.rangeYd}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ))}
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      const header = `Turn,Range (yd),Elevation (${unitLabel}),Offset (in),Clicks`;
+                      const body = tapeToRows(tape).map(r =>
+                        [r.revolution, r.rangeYd, r.elevation, r.offsetIn, r.clicks].join(','));
+                      saveCSV([header, ...body].join('\n'),
+                        `${slugify(load?.name || 'load', 'tape')}-sight-tape.csv`);
+                    }}
+                    style={[s.addBtn, { borderColor: colors.ibd, marginTop: 4 }]}
+                  >
+                    <Text style={[s.addBtnText, { color: colors.act }]}>Export tape (CSV)</Text>
+                  </TouchableOpacity>
+
+                  <Text style={[s.note, { color: colors.fnt }]}>
+                    Print without scaling — "actual size", not "fit to page". A tape
+                    printed at 96% wraps a turret that is not 96% smaller.
+                  </Text>
+                </>
+              )}
+            </>
+          )}
+        </View>
+
         {/* Truing */}
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
           <Text style={[s.cardTitle, { color: colors.tx, marginBottom: 6 }]}>Truing</Text>
@@ -405,4 +496,10 @@ const s = StyleSheet.create({
   trueBtnText: { fontSize: 13, fontWeight: '700', color: '#fff' },
   trueResult: { padding: 12, borderRadius: 11, marginTop: 10 },
   trueResultText: { fontSize: 12, fontWeight: '600', lineHeight: 17 },
+  tapeWrap: { marginBottom: 14 },
+  tapeRev: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.4, marginBottom: 5 },
+  tapeStrip: { height: 52, borderWidth: 1, borderRadius: 8, position: 'relative' },
+  tapeMark: { position: 'absolute', top: 0, alignItems: 'center', width: 34, marginLeft: -17 },
+  tapeTick: { width: 1.5, height: 16, marginTop: 4 },
+  tapeLabel: { fontSize: 10, fontWeight: '800', marginTop: 3, fontFamily: 'JetBrainsMono_700Bold' },
 });
