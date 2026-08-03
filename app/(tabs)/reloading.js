@@ -7,6 +7,7 @@ import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { parseRungs, findNode, bestGroup } from '../../lib/loaddev';
 import { parseDepths, analyseSeating } from '../../lib/seating';
+import { assessReference } from '../../lib/refload';
 import ChronoImport from '../../components/ChronoImport';
 
 const STEP_META = [
@@ -26,10 +27,27 @@ function NotBuiltStep({ colors, label }) {
     <View style={[cs.notBuilt, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
       <Info size={18} color={colors.mut} />
       <Text style={[cs.notBuiltText, { color: colors.mut }]}>
-        {label} isn't built yet. Goal (1), the charge ladder (6) and seating
-        depth (7) record real data and analyse it. Nothing here is recorded, so
-        there's nothing to show.
+        {label} isn't built yet. Goal (1), the charge ladder (6), seating depth
+        (7) and the reference load (8) record real data and analyse it. Nothing
+        here is recorded, so there's nothing to show.
       </Text>
+    </View>
+  );
+}
+
+function NumField({ colors, label, unit, value, onChange }) {
+  return (
+    <View style={{ flex: 1 }}>
+      <Text style={[cs.lbl, { color: colors.mut }]}>{label}</Text>
+      <View style={[cs.inp, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+        <TextInput
+          value={value == null ? '' : String(value)}
+          onChangeText={onChange}
+          keyboardType="decimal-pad"
+          style={[cs.inpText, { color: colors.tx }]}
+        />
+        {!!unit && <Text style={[cs.unit, { color: colors.fnt }]}>{unit}</Text>}
+      </View>
     </View>
   );
 }
@@ -83,6 +101,21 @@ export default function ReloadingScreen() {
   };
   const removeDepth = (id) =>
     project && updateProject(project.id, { seatingRows: seatingRows.filter(r => r.id !== id) });
+
+  // Step 8 works in target inches at the test distance, because that is what a
+  // shooter reads off a plate. MOA is what the maths needs.
+  const refDistance = Number(project?.testDistanceYd) || 0;
+  const refTargetIn = Number(project?.refTargetIn) || 0;
+  const refTargetMoa = refDistance > 0 && refTargetIn > 0
+    ? refTargetIn / (1.047 * refDistance / 100)
+    : null;
+  const ref = useMemo(() => assessReference({
+    hits: project?.refHits, shots: project?.refShots,
+    groupMoa: project?.refGroupMoa, groupShots: project?.refGroupShots || 5,
+    targetMoa: refTargetMoa,
+    goalMoa: project?.goalMoa, hitRatePct: project?.hitRatePct,
+  }), [project?.refHits, project?.refShots, project?.refGroupMoa,
+       project?.refGroupShots, refTargetMoa, project?.goalMoa, project?.hitRatePct]);
 
   const rifle = rifles.find(r => r.id === project?.rifleId);
   const load = loads.find(l => l.id === project?.loadId);
@@ -191,7 +224,8 @@ export default function ReloadingScreen() {
           {STEP_META.map((sm) => {
             const sel = sm.num === step;
             // Only the ladder can be "done" — it is the only step holding data.
-            const done = (sm.num === 6 && parsed.length >= 3) || (sm.num === 7 && depths.length >= 3);
+            const done = (sm.num === 6 && parsed.length >= 3) ||
+              (sm.num === 7 && depths.length >= 3) || (sm.num === 8 && ref.ok);
             return (
               <TouchableOpacity key={sm.num} onPress={() => goStep(sm.num)} style={s.stepBtn}>
                 <View style={[s.stepCircle, {
@@ -458,7 +492,65 @@ export default function ReloadingScreen() {
             </View>
           )}
 
-          {step !== 1 && step !== 6 && step !== 7 && <NotBuiltStep colors={colors} label={meta.label} />}
+
+          {step === 8 && (
+            <View style={cs.wrap}>
+              <View style={cs.row}>
+                <NumField colors={colors} label="Shots fired" unit=""
+                  value={project.refShots} onChange={v => setField('refShots', v)} />
+                <NumField colors={colors} label="Hits" unit=""
+                  value={project.refHits} onChange={v => setField('refHits', v)} />
+              </View>
+              <View style={cs.row}>
+                <NumField colors={colors} label="Group size" unit="MOA"
+                  value={project.refGroupMoa} onChange={v => setField('refGroupMoa', v)} />
+                <NumField colors={colors} label="Shots in group" unit=""
+                  value={project.refGroupShots} onChange={v => setField('refGroupShots', v)} />
+              </View>
+              <NumField colors={colors} label="Target size" unit="in"
+                value={project.refTargetIn} onChange={v => setField('refTargetIn', v)} />
+              {refDistance > 0 && refTargetIn > 0 ? (
+                <Text style={[cs.hint, { color: colors.fnt }]}>
+                  {refTargetIn}" at {refDistance} yd is {refTargetMoa.toFixed(2)} MOA
+                </Text>
+              ) : (
+                <Text style={[cs.hint, { color: colors.fnt }]}>
+                  Set a test distance in step 1 to convert this to MOA.
+                </Text>
+              )}
+
+              {ref.ok ? (
+                <>
+                  <View style={[cs.result, {
+                    backgroundColor: ref.hitRate?.confirmed ? colors.oks : colors.warns,
+                  }]}>
+                    {ref.hitRate?.confirmed
+                      ? <CircleCheck size={17} color={colors.okt} />
+                      : <TriangleAlert size={17} color={colors.warnt} />}
+                    <View style={{ flex: 1 }}>
+                      <Text style={[cs.resultText, {
+                        color: ref.hitRate?.confirmed ? colors.okt : colors.warnt,
+                      }]}>{ref.verdict}</Text>
+                    </View>
+                  </View>
+                  <View style={[cs.note, { backgroundColor: colors.inset }]}>
+                    <Text style={[cs.noteText, { color: colors.mut }]}>
+                      {ref.hits}/{ref.shots} is consistent with a true hit rate anywhere
+                      from {ref.ci.low}% to {ref.ci.high}%.
+                      {ref.diagnosis ? ` Dispersion alone predicts ${ref.diagnosis.predicted}% on this target.` : ''}
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <View style={[cs.result, { backgroundColor: colors.inset }]}>
+                  <Info size={17} color={colors.mut} />
+                  <Text style={[cs.resultText, { color: colors.mut, flex: 1 }]}>{ref.reason}</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {step !== 1 && step !== 6 && step !== 7 && step !== 8 && <NotBuiltStep colors={colors} label={meta.label} />}
         </View>
 
         {step < 8 && (
@@ -488,6 +580,7 @@ const cs = StyleSheet.create({
   note: { padding: 12, paddingHorizontal: 14, borderRadius: 12, marginTop: 4 },
   noteText: { fontSize: 12.5, fontWeight: '600', lineHeight: 18 },
   notBuilt: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', padding: 14, borderRadius: 12, borderWidth: 1, marginTop: 4 },
+  hint: { fontSize: 12, marginTop: -4 },
   notBuiltText: { flex: 1, fontSize: 12.5, fontWeight: '600', lineHeight: 18 },
   ladderHead: { flexDirection: 'row', gap: 8, paddingBottom: 4 },
   colH: { fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
