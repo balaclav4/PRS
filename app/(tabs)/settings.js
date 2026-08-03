@@ -7,20 +7,20 @@ import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { saveCSV } from '../../lib/export';
 
+import { GROUP_UNITS, TEMP_UNITS, VELOCITY_UNITS, DISTANCE_UNITS } from '../../lib/units';
+
 const UNIT_OPTIONS = {
-  groupSize: ['MOA', 'MRAD', 'Inches'],
-  temperature: ['°F', '°C'],
-  velocity: ['fps', 'm/s'],
+  group: GROUP_UNITS,
+  temp: TEMP_UNITS,
+  velocity: VELOCITY_UNITS,
+  distance: DISTANCE_UNITS,
 };
 
 export default function SettingsScreen() {
   const { colors, isDark, setDark, setLight } = useTheme();
-  const { exportSessionsCSV } = useData();
+  const { exportSessionsCSV, units, setUnit } = useData();
   const router = useRouter();
 
-  const [groupUnit, setGroupUnit] = useState('MOA');
-  const [tempUnit, setTempUnit] = useState('°F');
-  const [velUnit, setVelUnit] = useState('fps');
   const [exporting, setExporting] = useState(false);
 
   const doExport = async () => {
@@ -29,15 +29,19 @@ export default function SettingsScreen() {
     setExporting(false);
   };
 
-  const cycleUnit = (current, options, setter) => {
-    const idx = options.indexOf(current);
-    setter(options[(idx + 1) % options.length]);
+  // Cycles the stored preference, which every screen reads through
+  // lib/units — these used to be local state that nothing else could see.
+  const cycle = (kind) => {
+    const opts = UNIT_OPTIONS[kind];
+    const idx = opts.indexOf(units[kind]);
+    setUnit(kind, opts[(idx + 1) % opts.length]);
   };
 
-  const units = [
-    { icon: Ruler, label: 'Group size', value: groupUnit, onPress: () => cycleUnit(groupUnit, UNIT_OPTIONS.groupSize, setGroupUnit) },
-    { icon: Thermometer, label: 'Temperature', value: tempUnit, onPress: () => cycleUnit(tempUnit, UNIT_OPTIONS.temperature, setTempUnit) },
-    { icon: Gauge, label: 'Velocity', value: velUnit, onPress: () => cycleUnit(velUnit, UNIT_OPTIONS.velocity, setVelUnit) },
+  const unitRows = [
+    { icon: Ruler, label: 'Group size', value: units.group, onPress: () => cycle('group') },
+    { icon: Thermometer, label: 'Temperature', value: units.temp, onPress: () => cycle('temp') },
+    { icon: Gauge, label: 'Velocity', value: units.velocity, onPress: () => cycle('velocity') },
+    { icon: Ruler, label: 'Distance', value: units.distance, onPress: () => cycle('distance') },
   ];
 
   return (
@@ -78,7 +82,7 @@ export default function SettingsScreen() {
 
         <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 22 }]}>UNITS</Text>
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd, padding: 0, overflow: 'hidden' }]}>
-          {units.map((u, i) => (
+          {unitRows.map((u, i) => (
             <TouchableOpacity key={i} onPress={u.onPress} style={[s.unitRow, i > 0 && { borderTopWidth: 1, borderTopColor: colors.line }]}>
               <u.icon size={19} color={colors.mut} />
               <Text style={[s.unitLabel, { color: colors.tx }]}>{u.label}</Text>

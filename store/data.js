@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import * as db from '../lib/db';
+import { DEFAULT_UNITS } from '../lib/units';
 
 const SEED_RIFLES = [
   { id: 'r1', name: 'Impact 737R', cartridge: '6.5 Creedmoor', barrelLength: '26"', twist: '1:8', notes: 'Bartlein barrel' },
@@ -83,6 +84,7 @@ export function DataProvider({ children }) {
   const [sessions, setSessions] = useState(SEED_SESSIONS);
   const [projects, setProjects] = useState(SEED_PROJECTS);
   const [dopeCards, setDopeCards] = useState([]);
+  const [units, setUnits] = useState(DEFAULT_UNITS);
   const [ready, setReady] = useState(false);
 
   // Hydrate from local storage on boot. If storage is unavailable we keep the
@@ -98,6 +100,9 @@ export function DataProvider({ children }) {
         // Storage predating load-dev has no projects key; fall back to seed.
         setProjects(data.projects?.length ? data.projects : SEED_PROJECTS);
         setDopeCards(data.dopeCards || []);
+        // Stored prefs override defaults per key, so a partially-set prefs
+        // object still yields a complete unit set.
+        setUnits({ ...DEFAULT_UNITS, ...(data.prefs?.units || {}) });
       }
       if (!cancelled) setReady(true);
     })();
@@ -199,6 +204,14 @@ export function DataProvider({ children }) {
     persist(() => db.removeProject(id));
   }, []);
 
+  const setUnit = useCallback((kind, value) => {
+    setUnits(prev => {
+      const next = { ...prev, [kind]: value };
+      persist(() => db.putPref('units', next));
+      return next;
+    });
+  }, []);
+
   const getDopeCard = useCallback((id) => dopeCards.find(c => c.id === id), [dopeCards]);
 
   const addDopeCard = useCallback((card) => {
@@ -233,7 +246,7 @@ export function DataProvider({ children }) {
   }, [sessions, rifles, loads]);
 
   const value = useMemo(() => ({
-    rifles, loads, sessions, projects, dopeCards, ready,
+    rifles, loads, sessions, projects, dopeCards, units, setUnit, ready,
     getRifle, getLoad, getSession, getRifleName,
     addSession, updateSession, addRifle, addLoad,
     updateRifle, deleteRifle,
@@ -242,7 +255,7 @@ export function DataProvider({ children }) {
     getProject, addProject, updateProject, deleteProject,
     getDopeCard, addDopeCard, deleteDopeCard,
     exportSessionsCSV,
-  }), [rifles, loads, sessions, projects, dopeCards, ready, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, getDopeCard, addDopeCard, deleteDopeCard, exportSessionsCSV]);
+  }), [rifles, loads, sessions, projects, dopeCards, units, setUnit, ready, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, getDopeCard, addDopeCard, deleteDopeCard, exportSessionsCSV]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

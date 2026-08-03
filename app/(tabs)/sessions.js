@@ -5,12 +5,13 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
+import { formatGroup } from '../../lib/units';
 import FilterChips from '../../components/FilterChips';
 import SessionRow from '../../components/SessionRow';
 
 export default function SessionsScreen() {
   const { colors } = useTheme();
-  const { sessions, rifles, getRifleName } = useData();
+  const { sessions, rifles, units, getRifleName } = useData();
   const router = useRouter();
   const [filter, setFilter] = useState('all');
 
@@ -67,6 +68,7 @@ export default function SessionsScreen() {
               rifle={getRifleName(sess.rifleId)}
               meta={`${sess.distanceYd} yd · ${sess.targetCount} targets`}
               best={sess.best}
+              bestLabelText={formatGroup(parseFloat(sess.best), sess.distanceYd, units.group)}
               onPress={() => router.push(`/session/${sess.id}`)}
             />
           ))}

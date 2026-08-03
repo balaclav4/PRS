@@ -6,6 +6,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { saveCSV, slugify } from '../../lib/export';
+import { formatGroup, formatVelocity, formatDistance, groupUnitLabel } from '../../lib/units';
+import { targetGroups } from '../../lib/analytics';
 import TargetPlot from '../../components/TargetPlot';
 import ChronoImport from '../../components/ChronoImport';
 
@@ -13,7 +15,7 @@ export default function SessionDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const { colors } = useTheme();
-  const { getSession, getRifleName, exportSessionsCSV, updateSession } = useData();
+  const { getSession, getRifleName, exportSessionsCSV, updateSession, units } = useData();
   const [importing, setImporting] = useState(false);
 
   const sess = getSession(id);
@@ -21,6 +23,10 @@ export default function SessionDetailScreen() {
 
   const rifleName = getRifleName(sess.rifleId);
   const allShots = sess.targets.flatMap(t => t.shots);
+  // Real per-target sizes. These were previously synthesised as
+  // best + index * 0.18, which produced a plausible ascending list that was
+  // not a measurement of anything.
+  const perTarget = targetGroups(sess);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
@@ -42,7 +48,7 @@ export default function SessionDetailScreen() {
         </View>
 
         <View style={s.badges}>
-          {[rifleName, `${sess.distanceYd} yd`, sess.suppressed ? 'Suppressed' : 'Bare muzzle'].map((b, i) => (
+          {[rifleName, formatDistance(sess.distanceYd, units.distance), sess.suppressed ? 'Suppressed' : 'Bare muzzle'].map((b, i) => (
             <View key={i} style={[s.badge, { backgroundColor: colors.card, borderColor: colors.bd }]}>
               <Text style={[s.badgeText, { color: colors.tx }]}>{b}</Text>
             </View>
@@ -54,9 +60,13 @@ export default function SessionDetailScreen() {
           <TargetPlot shots={allShots} size={130} />
           <View style={s.plotStats}>
             <Text style={[s.plotLabel, { color: colors.mut }]}>BEST GROUP</Text>
-            <Text style={[s.plotBest, { color: groupColor(sess.best, colors), fontFamily: 'JetBrainsMono_700Bold' }]}>{sess.best}"</Text>
+            <Text style={[s.plotBest, { color: groupColor(sess.best, colors), fontFamily: 'JetBrainsMono_700Bold' }]}>
+              {formatGroup(parseFloat(sess.best), sess.distanceYd, units.group)}
+            </Text>
             <Text style={[s.plotLabel, { color: colors.mut, marginTop: 12 }]}>MEAN RADIUS</Text>
-            <Text style={[s.plotMR, { color: colors.tx, fontFamily: 'JetBrainsMono_700Bold' }]}>{sess.meanRadius}"</Text>
+            <Text style={[s.plotMR, { color: colors.tx, fontFamily: 'JetBrainsMono_700Bold' }]}>
+              {formatGroup(parseFloat(sess.meanRadius), sess.distanceYd, units.group)}
+            </Text>
           </View>
         </View>
 
@@ -67,13 +77,13 @@ export default function SessionDetailScreen() {
           <View style={[s.velTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
             <Text style={[s.velLabel, { color: colors.mut }]}>AVG VELOCITY</Text>
             {sess.mv > 0
-              ? <Text style={[s.velVal, { color: colors.tx }]}>{sess.mv} <Text style={{ fontSize: 11, color: colors.fnt }}>fps</Text></Text>
+              ? <Text style={[s.velVal, { color: colors.tx }]}>{formatVelocity(sess.mv, units.velocity)}</Text>
               : <Text style={[s.velVal, { color: colors.fnt }]}>—</Text>}
           </View>
           <View style={[s.velTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
             <Text style={[s.velLabel, { color: colors.mut }]}>VELOCITY SD</Text>
             {sess.sd > 0
-              ? <Text style={[s.velVal, { color: colors.tx }]}>{sess.sd} <Text style={{ fontSize: 11, color: colors.fnt }}>fps</Text></Text>
+              ? <Text style={[s.velVal, { color: colors.tx }]}>{formatVelocity(sess.sd, units.velocity)}</Text>
               : <Text style={[s.velVal, { color: colors.fnt }]}>—</Text>}
           </View>
         </View>
@@ -102,14 +112,17 @@ export default function SessionDetailScreen() {
         <Text style={[s.targetsTitle, { color: colors.tx }]}>Targets ({sess.targetCount})</Text>
         <View style={s.targetsList}>
           {sess.targets.map((t, i) => {
-            const groupSize = (parseFloat(sess.best) + i * 0.18).toFixed(2);
+            const measured = perTarget.find(g => g.id === t.id);
+            const groupSize = measured ? measured.inches.toFixed(2) : null;
             return (
               <View key={t.id} style={[s.targetRow, { backgroundColor: colors.card, borderColor: colors.bd }]}>
                 <View style={[s.targetNum, { backgroundColor: colors.acs }]}>
                   <Text style={[s.targetNumText, { color: colors.act }]}>{i + 1}</Text>
                 </View>
                 <Text style={[s.targetShots, { color: colors.mut }]}>{t.shots.length} shots</Text>
-                <Text style={[s.targetGroup, { color: groupColor(groupSize, colors), fontFamily: 'JetBrainsMono_700Bold' }]}>{groupSize}"</Text>
+                <Text style={[s.targetGroup, { color: groupColor(groupSize, colors), fontFamily: 'JetBrainsMono_700Bold' }]}>
+                  {groupSize ? formatGroup(parseFloat(groupSize), sess.distanceYd, units.group) : '—'}
+                </Text>
               </View>
             );
           })}

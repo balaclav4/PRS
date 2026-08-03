@@ -4,11 +4,12 @@ import { Target, TrendingUp, Crosshair, Camera, Wind, FlaskConical, BookOpen } f
 import { useRouter } from 'expo-router';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
+import { formatGroup, groupUnitLabel } from '../../lib/units';
 import { LinearGradient } from '../../components/Gradient';
 
 export default function HomeScreen() {
   const { colors } = useTheme();
-  const { sessions, rifles, projects, dopeCards, getRifleName } = useData();
+  const { sessions, rifles, projects, dopeCards, units, getRifleName } = useData();
   const router = useRouter();
 
   const recent = sessions.slice(0, 3);
@@ -64,8 +65,10 @@ export default function HomeScreen() {
             style={[s.statTile, { backgroundColor: colors.card, borderColor: colors.bd }]}
           >
             <TrendingUp size={20} color="#15A34A" />
-            <Text style={[s.statVal, { color: colors.tx }]}>{bestGroup === Infinity ? '—' : bestGroup.toFixed(2) + '"'}</Text>
-            <Text style={[s.statLabel, { color: colors.mut }]}>Best Group</Text>
+            <Text style={[s.statVal, { color: colors.tx }]}>
+              {bestSession ? formatGroup(bestGroup, bestSession.distanceYd, units.group, { withUnit: false }) : '—'}
+            </Text>
+            <Text style={[s.statLabel, { color: colors.mut }]}>Best Group ({groupUnitLabel(units.group)})</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => router.push('/equipment')}
@@ -113,7 +116,9 @@ export default function HomeScreen() {
                 <Text style={[s.recentMeta, { color: colors.mut }]}>{sess.date} · {getRifleName(sess.rifleId)}</Text>
               </View>
               <View style={s.recentRight}>
-                <Text style={[s.recentBest, { color: groupColor(sess.best, colors), fontFamily: 'JetBrainsMono_700Bold' }]}>{sess.best}"</Text>
+                <Text style={[s.recentBest, { color: groupColor(sess.best, colors), fontFamily: 'JetBrainsMono_700Bold' }]}>
+                  {formatGroup(parseFloat(sess.best), sess.distanceYd, units.group)}
+                </Text>
                 <Text style={[s.recentBestLabel, { color: colors.fnt }]}>best</Text>
               </View>
             </TouchableOpacity>
