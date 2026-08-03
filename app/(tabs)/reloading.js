@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { parseRungs, findNode, bestGroup } from '../../lib/loaddev';
+import { parseDepths, analyseSeating } from '../../lib/seating';
 import ChronoImport from '../../components/ChronoImport';
 
 const STEP_META = [
@@ -25,9 +26,9 @@ function NotBuiltStep({ colors, label }) {
     <View style={[cs.notBuilt, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
       <Info size={18} color={colors.mut} />
       <Text style={[cs.notBuiltText, { color: colors.mut }]}>
-        {label} isn't built yet. The charge ladder (step 6) is the working step —
-        it records real rungs and analyses them. Nothing here is recorded, so
-        there's no data to show.
+        {label} isn't built yet. Goal (1), the charge ladder (6) and seating
+        depth (7) record real data and analyse it. Nothing here is recorded, so
+        there's nothing to show.
       </Text>
     </View>
   );
@@ -52,6 +53,36 @@ export default function ReloadingScreen() {
     [parsed, project?.shotsPerCharge]
   );
   const best = useMemo(() => bestGroup(parsed), [parsed]);
+
+  const seatingRows = project?.seatingRows || [];
+  const seatingShots = project?.seatingShots || 5;
+  const depths = useMemo(() => parseDepths(seatingRows), [seatingRows]);
+  const seating = useMemo(() => analyseSeating(depths, seatingShots), [depths, seatingShots]);
+
+  const setDepth = (id, field, value) => {
+    if (!project) return;
+    updateProject(project.id, {
+      seatingRows: seatingRows.map(r => r.id === id ? { ...r, [field]: value } : r),
+    });
+  };
+  const addDepth = () => {
+    if (!project) return;
+    // Continue at whatever increment is already in use; 0.003" is the common
+    // starting step for a seating ladder.
+    const last = seatingRows[seatingRows.length - 1];
+    const prev = seatingRows[seatingRows.length - 2];
+    let next = '';
+    if (last) {
+      const lc = parseFloat(last.cbto), pc = prev ? parseFloat(prev.cbto) : NaN;
+      const inc = isFinite(lc) && isFinite(pc) ? +(lc - pc).toFixed(4) : 0.003;
+      if (isFinite(lc)) next = String(+(lc + (inc || 0.003)).toFixed(3));
+    }
+    updateProject(project.id, {
+      seatingRows: [...seatingRows, { id: 'd' + Date.now(), cbto: next, groupMoa: '' }],
+    });
+  };
+  const removeDepth = (id) =>
+    project && updateProject(project.id, { seatingRows: seatingRows.filter(r => r.id !== id) });
 
   const rifle = rifles.find(r => r.id === project?.rifleId);
   const load = loads.find(l => l.id === project?.loadId);
@@ -160,7 +191,7 @@ export default function ReloadingScreen() {
           {STEP_META.map((sm) => {
             const sel = sm.num === step;
             // Only the ladder can be "done" — it is the only step holding data.
-            const done = sm.num === 6 && parsed.length >= 3;
+            const done = (sm.num === 6 && parsed.length >= 3) || (sm.num === 7 && depths.length >= 3);
             return (
               <TouchableOpacity key={sm.num} onPress={() => goStep(sm.num)} style={s.stepBtn}>
                 <View style={[s.stepCircle, {
@@ -348,7 +379,86 @@ export default function ReloadingScreen() {
             </View>
           )}
 
-          {step !== 1 && step !== 6 && <NotBuiltStep colors={colors} label={meta.label} />}
+          {step === 7 && (
+            <View style={cs.wrap}>
+              <View style={cs.ladderHead}>
+                <Text style={[cs.colH, { color: colors.fnt, flex: 1 }]}>CBTO</Text>
+                <Text style={[cs.colH, { color: colors.fnt, flex: 1, textAlign: 'center' }]}>GROUP</Text>
+                <View style={{ width: 26 }} />
+              </View>
+
+              {seatingRows.length === 0 && (
+                <Text style={[cs.emptyLadder, { color: colors.mut }]}>
+                  No depths yet. Add one for each seating depth you tested.
+                </Text>
+              )}
+
+              {seatingRows.map(r => {
+                const isBest = seating.best && parseFloat(r.cbto) === seating.best.cbto;
+                return (
+                  <View key={r.id} style={[cs.ladderRow, isBest && seating.significant && { backgroundColor: colors.oks }]}>
+                    <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                      <TextInput value={r.cbto} onChangeText={v => setDepth(r.id, 'cbto', v)}
+                        placeholder="in" placeholderTextColor={colors.fnt}
+                        keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
+                    </View>
+                    <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                      <TextInput value={r.groupMoa} onChangeText={v => setDepth(r.id, 'groupMoa', v)}
+                        placeholder="MOA" placeholderTextColor={colors.fnt}
+                        keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
+                    </View>
+                    <TouchableOpacity onPress={() => removeDepth(r.id)} style={cs.rowAct}>
+                      <Trash2 size={15} color={colors.fnt} />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+
+              <TouchableOpacity onPress={addDepth} style={[cs.addRung, { borderColor: colors.ibd }]}>
+                <Plus size={15} color={colors.act} />
+                <Text style={[cs.addRungText, { color: colors.act }]}>Add depth</Text>
+              </TouchableOpacity>
+
+              <View style={{ width: '50%' }}>
+                <Text style={[cs.lbl, { color: colors.mut }]}>Shots per depth</Text>
+                <View style={[cs.inp, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                  <TextInput
+                    value={String(seatingShots)}
+                    onChangeText={v => setField('seatingShots', v)}
+                    keyboardType="number-pad"
+                    style={[cs.inpText, { color: colors.tx }]}
+                  />
+                </View>
+              </View>
+
+              {seating.best ? (
+                <View style={[cs.result, {
+                  backgroundColor: seating.significant ? colors.oks : colors.warns,
+                }]}>
+                  {seating.significant
+                    ? <CircleCheck size={17} color={colors.okt} />
+                    : <TriangleAlert size={17} color={colors.warnt} />}
+                  <View style={{ flex: 1 }}>
+                    <Text style={[cs.resultText, { color: seating.significant ? colors.okt : colors.warnt }]}>
+                      {seating.verdict}
+                    </Text>
+                    <Text style={[cs.resultMeta, { color: seating.significant ? colors.okt : colors.warnt }]}>
+                      {depths.length} depths, typical {seating.level} MOA · a {seatingShots}-shot
+                      group varies about ±{(seating.cv * 100).toFixed(0)}% ({seating.sigma} MOA) on
+                      its own, before anything about the load changes
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={[cs.result, { backgroundColor: colors.inset }]}>
+                  <Info size={17} color={colors.mut} />
+                  <Text style={[cs.resultText, { color: colors.mut, flex: 1 }]}>{seating.reason}</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {step !== 1 && step !== 6 && step !== 7 && <NotBuiltStep colors={colors} label={meta.label} />}
         </View>
 
         {step < 8 && (
