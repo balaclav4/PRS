@@ -85,6 +85,9 @@ export function DataProvider({ children }) {
   const [projects, setProjects] = useState(SEED_PROJECTS);
   const [dopeCards, setDopeCards] = useState([]);
   const [units, setUnits] = useState(DEFAULT_UNITS);
+  // Backs the initials in the dashboard corner. Local label, not an identity —
+  // there is no account behind it yet.
+  const [profileName, setProfileName] = useState('');
   const [ready, setReady] = useState(false);
 
   // Hydrate from local storage on boot. If storage is unavailable we keep the
@@ -97,12 +100,16 @@ export function DataProvider({ children }) {
         setRifles(data.rifles);
         setLoads(data.loads);
         setSessions(data.sessions);
-        // Storage predating load-dev has no projects key; fall back to seed.
-        setProjects(data.projects?.length ? data.projects : SEED_PROJECTS);
+        // Nullish, not falsy. Falling back on an *empty* array could not tell
+        // "this install predates load dev" from "the user erased their data",
+        // so the seed project reappeared on the dashboard immediately after an
+        // erase — the one place it must not.
+        setProjects(data.projects ?? SEED_PROJECTS);
         setDopeCards(data.dopeCards || []);
         // Stored prefs override defaults per key, so a partially-set prefs
         // object still yields a complete unit set.
         setUnits({ ...DEFAULT_UNITS, ...(data.prefs?.units || {}) });
+        setProfileName(data.prefs?.profileName ?? '');
       }
       if (!cancelled) setReady(true);
     })();
@@ -204,12 +211,38 @@ export function DataProvider({ children }) {
     persist(() => db.removeProject(id));
   }, []);
 
+  /**
+   * Erase everything the user recorded. In-memory state is cleared alongside
+   * storage — clearing only the database would leave the screens showing data
+   * that no longer exists until the app was relaunched.
+   */
+  const clearAllData = useCallback(() => {
+    setSessions([]); setRifles([]); setLoads([]); setProjects([]); setDopeCards([]);
+    persist(() => db.clearUserData());
+  }, []);
+
+  /**
+   * The same, plus preferences. There is no server account to delete yet, so
+   * this is the whole of what "delete account" can honestly do today.
+   */
+  const deleteAccount = useCallback(() => {
+    setSessions([]); setRifles([]); setLoads([]); setProjects([]); setDopeCards([]);
+    setUnits(DEFAULT_UNITS);
+    setProfileName('');
+    persist(() => db.clearEverything());
+  }, []);
+
   const setUnit = useCallback((kind, value) => {
     setUnits(prev => {
       const next = { ...prev, [kind]: value };
       persist(() => db.putPref('units', next));
       return next;
     });
+  }, []);
+
+  const setProfile = useCallback((name) => {
+    setProfileName(name);
+    persist(() => db.putPref('profileName', name));
   }, []);
 
   const getDopeCard = useCallback((id) => dopeCards.find(c => c.id === id), [dopeCards]);
@@ -247,6 +280,7 @@ export function DataProvider({ children }) {
 
   const value = useMemo(() => ({
     rifles, loads, sessions, projects, dopeCards, units, setUnit, ready,
+    profileName, setProfile, clearAllData, deleteAccount,
     getRifle, getLoad, getSession, getRifleName,
     addSession, updateSession, addRifle, addLoad,
     updateRifle, deleteRifle,
@@ -255,7 +289,8 @@ export function DataProvider({ children }) {
     getProject, addProject, updateProject, deleteProject,
     getDopeCard, addDopeCard, deleteDopeCard,
     exportSessionsCSV,
-  }), [rifles, loads, sessions, projects, dopeCards, units, setUnit, ready, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, getDopeCard, addDopeCard, deleteDopeCard, exportSessionsCSV]);
+  }), [rifles, loads, sessions, projects, dopeCards, units, setUnit, ready,
+       profileName, setProfile, clearAllData, deleteAccount, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, getDopeCard, addDopeCard, deleteDopeCard, exportSessionsCSV]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

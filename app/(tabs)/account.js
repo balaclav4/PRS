@@ -1,9 +1,10 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, User, ShieldCheck, Download, Settings, LogOut, Info, HardDrive } from 'lucide-react-native';
+import { ArrowLeft, User, ShieldCheck, Download, Settings, LogOut, Info, HardDrive, Trash2, UserX } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
+import { initialsFrom } from '../../lib/profile';
 
 /**
  * Account and data.
@@ -21,9 +22,57 @@ import { useData } from '../../store/data';
 export default function AccountScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { sessions, rifles, loads, dopeCards, projects, exportSessionsCSV } = useData();
+  const {
+    sessions, rifles, loads, dopeCards, projects, exportSessionsCSV,
+    profileName, setProfile, clearAllData, deleteAccount,
+  } = useData();
 
   const back = () => (router.canGoBack?.() ? router.back() : router.replace('/'));
+  const initials = initialsFrom(profileName);
+  const total = sessions.length + rifles.length + loads.length + dopeCards.length + projects.length;
+
+  /**
+   * Both of these are irreversible and there is no server copy to restore from,
+   * so each asks twice and the first prompt names exactly what goes. The web
+   * branch mirrors the pattern already used for deleting a rifle: React
+   * Native's Alert is a no-op under react-native-web.
+   */
+  const ask = (title, message, onYes) => {
+    if (Platform.OS === 'web') { if (window.confirm(`${title}\n\n${message}`)) onYes(); }
+    else Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: onYes },
+    ]);
+  };
+
+  const confirmErase = () => {
+    if (total === 0) return;
+    ask(
+      'Erase all data?',
+      `This removes ${sessions.length} session${sessions.length === 1 ? '' : 's'}, ` +
+      `${rifles.length} rifle${rifles.length === 1 ? '' : 's'}, ${loads.length} load${loads.length === 1 ? '' : 's'}, ` +
+      `${dopeCards.length} dope card${dopeCards.length === 1 ? '' : 's'} and ` +
+      `${projects.length} load dev project${projects.length === 1 ? '' : 's'}. ` +
+      'Your unit and appearance settings are kept. This cannot be undone.',
+      () => ask('Are you sure?', 'There is no backup and no way to recover this.', () => {
+        clearAllData();
+        router.replace('/');
+      })
+    );
+  };
+
+  const confirmDeleteAccount = () => {
+    ask(
+      'Delete account?',
+      'Accounts are not connected yet, so there is nothing on a server to delete. ' +
+      'This erases everything on this device — every session, rifle, load, dope card ' +
+      'and load dev project, plus your settings — and returns you to the login screen.',
+      () => ask('Delete everything?', 'This cannot be undone.', () => {
+        deleteAccount();
+        router.replace('/login');
+      })
+    );
+  };
 
   const counts = [
     ['Sessions', sessions.length],
@@ -65,12 +114,25 @@ export default function AccountScreen() {
 
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
           <View style={[s.avatar, { backgroundColor: colors.avb }]}>
-            <User size={22} color={colors.avt} />
+            {initials
+              ? <Text style={[s.avatarInitials, { color: colors.avt }]}>{initials}</Text>
+              : <User size={22} color={colors.avt} />}
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[s.name, { color: colors.tx }]}>Not signed in</Text>
+            <Text style={[s.sub, { color: colors.mut, marginTop: 0, marginBottom: 5 }]}>
+              Display name — sets the initials in the corner
+            </Text>
+            <View style={[s.nameInput, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+              <TextInput
+                value={profileName}
+                onChangeText={setProfile}
+                placeholder="Your name"
+                placeholderTextColor={colors.fnt}
+                style={[s.nameInputText, { color: colors.tx }]}
+              />
+            </View>
             <Text style={[s.sub, { color: colors.mut }]}>
-              Accounts aren't connected yet, so everything here is local to this device.
+              Not signed in — accounts aren't connected yet, so this is a local label.
             </Text>
           </View>
         </View>
@@ -128,8 +190,25 @@ export default function AccountScreen() {
           icon={LogOut}
           label="Sign out"
           sub="Returns to the login screen"
-          tint={colors.dngt}
           onPress={() => router.replace('/login')}
+        />
+
+        <Text style={[s.section, { color: colors.mut }]}>DANGER ZONE</Text>
+        <Row
+          icon={Trash2}
+          label="Erase all data"
+          sub={total === 0
+            ? 'Nothing recorded yet'
+            : `Removes all ${total} recorded items. Settings are kept.`}
+          tint={total === 0 ? colors.fnt : colors.dngt}
+          onPress={total === 0 ? null : confirmErase}
+        />
+        <Row
+          icon={UserX}
+          label="Delete account"
+          sub="Erases everything on this device, including settings"
+          tint={colors.dngt}
+          onPress={confirmDeleteAccount}
         />
       </ScrollView>
     </SafeAreaView>
@@ -144,6 +223,9 @@ const s = StyleSheet.create({
   card: { flexDirection: 'row', gap: 14, alignItems: 'center', padding: 16, borderRadius: 14, borderWidth: 1 },
   avatar: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
   name: { fontSize: 16, fontWeight: '800' },
+  avatarInitials: { fontWeight: '800', fontSize: 16 },
+  nameInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 11 },
+  nameInputText: { paddingVertical: 8, fontSize: 14.5, fontWeight: '700' },
   sub: { fontSize: 12.5, fontWeight: '600', marginTop: 3, lineHeight: 17 },
   section: { fontSize: 11, fontWeight: '800', letterSpacing: 0.6, marginTop: 14, marginBottom: 2 },
   countsCard: { padding: 14, borderRadius: 14, borderWidth: 1, gap: 9 },

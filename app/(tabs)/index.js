@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Target, TrendingUp, Crosshair, Camera, Wind, FlaskConical, BookOpen, User } from 'lucide-react-native';
+import { initialsFrom } from '../../lib/profile';
 import { useRouter } from 'expo-router';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
@@ -9,7 +10,8 @@ import { LinearGradient } from '../../components/Gradient';
 
 export default function HomeScreen() {
   const { colors } = useTheme();
-  const { sessions, rifles, projects, dopeCards, units, getRifleName } = useData();
+  const { sessions, rifles, projects, dopeCards, units, getRifleName, profileName } = useData();
+  const initials = initialsFrom(profileName);
   const router = useRouter();
 
   const recent = sessions.slice(0, 3);
@@ -34,7 +36,9 @@ export default function HomeScreen() {
             accessibilityLabel="Account, data and privacy"
             style={[s.avatar, { backgroundColor: colors.avb }]}
           >
-            <User size={19} color={colors.avt} />
+            {initials
+              ? <Text style={[s.avatarText, { color: colors.avt }]}>{initials}</Text>
+              : <User size={19} color={colors.avt} />}
           </TouchableOpacity>
         </View>
 
@@ -157,6 +161,7 @@ const s = StyleSheet.create({
   welcome: { fontSize: 13, fontWeight: '600' },
   title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4, marginTop: 2 },
   avatar: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontWeight: '800', fontSize: 15 },
   heroCard: {
     borderRadius: 22, padding: 22, overflow: 'hidden', position: 'relative',
     backgroundColor: '#6D3BEB',
