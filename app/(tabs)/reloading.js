@@ -10,6 +10,7 @@ import { parseDepths, analyseSeating } from '../../lib/seating';
 import { assessReference } from '../../lib/refload';
 import { parseStrings, comparePrimers } from '../../lib/primers';
 import { parseWorkup, analyseWorkup } from '../../lib/pressure';
+import { parseCandidates, analyseScreen } from '../../lib/screening';
 import ChronoImport from '../../components/ChronoImport';
 
 const STEP_META = [
@@ -22,21 +23,6 @@ const STEP_META = [
   { num: 7, label: 'Seating', icon: Ruler, desc: 'Tune seating depth (CBTO) around the chosen node.' },
   { num: 8, label: 'Ref', icon: BookCheck, desc: 'Confirm the reference load over full distance.' },
 ];
-
-/** Steps without a data model yet. Saying so beats a convincing fake table. */
-function NotBuiltStep({ colors, label }) {
-  return (
-    <View style={[cs.notBuilt, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
-      <Info size={18} color={colors.mut} />
-      <Text style={[cs.notBuiltText, { color: colors.mut }]}>
-        {label} isn't built yet. Goal (1), the charge work-up (3), primers (5),
-        the charge ladder (6), seating depth (7) and the reference load (8)
-        record real data and analyse it. Nothing here is recorded, so there's
-        nothing to show.
-      </Text>
-    </View>
-  );
-}
 
 function NumField({ colors, label, unit, value, onChange }) {
   return (
@@ -104,6 +90,33 @@ export default function ReloadingScreen() {
   };
   const removeDepth = (id) =>
     project && updateProject(project.id, { seatingRows: seatingRows.filter(r => r.id !== id) });
+
+  // Steps 2 and 4 are the same shape — several candidates, one group each, and
+  // the same refusal to rank them. Only the label on the first column differs.
+  const screenRows = project?.screenRows || [];
+  const screenShots = project?.screenShots || 5;
+  const screen = useMemo(
+    () => analyseScreen(parseCandidates(screenRows), screenShots),
+    [screenRows, screenShots]
+  );
+  const coarseRows = project?.coarseRows || [];
+  const coarseShots = project?.coarseShots || 5;
+  const coarse = useMemo(
+    () => analyseScreen(parseCandidates(coarseRows), coarseShots, 'charges'),
+    [coarseRows, coarseShots]
+  );
+
+  const candidateOps = (key, list) => ({
+    set: (id, field, value) => project && updateProject(project.id, {
+      [key]: list.map(r => r.id === id ? { ...r, [field]: value } : r),
+    }),
+    add: () => project && updateProject(project.id, {
+      [key]: [...list, { id: 'x' + Date.now(), name: '', groupMoa: '' }],
+    }),
+    remove: (id) => project && updateProject(project.id, {
+      [key]: list.filter(r => r.id !== id),
+    }),
+  });
 
   const workupRows = project?.workupRows || [];
   const workupPoints = useMemo(() => parseWorkup(workupRows), [workupRows]);
@@ -277,7 +290,8 @@ export default function ReloadingScreen() {
             // Only the ladder can be "done" — it is the only step holding data.
             const done = (sm.num === 6 && parsed.length >= 3) ||
               (sm.num === 7 && depths.length >= 3) || (sm.num === 8 && ref.ok) ||
-              (sm.num === 5 && primerStrings.length >= 2) || (sm.num === 3 && workup.ok);
+              (sm.num === 5 && primerStrings.length >= 2) || (sm.num === 3 && workup.ok) ||
+              (sm.num === 2 && screen.ok) || (sm.num === 4 && coarse.ok);
             return (
               <TouchableOpacity key={sm.num} onPress={() => goStep(sm.num)} style={s.stepBtn}>
                 <View style={[s.stepCircle, {
@@ -547,6 +561,90 @@ export default function ReloadingScreen() {
 
 
 
+
+          {(step === 2 || step === 4) && (() => {
+            const isScreen = step === 2;
+            const list = isScreen ? screenRows : coarseRows;
+            const result = isScreen ? screen : coarse;
+            const shotsVal = isScreen ? screenShots : coarseShots;
+            const shotsKey = isScreen ? 'screenShots' : 'coarseShots';
+            const ops = candidateOps(isScreen ? 'screenRows' : 'coarseRows', list);
+            const nameLabel = isScreen ? 'POWDER / BULLET' : 'CHARGE';
+            const namePlaceholder = isScreen ? 'H4350 / 140 Hybrid' : '42.0 gr';
+            return (
+              <View style={cs.wrap}>
+                <View style={cs.ladderHead}>
+                  <Text style={[cs.colH, { color: colors.fnt, flex: 2 }]}>{nameLabel}</Text>
+                  <Text style={[cs.colH, { color: colors.fnt, flex: 1, textAlign: 'center' }]}>GROUP</Text>
+                  <View style={{ width: 26 }} />
+                </View>
+
+                {list.length === 0 && (
+                  <Text style={[cs.emptyLadder, { color: colors.mut }]}>
+                    {isScreen
+                      ? 'No combinations yet. Add one per powder and bullet pairing you shot.'
+                      : 'No charges yet. Add one per charge weight you shot a group with.'}
+                  </Text>
+                )}
+
+                {list.map(r => {
+                  const stat = result.scored?.find(x => x.id === r.id);
+                  return (
+                    <View key={r.id} style={[cs.ladderRow,
+                      stat?.eliminated && { backgroundColor: colors.warns }]}>
+                      <View style={[cs.cell, { flex: 2, backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                        <TextInput value={r.name} onChangeText={v => ops.set(r.id, 'name', v)}
+                          placeholder={namePlaceholder} placeholderTextColor={colors.fnt}
+                          style={[cs.cellText, { color: colors.tx, textAlign: 'left' }]} />
+                      </View>
+                      <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                        <TextInput value={r.groupMoa} onChangeText={v => ops.set(r.id, 'groupMoa', v)}
+                          placeholder="MOA" placeholderTextColor={colors.fnt}
+                          keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
+                      </View>
+                      <TouchableOpacity onPress={() => ops.remove(r.id)} style={cs.rowAct}>
+                        <Trash2 size={15} color={colors.fnt} />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+
+                <TouchableOpacity onPress={ops.add} style={[cs.addRung, { borderColor: colors.ibd }]}>
+                  <Plus size={15} color={colors.act} />
+                  <Text style={[cs.addRungText, { color: colors.act }]}>
+                    {isScreen ? 'Add combination' : 'Add charge'}
+                  </Text>
+                </TouchableOpacity>
+
+                <View style={{ width: '50%' }}>
+                  <Text style={[cs.lbl, { color: colors.mut }]}>Shots per group</Text>
+                  <View style={[cs.inp, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                    <TextInput value={String(shotsVal)} onChangeText={v => setField(shotsKey, v)}
+                      keyboardType="number-pad" style={[cs.inpText, { color: colors.tx }]} />
+                  </View>
+                </View>
+
+                {result.ok ? (
+                  <View style={[cs.result, {
+                    backgroundColor: result.eliminated.length ? colors.warns : colors.inset,
+                  }]}>
+                    {result.eliminated.length
+                      ? <TriangleAlert size={17} color={colors.warnt} />
+                      : <Info size={17} color={colors.mut} />}
+                    <Text style={[cs.resultText, {
+                      color: result.eliminated.length ? colors.warnt : colors.mut, flex: 1,
+                    }]}>{result.verdict}</Text>
+                  </View>
+                ) : (
+                  <View style={[cs.result, { backgroundColor: colors.inset }]}>
+                    <Info size={17} color={colors.mut} />
+                    <Text style={[cs.resultText, { color: colors.mut, flex: 1 }]}>{result.reason}</Text>
+                  </View>
+                )}
+              </View>
+            );
+          })()}
+
           {step === 3 && (
             <View style={cs.wrap}>
               <View style={[cs.note, { backgroundColor: colors.warns }]}>
@@ -783,8 +881,7 @@ export default function ReloadingScreen() {
             </View>
           )}
 
-          {step !== 1 && step !== 3 && step !== 5 && step !== 6 && step !== 7 && step !== 8 &&
-            <NotBuiltStep colors={colors} label={meta.label} />}
+
         </View>
 
         {step < 8 && (
