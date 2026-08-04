@@ -8,6 +8,7 @@ import { useData } from '../../store/data';
 import { parseRungs, findNode, bestGroup } from '../../lib/loaddev';
 import { parseDepths, analyseSeating } from '../../lib/seating';
 import { assessReference } from '../../lib/refload';
+import { parseStrings, comparePrimers } from '../../lib/primers';
 import ChronoImport from '../../components/ChronoImport';
 
 const STEP_META = [
@@ -27,9 +28,9 @@ function NotBuiltStep({ colors, label }) {
     <View style={[cs.notBuilt, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
       <Info size={18} color={colors.mut} />
       <Text style={[cs.notBuiltText, { color: colors.mut }]}>
-        {label} isn't built yet. Goal (1), the charge ladder (6), seating depth
-        (7) and the reference load (8) record real data and analyse it. Nothing
-        here is recorded, so there's nothing to show.
+        {label} isn't built yet. Goal (1), primers (5), the charge ladder (6),
+        seating depth (7) and the reference load (8) record real data and
+        analyse it. Nothing here is recorded, so there's nothing to show.
       </Text>
     </View>
   );
@@ -101,6 +102,23 @@ export default function ReloadingScreen() {
   };
   const removeDepth = (id) =>
     project && updateProject(project.id, { seatingRows: seatingRows.filter(r => r.id !== id) });
+
+  const primerRows = project?.primerRows || [];
+  const primerStrings = useMemo(() => parseStrings(primerRows), [primerRows]);
+  const primers = useMemo(() => comparePrimers(primerStrings), [primerStrings]);
+
+  const setPrimer = (id, field, value) => {
+    if (!project) return;
+    updateProject(project.id, {
+      primerRows: primerRows.map(r => r.id === id ? { ...r, [field]: value } : r),
+    });
+  };
+  const addPrimer = () => project && updateProject(project.id, {
+    primerRows: [...primerRows, { id: 'p' + Date.now(), brand: '', velocities: '' }],
+  });
+  const removePrimer = (id) => project && updateProject(project.id, {
+    primerRows: primerRows.filter(r => r.id !== id),
+  });
 
   // Step 8 works in target inches at the test distance, because that is what a
   // shooter reads off a plate. MOA is what the maths needs.
@@ -225,7 +243,8 @@ export default function ReloadingScreen() {
             const sel = sm.num === step;
             // Only the ladder can be "done" — it is the only step holding data.
             const done = (sm.num === 6 && parsed.length >= 3) ||
-              (sm.num === 7 && depths.length >= 3) || (sm.num === 8 && ref.ok);
+              (sm.num === 7 && depths.length >= 3) || (sm.num === 8 && ref.ok) ||
+              (sm.num === 5 && primerStrings.length >= 2);
             return (
               <TouchableOpacity key={sm.num} onPress={() => goStep(sm.num)} style={s.stepBtn}>
                 <View style={[s.stepCircle, {
@@ -493,6 +512,78 @@ export default function ReloadingScreen() {
           )}
 
 
+
+          {step === 5 && (
+            <View style={cs.wrap}>
+              {primerRows.length === 0 && (
+                <Text style={[cs.emptyLadder, { color: colors.mut }]}>
+                  No primers yet. Add one per brand and paste the chronograph string.
+                </Text>
+              )}
+
+              {primerRows.map(r => {
+                const stat = primers.rows?.find(x => x.id === r.id);
+                const isBest = primers.best && primers.best.id === r.id;
+                return (
+                  <View key={r.id} style={[cs.primerCard, {
+                    backgroundColor: isBest && primers.significant ? colors.oks : colors.inset,
+                    borderColor: colors.ibd,
+                  }]}>
+                    <View style={cs.row}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[cs.lbl, { color: colors.mut }]}>Brand</Text>
+                        <View style={[cs.inp, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                          <TextInput value={r.brand} onChangeText={v => setPrimer(r.id, 'brand', v)}
+                            placeholder="CCI 450" placeholderTextColor={colors.fnt}
+                            style={[cs.inpText, { color: colors.tx }]} />
+                        </View>
+                      </View>
+                      <TouchableOpacity onPress={() => removePrimer(r.id)} style={cs.rowAct}>
+                        <Trash2 size={15} color={colors.fnt} />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={[cs.lbl, { color: colors.mut }]}>Velocities (fps)</Text>
+                    <View style={[cs.inp, { backgroundColor: colors.input, borderColor: colors.ibd, height: 'auto', minHeight: 44 }]}>
+                      <TextInput value={r.velocities} onChangeText={v => setPrimer(r.id, 'velocities', v)}
+                        placeholder="2810 2822 2815 2830 2818" placeholderTextColor={colors.fnt}
+                        multiline style={[cs.inpText, { color: colors.tx, paddingVertical: 8 }]} />
+                    </View>
+                    {stat && (
+                      <Text style={[cs.hint, { color: colors.mut, marginTop: 6 }]}>
+                        {stat.n} shots · {stat.mean} fps avg · SD {stat.sd} fps
+                        {stat.sdLow != null && ` (could be anywhere from ${stat.sdLow} to ${stat.sdHigh})`}
+                        {' · ES '}{stat.es}
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
+
+              <TouchableOpacity onPress={addPrimer} style={[cs.addRung, { borderColor: colors.ibd }]}>
+                <Plus size={15} color={colors.act} />
+                <Text style={[cs.addRungText, { color: colors.act }]}>Add primer</Text>
+              </TouchableOpacity>
+
+              {primers.best ? (
+                <View style={[cs.result, {
+                  backgroundColor: primers.significant ? colors.oks : colors.warns,
+                }]}>
+                  {primers.significant
+                    ? <CircleCheck size={17} color={colors.okt} />
+                    : <TriangleAlert size={17} color={colors.warnt} />}
+                  <Text style={[cs.resultText, {
+                    color: primers.significant ? colors.okt : colors.warnt, flex: 1,
+                  }]}>{primers.verdict}</Text>
+                </View>
+              ) : (
+                <View style={[cs.result, { backgroundColor: colors.inset }]}>
+                  <Info size={17} color={colors.mut} />
+                  <Text style={[cs.resultText, { color: colors.mut, flex: 1 }]}>{primers.reason}</Text>
+                </View>
+              )}
+            </View>
+          )}
+
           {step === 8 && (
             <View style={cs.wrap}>
               <View style={cs.row}>
@@ -550,7 +641,8 @@ export default function ReloadingScreen() {
             </View>
           )}
 
-          {step !== 1 && step !== 6 && step !== 7 && step !== 8 && <NotBuiltStep colors={colors} label={meta.label} />}
+          {step !== 1 && step !== 5 && step !== 6 && step !== 7 && step !== 8 &&
+            <NotBuiltStep colors={colors} label={meta.label} />}
         </View>
 
         {step < 8 && (
@@ -581,6 +673,7 @@ const cs = StyleSheet.create({
   noteText: { fontSize: 12.5, fontWeight: '600', lineHeight: 18 },
   notBuilt: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', padding: 14, borderRadius: 12, borderWidth: 1, marginTop: 4 },
   hint: { fontSize: 12, marginTop: -4 },
+  primerCard: { borderWidth: 1, borderRadius: 10, padding: 12, gap: 6 },
   notBuiltText: { flex: 1, fontSize: 12.5, fontWeight: '600', lineHeight: 18 },
   ladderHead: { flexDirection: 'row', gap: 8, paddingBottom: 4 },
   colH: { fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
