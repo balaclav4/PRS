@@ -9,6 +9,7 @@
  * Run: node scripts/test-units.mjs
  */
 import {
+  MOA_PER_MRAD, angularUnit, angularFallsBack, moaToAngular, formatAngular,
   inchesToUnit, unitToInches, fToC, cToF, fpsToMps, mpsToFps, ydToM, mToYd,
   formatGroup, formatTemp, formatVelocity, formatDistance, groupUnitLabel,
   DEFAULT_UNITS, GROUP_UNITS,
@@ -110,6 +111,38 @@ console.log('\nlabels and defaults');
   check('  defaults are imperial',
     DEFAULT_UNITS.group === 'MOA' && DEFAULT_UNITS.temp === '°F' &&
     DEFAULT_UNITS.velocity === 'fps' && DEFAULT_UNITS.distance === 'yd');
+}
+
+console.log('\nangular figures (analytics works in MOA throughout)');
+{
+  // 1 mil subtends 3.6" at 100yd, 1 MOA subtends 1.047", so 3.4384 MOA per mil.
+  check('  MOA per MRAD is 3.4384', near(MOA_PER_MRAD, 3.4384, 1e-3), MOA_PER_MRAD.toFixed(4));
+  check('  MOA stays MOA', moaToAngular(1.0, 'MOA') === 1.0);
+  check('  1 MOA is 0.291 MRAD', near(moaToAngular(1.0, 'MRAD'), 0.2908, 1e-3),
+    moaToAngular(1.0, 'MRAD').toFixed(4));
+  check('  round trips through MRAD',
+    near(moaToAngular(1.0, 'MRAD') * MOA_PER_MRAD, 1.0, 1e-12));
+
+  // Inches needs a distance, which an aggregate across sessions does not have.
+  check('  an Inches preference falls back to MOA', angularUnit('Inches') === 'MOA');
+  check('  and the fallback is announceable', angularFallsBack('Inches') === true);
+  check('  MOA and MRAD do not fall back',
+    !angularFallsBack('MOA') && !angularFallsBack('MRAD'));
+
+  check('  formats with its unit', formatAngular(1.234, 'MOA') === '1.23 MOA',
+    formatAngular(1.234, 'MOA'));
+  check('  formats MRAD', formatAngular(1.0, 'MRAD') === '0.29 MRAD', formatAngular(1.0, 'MRAD'));
+  check('  Inches formats as MOA, never as inches',
+    formatAngular(1.234, 'Inches') === '1.23 MOA', formatAngular(1.234, 'Inches'));
+  check('  null is an em dash', formatAngular(null, 'MOA') === '—');
+
+  // The angular path must agree with the distance-aware one at a known distance.
+  const inches = 1.047; // exactly 1 MOA at 100yd
+  check('  agrees with the distance-aware formatter at 100yd',
+    near(inchesToUnit(inches, 100, 'MOA'), moaToAngular(1.0, 'MOA'), 1e-9));
+  check('  and in MRAD at 100yd',
+    near(inchesToUnit(inches, 100, 'MRAD'), moaToAngular(1.0, 'MRAD'), 1e-9),
+    inchesToUnit(inches, 100, 'MRAD').toFixed(4));
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));

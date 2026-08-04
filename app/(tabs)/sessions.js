@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
-import { formatGroup } from '../../lib/units';
+import { formatDistance, formatGroup } from '../../lib/units';
 import FilterChips from '../../components/FilterChips';
 import SessionRow from '../../components/SessionRow';
 
@@ -66,7 +66,7 @@ export default function SessionsScreen() {
               name={sess.name}
               date={sess.date}
               rifle={getRifleName(sess.rifleId)}
-              meta={`${sess.distanceYd} yd · ${sess.targetCount} targets`}
+              meta={`${formatDistance(sess.distanceYd, units.distance)} · ${sess.targetCount} targets`}
               best={sess.best}
               bestLabelText={formatGroup(parseFloat(sess.best), sess.distanceYd, units.group)}
               onPress={() => router.push(`/session/${sess.id}`)}

@@ -6,12 +6,12 @@ import { useState, useMemo } from 'react';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { deriveAnalytics, comparisonBuckets, compareBuckets, fmtP } from '../../lib/analytics';
+import { angularUnit, angularFallsBack, moaToAngular, formatAngular, MOA_PER_MRAD } from '../../lib/units';
 import { saveCSV } from '../../lib/export';
 import FilterChips from '../../components/FilterChips';
 import TargetPlot from '../../components/TargetPlot';
 import PickerSheet from '../../components/PickerSheet';
 
-const fmtMoa = (v) => (v == null ? '—' : v.toFixed(2) + ' MOA');
 
 /**
  * Hit probability saturates near 100% for tight groups on a generous target,
@@ -38,7 +38,13 @@ function trendDomain(trend) {
 
 export default function AnalyticsScreen() {
   const { colors } = useTheme();
-  const { rifles, loads, sessions, exportSessionsCSV } = useData();
+  const { rifles, loads, sessions, exportSessionsCSV, units } = useData();
+  // Analytics aggregates sessions shot at different distances, so every figure
+  // here is angular. An Inches preference cannot be honoured without a single
+  // distance to convert against, so it falls back to MOA and the screen says so.
+  const aUnit = angularUnit(units.group);
+  const unitFellBack = angularFallsBack(units.group);
+  const fmtMoa = (v) => formatAngular(v, units.group);
   const [filter, setFilter] = useState('all');
 
   const chips = [
@@ -62,7 +68,9 @@ export default function AnalyticsScreen() {
   const [cmpA, setCmpA] = useState(null);
   const [cmpB, setCmpB] = useState(null);
   const [picking, setPicking] = useState(null); // 'A' | 'B' | null
-  const [plateMoa, setPlateMoa] = useState('2');
+  // Held in whatever unit is on screen; converted to MOA before it reaches the
+  // statistics, which work in MOA throughout.
+  const [plateInput, setPlateInput] = useState(null);
 
   const buckets = useMemo(
     () => comparisonBuckets(sessions, rifles, loads, cmpDim),
@@ -72,14 +80,21 @@ export default function AnalyticsScreen() {
   // Default to the two best-sampled options whenever the dimension changes.
   const aKey = cmpA ?? buckets[0]?.key ?? null;
   const bKey = cmpB ?? buckets.find(x => x.key !== aKey)?.key ?? null;
-  const plate = parseFloat(plateMoa) || 2;
+  // 2 MOA is the default plate; shown as 0.58 when the screen is in MRAD.
+  const plateShown = plateInput ?? moaToAngular(2, units.group).toFixed(2);
+  const plate = (() => {
+    const v = parseFloat(plateShown);
+    if (!isFinite(v) || v <= 0) return 2;
+    return aUnit === 'MRAD' ? v * MOA_PER_MRAD : v;
+  })();
   const result = useMemo(
     () => compareBuckets(
       buckets.find(x => x.key === aKey),
       buckets.find(x => x.key === bKey),
-      plate
+      plate,
+      aUnit
     ),
-    [buckets, aKey, bKey, plate]
+    [buckets, aKey, bKey, plate, aUnit]
   );
 
   const pickDim = (d) => { setCmpDim(d); setCmpA(null); setCmpB(null); };
@@ -150,13 +165,23 @@ export default function AnalyticsScreen() {
           </View>
         ) : (
           <>
+            {unitFellBack && (
+              <View style={[s.unitNote, { backgroundColor: colors.inset }]}>
+                <Info size={14} color={colors.mut} />
+                <Text style={[s.unitNoteText, { color: colors.mut }]}>
+                  Shown in MOA. These figures pool sessions shot at different
+                  distances, and inches needs one distance to convert against.
+                </Text>
+              </View>
+            )}
+
             <View style={s.tilesRow}>
               <View style={[s.tile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
                 <Text style={[s.tileLabel, { color: colors.mut }]}>Avg Group</Text>
                 <Text style={[s.tileVal, { color: colors.tx }]}>
-                  {data.avg != null ? data.avg.toFixed(2) : '—'}
+                  {data.avg != null ? moaToAngular(data.avg, units.group).toFixed(2) : '—'}
                 </Text>
-                <Text style={[s.tileUnit, { color: colors.fnt }]}>MOA</Text>
+                <Text style={[s.tileUnit, { color: colors.fnt }]}>{aUnit}</Text>
               </View>
               <View style={[s.tile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
                 <Text style={[s.tileLabel, { color: colors.mut }]}>Total Rounds</Text>
@@ -205,7 +230,7 @@ export default function AnalyticsScreen() {
                     <Text style={[s.trendLabel, { color: colors.fnt }]}>
                       {n === 1 ? 'only session' : `${n} sessions ago`}
                     </Text>
-                    <Text style={[s.trendLabel, { color: colors.fnt }]}>latest · MOA</Text>
+                    <Text style={[s.trendLabel, { color: colors.fnt }]}>latest · {aUnit}</Text>
                   </View>
                 </>
               )}
@@ -221,7 +246,7 @@ export default function AnalyticsScreen() {
                     : 'No group recorded'}
                 </Text>
               </View>
-              <TargetPlot moaShots={data.moaShots} size={140} showLabels />
+              <TargetPlot moaShots={data.moaShots} size={140} showLabels unit={units.group} />
             </View>
 
             {/* Statistical Comparison — pick the dimension, then the two sides */}
@@ -278,7 +303,7 @@ export default function AnalyticsScreen() {
                             <Text style={[s.plotName, { color: i === 1 ? colors.okt : colors.mut }]} numberOfLines={1}>
                               {sideData.label}
                             </Text>
-                            <TargetPlot moaShots={sideData.moaOffsets} size={116} showLabels />
+                            <TargetPlot moaShots={sideData.moaOffsets} size={116} showLabels unit={units.group} />
                             <Text style={[s.plotMeta, { color: i === 1 ? colors.okt : colors.fnt }]}>
                               {sideData.shots} shots · {sideData.n} groups
                             </Text>
@@ -295,7 +320,7 @@ export default function AnalyticsScreen() {
                           ['Sigma (dispersion)', fmtMoa(result.a.dispersion?.sigma), fmtMoa(result.b.dispersion?.sigma)],
                           ['CEP R50', fmtMoa(result.a.dispersion?.r50), fmtMoa(result.b.dispersion?.r50)],
                           ['R90', fmtMoa(result.a.dispersion?.r90), fmtMoa(result.b.dispersion?.r90)],
-                          [`P(hit) ${plate} MOA`, fmtPct(result.a.hitPct), fmtPct(result.b.hitPct)],
+                          [`P(hit) ${plate} ${aUnit}`, fmtPct(result.a.hitPct), fmtPct(result.b.hitPct)],
                         ].map(([label, av, bv], i) => (
                           <View key={i} style={[s.statRow, i > 0 && { borderTopWidth: 1, borderTopColor: colors.line }]}>
                             <Text style={[s.statLabel, { color: colors.mut }]}>{label}</Text>
@@ -309,12 +334,12 @@ export default function AnalyticsScreen() {
                         <Text style={[s.plateLabel, { color: colors.mut }]}>Target size for P(hit)</Text>
                         <View style={[s.plateInput, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
                           <TextInput
-                            value={plateMoa}
-                            onChangeText={setPlateMoa}
+                            value={String(plateShown)}
+                            onChangeText={setPlateInput}
                             keyboardType="decimal-pad"
                             style={[s.plateInputText, { color: colors.tx }]}
                           />
-                          <Text style={[s.plateUnit, { color: colors.fnt }]}>MOA</Text>
+                          <Text style={[s.plateUnit, { color: colors.fnt }]}>{aUnit}</Text>
                         </View>
                       </View>
 
@@ -379,6 +404,8 @@ const s = StyleSheet.create({
   tileLabel: { fontSize: 12, fontWeight: '600' },
   tileVal: { fontSize: 24, fontWeight: '700', marginTop: 6, fontFamily: 'JetBrainsMono_700Bold' },
   tileUnit: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+  unitNote: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', padding: 11, borderRadius: 10, marginBottom: 4 },
+  unitNoteText: { flex: 1, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
   card: { borderWidth: 1, borderRadius: 18, padding: 18, paddingHorizontal: 16, marginBottom: 12 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   cardTitle: { fontSize: 15, fontWeight: '800' },

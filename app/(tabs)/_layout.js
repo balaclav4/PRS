@@ -58,15 +58,28 @@ export default function TabLayout() {
           headerShown: false,
           tabBarActiveTintColor: colors.act,
           tabBarInactiveTintColor: colors.fnt,
+          // A 23px icon plus a 10px label needs about 36px of content box. At
+          // height 64 with 20px of padding the tab item had 33px, so the label
+          // — flex: 0 1 auto in a column — was shrunk to 5.2px and cropped by
+          // overflow: hidden, leaving the tops of the letters and nothing else.
           tabBarStyle: {
             backgroundColor: colors.nav,
             borderTopColor: colors.bd,
             borderTopWidth: 1,
             paddingBottom: Platform.OS === 'ios' ? 24 : 10,
-            paddingTop: 10,
-            height: Platform.OS === 'ios' ? 88 : 64,
+            paddingTop: 8,
+            height: Platform.OS === 'ios' ? 88 : 74,
           },
-          tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
+          // flexShrink: 0 keeps the label at its natural height rather than
+          // letting it collapse again if the icon or padding ever changes;
+          // lineHeight makes that natural height explicit instead of 'normal'.
+          tabBarLabelStyle: {
+            fontSize: 10,
+            fontWeight: '700',
+            lineHeight: 13,
+            flexShrink: 0,
+            marginTop: 2,
+          },
         }}
       >
         <Tabs.Screen
@@ -117,6 +130,7 @@ export default function TabLayout() {
         <Tabs.Screen name="equipment" options={{ href: null }} />
         <Tabs.Screen name="settings" options={{ href: null }} />
         <Tabs.Screen name="dopecards" options={{ href: null }} />
+        <Tabs.Screen name="account" options={{ href: null }} />
       </Tabs>
       <MoreSheet visible={moreOpen} onClose={() => setMoreOpen(false)} />
     </>

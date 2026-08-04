@@ -11,6 +11,7 @@ import { assessReference } from '../../lib/refload';
 import { parseStrings, comparePrimers } from '../../lib/primers';
 import { parseWorkup, analyseWorkup } from '../../lib/pressure';
 import { parseCandidates, analyseScreen } from '../../lib/screening';
+import { groupUnitLabel, inchesToUnit, formatDistance } from '../../lib/units';
 import ChronoImport from '../../components/ChronoImport';
 
 const STEP_META = [
@@ -44,7 +45,13 @@ function NumField({ colors, label, unit, value, onChange }) {
 export default function ReloadingScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { projects, rifles, loads, updateProject } = useData();
+  const { projects, rifles, loads, updateProject, units } = useData();
+  // Load dev figures are whatever the shooter enters — the analyses are
+  // scale-invariant (they work in ratios and multiples of sigma), so the unit
+  // only has to be labelled consistently and used in the prose.
+  const gUnit = units.group === 'Inches' ? 'Inches' : units.group;
+  const gLabel = groupUnitLabel(units.group);
+  const vLabel = units.velocity;
 
   const project = projects[0] || null;
   const [step, setStep] = useState(project?.currentStep || 6);
@@ -64,7 +71,7 @@ export default function ReloadingScreen() {
   const seatingRows = project?.seatingRows || [];
   const seatingShots = project?.seatingShots || 5;
   const depths = useMemo(() => parseDepths(seatingRows), [seatingRows]);
-  const seating = useMemo(() => analyseSeating(depths, seatingShots), [depths, seatingShots]);
+  const seating = useMemo(() => analyseSeating(depths, seatingShots, gLabel), [depths, seatingShots, gLabel]);
 
   const setDepth = (id, field, value) => {
     if (!project) return;
@@ -96,14 +103,14 @@ export default function ReloadingScreen() {
   const screenRows = project?.screenRows || [];
   const screenShots = project?.screenShots || 5;
   const screen = useMemo(
-    () => analyseScreen(parseCandidates(screenRows), screenShots),
-    [screenRows, screenShots]
+    () => analyseScreen(parseCandidates(screenRows), screenShots, 'combinations', gLabel),
+    [screenRows, screenShots, gLabel]
   );
   const coarseRows = project?.coarseRows || [];
   const coarseShots = project?.coarseShots || 5;
   const coarse = useMemo(
-    () => analyseScreen(parseCandidates(coarseRows), coarseShots, 'charges'),
-    [coarseRows, coarseShots]
+    () => analyseScreen(parseCandidates(coarseRows), coarseShots, 'charges', gLabel),
+    [coarseRows, coarseShots, gLabel]
   );
 
   const candidateOps = (key, list) => ({
@@ -121,8 +128,9 @@ export default function ReloadingScreen() {
   const workupRows = project?.workupRows || [];
   const workupPoints = useMemo(() => parseWorkup(workupRows), [workupRows]);
   const workup = useMemo(
-    () => analyseWorkup(workupPoints, project?.bookMaxGr ? Number(project.bookMaxGr) : null),
-    [workupPoints, project?.bookMaxGr]
+    () => analyseWorkup(workupPoints, project?.bookMaxGr ? Number(project.bookMaxGr) : null,
+      { velocityUnit: vLabel }),
+    [workupPoints, project?.bookMaxGr, vLabel]
   );
 
   const setWorkup = (id, field, value) => {
@@ -151,7 +159,7 @@ export default function ReloadingScreen() {
 
   const primerRows = project?.primerRows || [];
   const primerStrings = useMemo(() => parseStrings(primerRows), [primerRows]);
-  const primers = useMemo(() => comparePrimers(primerStrings), [primerStrings]);
+  const primers = useMemo(() => comparePrimers(primerStrings, vLabel), [primerStrings, vLabel]);
 
   const setPrimer = (id, field, value) => {
     if (!project) return;
@@ -167,19 +175,22 @@ export default function ReloadingScreen() {
   });
 
   // Step 8 works in target inches at the test distance, because that is what a
-  // shooter reads off a plate. MOA is what the maths needs.
+  // shooter reads off a plate. It has to end up in the SAME unit the group
+  // sizes were entered in — it was hardcoded to MOA while the group came from a
+  // field labelled with the user's unit, so anyone working in MRAD was having a
+  // 9.5 MOA plate compared against a 0.17 MRAD group.
   const refDistance = Number(project?.testDistanceYd) || 0;
   const refTargetIn = Number(project?.refTargetIn) || 0;
-  const refTargetMoa = refDistance > 0 && refTargetIn > 0
-    ? refTargetIn / (1.047 * refDistance / 100)
+  const refTargetAng = refDistance > 0 && refTargetIn > 0
+    ? inchesToUnit(refTargetIn, refDistance, gUnit)
     : null;
   const ref = useMemo(() => assessReference({
     hits: project?.refHits, shots: project?.refShots,
     groupMoa: project?.refGroupMoa, groupShots: project?.refGroupShots || 5,
-    targetMoa: refTargetMoa,
-    goalMoa: project?.goalMoa, hitRatePct: project?.hitRatePct,
+    targetMoa: refTargetAng,
+    goalMoa: project?.goalMoa, hitRatePct: project?.hitRatePct, unit: gLabel,
   }), [project?.refHits, project?.refShots, project?.refGroupMoa,
-       project?.refGroupShots, refTargetMoa, project?.goalMoa, project?.hitRatePct]);
+       project?.refGroupShots, refTargetAng, project?.goalMoa, project?.hitRatePct]);
 
   const rifle = rifles.find(r => r.id === project?.rifleId);
   const load = loads.find(l => l.id === project?.loadId);
@@ -271,7 +282,7 @@ export default function ReloadingScreen() {
           <View style={[s.projStats, { borderTopColor: colors.line }]}>
             <View>
               <Text style={[s.projStatVal, { color: colors.tx }]}>≤{project.goalMoa || '—'}</Text>
-              <Text style={[s.projStatLabel, { color: colors.mut }]}>Goal MOA</Text>
+              <Text style={[s.projStatLabel, { color: colors.mut }]}>Goal {gLabel}</Text>
             </View>
             <View>
               <Text style={[s.projStatVal, { color: colors.tx }]}>{project.hitRatePct || '—'}%</Text>
@@ -319,7 +330,7 @@ export default function ReloadingScreen() {
             <View style={cs.wrap}>
               <View style={cs.row}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[cs.lbl, { color: colors.mut }]}>Goal MOA</Text>
+                  <Text style={[cs.lbl, { color: colors.mut }]}>Goal {gLabel}</Text>
                   <View style={[cs.inp, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
                     <TextInput
                       value={String(project.goalMoa ?? '')}
@@ -327,7 +338,7 @@ export default function ReloadingScreen() {
                       keyboardType="decimal-pad"
                       style={[cs.inpText, { color: colors.tx }]}
                     />
-                    <Text style={[cs.unit, { color: colors.fnt }]}>MOA</Text>
+                    <Text style={[cs.unit, { color: colors.fnt }]}>{gLabel}</Text>
                   </View>
                 </View>
                 <View style={{ flex: 1 }}>
@@ -403,13 +414,13 @@ export default function ReloadingScreen() {
                     ) : (
                       <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
                         <TextInput value={r.velocity} onChangeText={v => setRung(r.id, 'velocity', v)}
-                          placeholder="fps" placeholderTextColor={colors.fnt}
+                          placeholder={vLabel} placeholderTextColor={colors.fnt}
                           keyboardType="number-pad" style={[cs.cellText, { color: colors.tx }]} />
                       </View>
                     )}
                     <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
                       <TextInput value={r.groupMoa} onChangeText={v => setRung(r.id, 'groupMoa', v)}
-                        placeholder="MOA" placeholderTextColor={colors.fnt}
+                        placeholder={gLabel} placeholderTextColor={colors.fnt}
                         keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
                     </View>
                     <TouchableOpacity onPress={() => setChronoRung(r.id)} style={cs.rowAct}>
@@ -443,7 +454,7 @@ export default function ReloadingScreen() {
                   <Text style={[cs.lbl, { color: colors.mut }]}>Best group</Text>
                   <View style={[cs.inp, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
                     <Text style={[cs.inpText, { color: colors.tx, paddingVertical: 12 }]}>
-                      {best ? `${best.groupMoa} MOA @ ${best.charge}gr` : '—'}
+                      {best ? `${best.groupMoa} ${gLabel} @ ${best.charge}gr` : '—'}
                     </Text>
                   </View>
                 </View>
@@ -463,8 +474,8 @@ export default function ReloadingScreen() {
                       {analysis.verdict}
                     </Text>
                     <Text style={[cs.resultMeta, { color: analysis.node.significant ? colors.okt : colors.warnt }]}>
-                      {analysis.node.slope} fps/gr across the flat window vs {analysis.node.overallSlope} overall
-                      {analysis.velocitySd != null && ` · noise ${analysis.velocitySd} fps (${analysis.sdSource})`}
+                      {analysis.node.slope} {vLabel}/gr across the flat window vs {analysis.node.overallSlope} overall
+                      {analysis.velocitySd != null && ` · noise ${analysis.velocitySd} ${vLabel} (${analysis.sdSource})`}
                       {analysis.sdIsWeak && ' — treat as rough'}
                       {analysis.sdSource !== 'measured' && '\nImport a chrono string per rung for a measured noise figure.'}
                     </Text>
@@ -504,7 +515,7 @@ export default function ReloadingScreen() {
                     </View>
                     <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
                       <TextInput value={r.groupMoa} onChangeText={v => setDepth(r.id, 'groupMoa', v)}
-                        placeholder="MOA" placeholderTextColor={colors.fnt}
+                        placeholder={gLabel} placeholderTextColor={colors.fnt}
                         keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
                     </View>
                     <TouchableOpacity onPress={() => removeDepth(r.id)} style={cs.rowAct}>
@@ -543,8 +554,8 @@ export default function ReloadingScreen() {
                       {seating.verdict}
                     </Text>
                     <Text style={[cs.resultMeta, { color: seating.significant ? colors.okt : colors.warnt }]}>
-                      {depths.length} depths, typical {seating.level} MOA · a {seatingShots}-shot
-                      group varies about ±{(seating.cv * 100).toFixed(0)}% ({seating.sigma} MOA) on
+                      {depths.length} depths, typical {seating.level} {gLabel} · a {seatingShots}-shot
+                      group varies about ±{(seating.cv * 100).toFixed(0)}% ({seating.sigma} {gLabel}) on
                       its own, before anything about the load changes
                     </Text>
                   </View>
@@ -599,7 +610,7 @@ export default function ReloadingScreen() {
                       </View>
                       <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
                         <TextInput value={r.groupMoa} onChangeText={v => ops.set(r.id, 'groupMoa', v)}
-                          placeholder="MOA" placeholderTextColor={colors.fnt}
+                          placeholder={gLabel} placeholderTextColor={colors.fnt}
                           keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
                       </View>
                       <TouchableOpacity onPress={() => ops.remove(r.id)} style={cs.rowAct}>
@@ -682,7 +693,7 @@ export default function ReloadingScreen() {
                       </View>
                       <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
                         <TextInput value={r.velocity} onChangeText={v => setWorkup(r.id, 'velocity', v)}
-                          placeholder="fps" placeholderTextColor={colors.fnt}
+                          placeholder={vLabel} placeholderTextColor={colors.fnt}
                           keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
                       </View>
                       <TouchableOpacity onPress={() => removeWorkup(r.id)} style={cs.rowAct}>
@@ -707,7 +718,7 @@ export default function ReloadingScreen() {
                     </View>
                     {stat && (
                       <Text style={[cs.hint, { color: colors.mut, marginBottom: 6 }]}>
-                        {stat.excess >= 0 ? '+' : ''}{stat.excess} fps against the lower-charge trend
+                        {stat.excess >= 0 ? '+' : ''}{stat.excess} {vLabel} against the lower-charge trend
                       </Text>
                     )}
                   </View>
@@ -782,7 +793,7 @@ export default function ReloadingScreen() {
                         <Trash2 size={15} color={colors.fnt} />
                       </TouchableOpacity>
                     </View>
-                    <Text style={[cs.lbl, { color: colors.mut }]}>Velocities (fps)</Text>
+                    <Text style={[cs.lbl, { color: colors.mut }]}>Velocities ({vLabel})</Text>
                     <View style={[cs.inp, { backgroundColor: colors.input, borderColor: colors.ibd, height: 'auto', minHeight: 44 }]}>
                       <TextInput value={r.velocities} onChangeText={v => setPrimer(r.id, 'velocities', v)}
                         placeholder="2810 2822 2815 2830 2818" placeholderTextColor={colors.fnt}
@@ -790,7 +801,7 @@ export default function ReloadingScreen() {
                     </View>
                     {stat && (
                       <Text style={[cs.hint, { color: colors.mut, marginTop: 6 }]}>
-                        {stat.n} shots · {stat.mean} fps avg · SD {stat.sd} fps
+                        {stat.n} shots · {stat.mean} {vLabel} avg · SD {stat.sd} {vLabel}
                         {stat.sdLow != null && ` (could be anywhere from ${stat.sdLow} to ${stat.sdHigh})`}
                         {' · ES '}{stat.es}
                       </Text>
@@ -833,7 +844,7 @@ export default function ReloadingScreen() {
                   value={project.refHits} onChange={v => setField('refHits', v)} />
               </View>
               <View style={cs.row}>
-                <NumField colors={colors} label="Group size" unit="MOA"
+                <NumField colors={colors} label="Group size" unit={gLabel}
                   value={project.refGroupMoa} onChange={v => setField('refGroupMoa', v)} />
                 <NumField colors={colors} label="Shots in group" unit=""
                   value={project.refGroupShots} onChange={v => setField('refGroupShots', v)} />
@@ -842,11 +853,11 @@ export default function ReloadingScreen() {
                 value={project.refTargetIn} onChange={v => setField('refTargetIn', v)} />
               {refDistance > 0 && refTargetIn > 0 ? (
                 <Text style={[cs.hint, { color: colors.fnt }]}>
-                  {refTargetIn}" at {refDistance} yd is {refTargetMoa.toFixed(2)} MOA
+                  {refTargetIn}" at {formatDistance(refDistance, units.distance)} is {refTargetAng.toFixed(2)} {gLabel}
                 </Text>
               ) : (
                 <Text style={[cs.hint, { color: colors.fnt }]}>
-                  Set a test distance in step 1 to convert this to MOA.
+                  Set a test distance in step 1 to convert this to {gLabel}.
                 </Text>
               )}
 

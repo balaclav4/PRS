@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
+import { formatTemp, formatDistance, formatVelocity } from '../../lib/units';
 import { saveCSV, slugify } from '../../lib/export';
 
 /**
@@ -18,7 +19,7 @@ import { saveCSV, slugify } from '../../lib/export';
 export default function DopeCardsScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { dopeCards, loads, rifles, deleteDopeCard } = useData();
+  const { dopeCards, loads, rifles, deleteDopeCard, units } = useData();
   const [expanded, setExpanded] = useState(null);
 
   const confirmDelete = (card) => {
@@ -32,9 +33,16 @@ export default function DopeCardsScreen() {
 
   const exportCard = (card) => {
     const unit = (card.opts?.unit || 'moa').toUpperCase();
-    const header = `Range (yd),Elevation (${unit}),Wind (${unit}),Velocity (fps),Mach,TOF (s)`;
-    const rows = card.rows.map(r =>
-      [r.rangeYd, r.elevation, r.wind, r.velFps, r.mach, r.tofSec].join(','));
+    const header = `Range (${units.distance}),Elevation (${unit}),Wind (${unit}),Velocity (${units.velocity}),Mach,TOF (s)`;
+    // The header carries the user's units, so the values have to be converted
+    // to match — emitting raw yd/fps under a metric header would mislabel every
+    // row in the file.
+    const rows = card.rows.map(r => [
+      units.distance === 'm' ? (r.rangeYd * 0.9144).toFixed(0) : r.rangeYd,
+      r.elevation, r.wind,
+      units.velocity === 'm/s' ? (r.velFps * 0.3048).toFixed(0) : r.velFps,
+      r.mach, r.tofSec,
+    ].join(','));
     saveCSV([header, ...rows].join('\n'), `${slugify(card.name, 'dope')}.csv`);
   };
 
@@ -90,10 +98,14 @@ export default function DopeCardsScreen() {
                     for the atmosphere it was built in. */}
                 <View style={s.condRow}>
                   {[
-                    [Thermometer, `${o.tempF ?? '—'}°F`],
-                    [Gauge, o.altitudeFt ? `${o.altitudeFt} ft` : `${o.pressureInHg ?? '—'} inHg`],
-                    [Wind, `${o.windMph ?? 0} mph @ ${o.windAngleDeg ?? 90}°`],
-                    [Mountain, `${o.zeroYd ?? 100}yd zero`],
+                    [Thermometer, o.tempF == null ? '—' : formatTemp(o.tempF, units.temp)],
+                    [Gauge, units.distance === 'm'
+                      ? (o.altitudeFt ? `${Math.round(o.altitudeFt * 0.3048)} m` : `${o.pressureInHg == null ? '—' : Math.round(o.pressureInHg * 33.8639)} hPa`)
+                      : (o.altitudeFt ? `${o.altitudeFt} ft` : `${o.pressureInHg ?? '—'} inHg`)],
+                    [Wind, units.velocity === 'm/s'
+                      ? `${((o.windMph ?? 0) / 2.236936).toFixed(1)} m/s @ ${o.windAngleDeg ?? 90}°`
+                      : `${o.windMph ?? 0} mph @ ${o.windAngleDeg ?? 90}°`],
+                    [Mountain, `${formatDistance(o.zeroYd ?? 100, units.distance)} zero`],
                   ].map(([Icon, label], i) => (
                     <View key={i} style={[s.cond, { backgroundColor: colors.inset }]}>
                       <Icon size={12} color={colors.mut} />
@@ -103,7 +115,7 @@ export default function DopeCardsScreen() {
                 </View>
 
                 <Text style={[s.meta, { color: colors.fnt }]}>
-                  {o.dragModel || 'G7'} BC {o.bc} · {o.mvFps} fps · {unit}
+                  {o.dragModel || 'G7'} BC {o.bc} · {formatVelocity(o.mvFps, units.velocity)} · {unit}
                 </Text>
 
                 {open && (
@@ -122,7 +134,7 @@ export default function DopeCardsScreen() {
                         r.transonic && { backgroundColor: colors.warns },
                       ]}>
                         <Text style={[s.td, { color: colors.tx, flex: 1.1 }]}>
-                          {r.rangeYd}<Text style={{ fontSize: 10, color: colors.fnt }}> yd</Text>
+                          {units.distance === 'm' ? Math.round(r.rangeYd * 0.9144) : r.rangeYd}<Text style={{ fontSize: 10, color: colors.fnt }}> {units.distance}</Text>
                         </Text>
                         <Text style={[s.td, { color: colors.act, fontWeight: '800' }]}>{r.elevation}</Text>
                         <Text style={[s.td, { color: colors.tx }]}>{r.wind}</Text>

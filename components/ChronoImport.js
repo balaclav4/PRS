@@ -3,6 +3,8 @@ import { X, Check, Info } from 'lucide-react-native';
 import { useState, useMemo } from 'react';
 import { useTheme } from '../lib/theme';
 import { parseVelocities, velocityStats, sdConfidenceNote } from '../lib/chrono';
+import { formatVelocity } from '../lib/units';
+import { useData } from '../store/data';
 
 /**
  * Paste a chronograph string and import its velocity statistics.
@@ -12,13 +14,14 @@ import { parseVelocities, velocityStats, sdConfidenceNote } from '../lib/chrono'
  * misinterpreted paste would put a wrong SD in front of load decisions.
  */
 export default function ChronoImport({ visible, onClose, onImport }) {
+  const { units } = useData();
   const { colors } = useTheme();
   const [text, setText] = useState('');
   const [unit, setUnit] = useState('fps');
 
   const { velocities, rejected } = useMemo(() => parseVelocities(text, unit), [text, unit]);
   const stats = useMemo(() => velocityStats(velocities), [velocities]);
-  const caveat = sdConfidenceNote(stats);
+  const caveat = sdConfidenceNote(stats, units.velocity);
 
   const close = () => { setText(''); setUnit('fps'); onClose(); };
   const commit = () => { onImport({ velocities, stats }); close(); };
@@ -63,9 +66,9 @@ export default function ChronoImport({ visible, onClose, onImport }) {
                     <View style={[s.statGrid, { borderColor: colors.line }]}>
                       {[
                         ['SHOTS', String(stats.n)],
-                        ['AVG', `${stats.mean} fps`],
-                        ['SD', stats.sd == null ? '—' : `${stats.sd} fps`],
-                        ['ES', `${stats.es} fps`],
+                        ['AVG', formatVelocity(stats.mean, units.velocity)],
+                        ['SD', stats.sd == null ? '—' : formatVelocity(stats.sd, units.velocity)],
+                        ['ES', formatVelocity(stats.es, units.velocity)],
                       ].map(([label, val], i) => (
                         <View key={i} style={[s.statCell, { backgroundColor: colors.card, borderColor: colors.bd }]}>
                           <Text style={[s.statLabel, { color: colors.mut }]}>{label}</Text>

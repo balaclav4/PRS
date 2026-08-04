@@ -15,13 +15,14 @@ import { detectShots } from '../../lib/detect';
 import { bulletDiameterIn } from '../../lib/calibers';
 import { normalizePhoto } from '../../lib/photo';
 import { toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre } from '../../lib/viewport';
+import { formatGroup, groupUnitLabel, formatDistance } from '../../lib/units';
 
 const STEP_LABELS = ['Photo', 'Setup', 'Corners', 'Mark Shots', 'Review'];
 const IMG_ASPECT = 1.25;
 
 export default function CaptureScreen() {
   const { colors } = useTheme();
-  const { addSession, rifles, loads } = useData();
+  const { addSession, rifles, loads, units } = useData();
   const router = useRouter();
 
   // Reactive, not Dimensions.get() at module scope: that captured the width
@@ -653,7 +654,7 @@ export default function CaptureScreen() {
               ))}
               <View style={s.shotOverlay}>
                 <Text style={s.shotOverlayText}>
-                  {shots.length} shots · {stats ? stats.extremeSpreadIn.toFixed(2) : '—'}"
+                  {shots.length} shots · {stats ? formatGroup(stats.extremeSpreadIn, distance, units.group) : '—'}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -677,7 +678,7 @@ export default function CaptureScreen() {
             </View>
             <View style={s.scaleFooter}>
               <Text style={[s.scaleCount, { color: colors.mut }]}>
-                Live group <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{stats ? stats.groupMoa.toFixed(2) : '—'} MOA</Text>
+                Live group <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{stats ? formatGroup(stats.extremeSpreadIn, distance, units.group) : '—'}</Text>
               </Text>
               <TouchableOpacity onPress={clearShots} style={s.resetBtn}>
                 <Eraser size={14} color={colors.act} />
@@ -704,16 +705,22 @@ export default function CaptureScreen() {
                   {capGood ? 'Tight group!' : (shots.length >= 2 ? 'Group measured' : 'Mark at least 2 shots')}
                 </Text>
                 <Text style={[s.reviewSub, { color: colors.mut }]}>
-                  <Text style={{ fontFamily: 'JetBrainsMono_700Bold' }}>{shots.length}</Text> shots · <Text style={{ fontFamily: 'JetBrainsMono_700Bold' }}>{stats ? stats.extremeSpreadIn.toFixed(2) : '—'}"</Text> extreme spread
+                  <Text style={{ fontFamily: 'JetBrainsMono_700Bold' }}>{shots.length}</Text> shots · <Text style={{ fontFamily: 'JetBrainsMono_700Bold' }}>{stats ? formatGroup(stats.extremeSpreadIn, distance, units.group) : '—'}</Text> extreme spread
                 </Text>
               </View>
             </View>
 
             <View style={s.reviewGrid}>
               {[
-                ['GROUP SIZE', stats ? stats.extremeSpreadIn.toFixed(2) + '"' : '—'],
-                ['GROUP MOA', stats ? stats.groupMoa.toFixed(2) : '—'],
-                ['MEAN RADIUS', stats ? stats.meanRadiusIn.toFixed(2) + '"' : '—'],
+                [`GROUP (${groupUnitLabel(units.group)})`,
+                  stats ? formatGroup(stats.extremeSpreadIn, distance, units.group, { withUnit: false }) : '—'],
+                // The complement: an angle alone hides how big the group is, an
+                // absolute length alone hides how it compares across distances.
+                units.group === 'Inches'
+                  ? ['GROUP MOA', stats ? stats.groupMoa.toFixed(2) : '—']
+                  : ['GROUP SIZE', stats ? formatGroup(stats.extremeSpreadIn, distance, 'Inches') : '—'],
+                [`MEAN RADIUS (${groupUnitLabel(units.group)})`,
+                  stats ? formatGroup(stats.meanRadiusIn, distance, units.group, { withUnit: false }) : '—'],
                 ['SHOTS', String(shots.length)],
               ].map(([label, val], i) => (
                 <View key={i} style={[s.reviewTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>

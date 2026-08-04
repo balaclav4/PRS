@@ -5,6 +5,7 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
+import { formatVelocity, formatDistance, mToYd, cToF, mpsToFps, ydToM, fToC, fpsToMps } from '../../lib/units';
 import { dopeCard, trueBC } from '../../lib/ballistics';
 import { sightTape, tapeToRows } from '../../lib/sighttape';
 import { saveCSV, slugify } from '../../lib/export';
@@ -46,7 +47,7 @@ function Segmented({ options, value, onChange, colors }) {
 export default function BallisticsScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { loads, rifles, addDopeCard } = useData();
+  const { loads, rifles, addDopeCard, units } = useData();
 
   const [loadIdx, setLoadIdx] = useState(0);
   const [picking, setPicking] = useState(false);
@@ -79,23 +80,54 @@ export default function BallisticsScreen() {
 
   const num = (v, d) => { const n = parseFloat(v); return isFinite(n) ? n : d; };
 
+  // The solver works in fps, yards and Fahrenheit. The fields are labelled in
+  // whatever the shooter uses, so the typed string is interpreted in that unit
+  // and converted here, at the boundary. Converting the displayed value instead
+  // would rewrite the field mid-keystroke and fight the typing.
+  const dU = units.distance, tU = units.temp, vU = units.velocity;
+  const toYd = (v, d) => (dU === 'm' ? mToYd(num(v, d)) : num(v, d));
+  const toF = (v, d) => (tU === '°C' ? cToF(num(v, d)) : num(v, d));
+  const toFps = (v, d) => (vU === 'm/s' ? mpsToFps(num(v, d)) : num(v, d));
+  // Defaults shown in the field, expressed in the display unit.
+  // Sight height, pressure, altitude, wind speed and turret diameter have no
+  // setting of their own — the four preferences cover group, temp, velocity and
+  // distance. Rather than leave a metric shooter typing feet and inHg, they
+  // follow the preference that implies the system: distance for lengths, and
+  // velocity for wind, which is a speed.
+  const metricLen = dU === 'm';
+  const lenU = metricLen ? 'mm' : 'in';
+  const altU = metricLen ? 'm' : 'ft';
+  const presU = metricLen ? 'hPa' : 'inHg';
+  const windU = vU === 'm/s' ? 'm/s' : 'mph';
+  const toIn = (v, d) => (metricLen ? num(v, d) / 25.4 : num(v, d));
+  const toFt = (v, d) => (metricLen ? num(v, d) / 0.3048 : num(v, d));
+  const toInHg = (v, d) => (metricLen ? num(v, d) / 33.8639 : num(v, d));
+  const toMph = (v, d) => (windU === 'm/s' ? num(v, d) * 2.236936 : num(v, d));
+
+  const dflt = {
+    zero: dU === 'm' ? '91' : '100',
+    temp: tU === '°C' ? '15' : '59',
+    maxRange: dU === 'm' ? '900' : '1000',
+    step: dU === 'm' ? '100' : '100',
+  };
+
   const opts = useMemo(() => ({
-    mvFps: num(mvFps, 2800),
+    mvFps: toFps(mvFps, vU === 'm/s' ? 853 : 2800),
     bc: num(bc, 0.315),
     dragModel,
-    sightHeightIn: num(sightHeight, 1.5),
-    zeroYd: num(zeroYd, 100),
-    tempF: num(tempF, 59),
-    pressureInHg: num(pressureInHg, 29.92),
+    sightHeightIn: toIn(sightHeight, metricLen ? 38 : 1.5),
+    zeroYd: toYd(zeroYd, dU === 'm' ? 91 : 100),
+    tempF: toF(tempF, tU === '°C' ? 15 : 59),
+    pressureInHg: toInHg(pressureInHg, metricLen ? 1013 : 29.92),
     humidityPct: num(humidityPct, 0),
-    altitudeFt: altitudeFt.trim() === '' ? null : num(altitudeFt, 0),
-    windMph: num(windMph, 0),
+    altitudeFt: altitudeFt.trim() === '' ? null : toFt(altitudeFt, 0),
+    windMph: toMph(windMph, 0),
     windAngleDeg: num(windAngleDeg, 90),
-    maxRangeYd: Math.min(2000, Math.max(100, num(maxRangeYd, 1000))),
-    stepYd: Math.min(500, Math.max(25, num(stepYd, 100))),
+    maxRangeYd: Math.min(2000, Math.max(100, toYd(maxRangeYd, dU === 'm' ? 900 : 1000))),
+    stepYd: Math.min(500, Math.max(25, toYd(stepYd, 100))),
     unit,
   }), [mvFps, bc, dragModel, sightHeight, zeroYd, tempF, pressureInHg, humidityPct,
-       altitudeFt, windMph, windAngleDeg, maxRangeYd, stepYd, unit]);
+       altitudeFt, windMph, windAngleDeg, maxRangeYd, stepYd, unit, dU, tU, vU]);
 
   const card = useMemo(() => dopeCard(opts), [opts]);
   const unitLabel = unit === 'mil' ? 'MIL' : 'MOA';
@@ -110,10 +142,11 @@ export default function BallisticsScreen() {
   // Per-revolution defaults differ by unit: 15 MOA and 10 mil are the common
   // scope conventions, and a click is 0.25 MOA or 0.1 mil.
   const tape = useMemo(() => sightTape(card.rows, {
-    turretDiameterIn: turretDia,
+    // Labelled in mm for a metric shooter, but sighttape works in inches.
+    turretDiameterIn: toIn(turretDia, metricLen ? 38 : 1.5),
     perRev,
     clickValue,
-  }), [card.rows, turretDia, perRev, clickValue]);
+  }), [card.rows, turretDia, perRev, clickValue, metricLen]);
 
   const [justSaved, setJustSaved] = useState(false);
   const saveCard = () => {
@@ -121,7 +154,7 @@ export default function BallisticsScreen() {
     // you confirmed, and re-solving it later under different defaults would
     // quietly change the numbers you are dialling at the range.
     addDopeCard({
-      name: `${load?.name || 'Custom'} · ${opts.zeroYd}yd · ${opts.tempF}°F`,
+      name: `${load?.name || 'Custom'} · ${formatDistance(opts.zeroYd, dU)} · ${tU === '°C' ? Math.round(fToC(opts.tempF)) : opts.tempF}${tU}`,
       loadId: load?.id ?? null,
       rifleId: rifle?.id ?? null,
       opts,
@@ -161,7 +194,7 @@ export default function BallisticsScreen() {
             <View style={s.loadStatCol}>
               <TextInput value={mvFps} onChangeText={setMvFps} keyboardType="number-pad"
                 style={s.loadStatInput} selectTextOnFocus />
-              <Text style={s.loadStatLabel}>MV fps</Text>
+              <Text style={s.loadStatLabel}>MV {vU}</Text>
             </View>
             <View style={s.loadStatCol}>
               <TextInput value={bc} onChangeText={setBc} keyboardType="decimal-pad"
@@ -191,19 +224,19 @@ export default function BallisticsScreen() {
         {/* Rifle setup */}
         <Text style={[s.sectionLabel, { color: colors.fnt }]}>RIFLE</Text>
         <View style={s.row}>
-          <Field label="Sight height" value={sightHeight} onChange={setSightHeight} unit="in" colors={colors} />
-          <Field label="Zero" value={zeroYd} onChange={setZeroYd} unit="yd" colors={colors} />
+          <Field label="Sight height" value={sightHeight} onChange={setSightHeight} unit={lenU} colors={colors} />
+          <Field label="Zero" value={zeroYd} onChange={setZeroYd} unit={dU} colors={colors} />
         </View>
 
         {/* Atmosphere */}
         <Text style={[s.sectionLabel, { color: colors.fnt }]}>ATMOSPHERE</Text>
         <View style={s.row}>
-          <Field label="Temp" value={tempF} onChange={setTempF} unit="°F" colors={colors} />
-          <Field label="Pressure" value={pressureInHg} onChange={setPressureInHg} unit="inHg" colors={colors} />
+          <Field label="Temp" value={tempF} onChange={setTempF} unit={tU} colors={colors} />
+          <Field label="Pressure" value={pressureInHg} onChange={setPressureInHg} unit={presU} colors={colors} />
         </View>
         <View style={s.row}>
           <Field label="Humidity" value={humidityPct} onChange={setHumidityPct} unit="%" colors={colors} />
-          <Field label="Altitude" value={altitudeFt} onChange={setAltitudeFt} unit="ft" colors={colors} />
+          <Field label="Altitude" value={altitudeFt} onChange={setAltitudeFt} unit={altU} colors={colors} />
         </View>
         {altitudeFt.trim() !== '' && (
           <Text style={[s.note, { color: colors.fnt }]}>
@@ -214,7 +247,7 @@ export default function BallisticsScreen() {
         {/* Wind */}
         <Text style={[s.sectionLabel, { color: colors.fnt }]}>WIND</Text>
         <View style={s.row}>
-          <Field label="Speed" value={windMph} onChange={setWindMph} unit="mph" colors={colors} />
+          <Field label="Speed" value={windMph} onChange={setWindMph} unit={windU} colors={colors} />
           <Field label="Angle" value={windAngleDeg} onChange={setWindAngleDeg} unit="°" colors={colors} />
         </View>
         <Text style={[s.note, { color: colors.fnt }]}>
@@ -225,8 +258,8 @@ export default function BallisticsScreen() {
         {/* Table extent */}
         <Text style={[s.sectionLabel, { color: colors.fnt }]}>TABLE</Text>
         <View style={s.row}>
-          <Field label="Max range" value={maxRangeYd} onChange={setMaxRangeYd} unit="yd" colors={colors} />
-          <Field label="Step" value={stepYd} onChange={setStepYd} unit="yd" colors={colors} />
+          <Field label="Max range" value={maxRangeYd} onChange={setMaxRangeYd} unit={dU} colors={colors} />
+          <Field label="Step" value={stepYd} onChange={setStepYd} unit={dU} colors={colors} />
         </View>
 
         {/* Dope card */}
@@ -241,7 +274,7 @@ export default function BallisticsScreen() {
             </TouchableOpacity>
           </View>
           <Text style={[s.cardSub, { color: colors.fnt, marginBottom: 10 }]}>
-            {opts.zeroYd}yd zero · {unitLabel} · {opts.tempF}°F
+            {formatDistance(opts.zeroYd, dU)} zero · {unitLabel} · {tU === '°C' ? Math.round(fToC(opts.tempF)) : opts.tempF}{tU}
           </Text>
 
           <View style={s.tableHead}>
@@ -259,7 +292,7 @@ export default function BallisticsScreen() {
               r.transonic && { backgroundColor: colors.warns },
             ]}>
               <Text style={[s.td, { color: colors.tx, flex: 1.1 }]}>
-                {r.rangeYd}<Text style={{ fontSize: 10, color: colors.fnt }}> yd</Text>
+                {dU === 'm' ? Math.round(ydToM(r.rangeYd)) : r.rangeYd}<Text style={{ fontSize: 10, color: colors.fnt }}> {dU}</Text>
               </Text>
               <Text style={[s.td, { color: colors.act, fontWeight: '800' }]}>{r.elevation}</Text>
               <Text style={[s.td, { color: colors.tx }]}>{r.wind}</Text>
@@ -272,7 +305,7 @@ export default function BallisticsScreen() {
             <View style={[s.warn, { backgroundColor: colors.warns }]}>
               <TriangleAlert size={16} color={colors.warnt} style={{ marginTop: 1 }} />
               <Text style={[s.warnText, { color: colors.warnt }]}>
-                Transonic from {firstTransonic.rangeYd}yd (Mach {firstTransonic.mach}). Drag models
+                Transonic from {formatDistance(firstTransonic.rangeYd, dU)} (Mach {firstTransonic.mach}). Drag models
                 lose accuracy through the sound barrier and groups usually open up — treat dope
                 past here as a starting point, then true it.
               </Text>
@@ -297,7 +330,7 @@ export default function BallisticsScreen() {
           {showTape && (
             <>
               <View style={s.row}>
-                <Field label="Turret dia" value={turretDia} onChange={setTurretDia} unit="in" colors={colors} />
+                <Field label="Turret dia" value={turretDia} onChange={setTurretDia} unit={lenU} colors={colors} />
                 <Field label={`Per turn`} value={perRev} onChange={setPerRev} unit={unitLabel} colors={colors} />
                 <Field label="Click" value={clickValue} onChange={setClickValue} unit={unitLabel} colors={colors} />
               </View>
