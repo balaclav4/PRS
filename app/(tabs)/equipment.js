@@ -5,9 +5,10 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
+import { totalRounds, lifeStatus } from '../../lib/barrel';
 
-const EMPTY_RIFLE = { name: '', cartridge: '', barrelLength: '', twist: '', notes: '' };
-const EMPTY_LOAD = { rifleId: '', bullet: '', powder: '', chargeGr: '', primer: '', brass: '', coalOrCbto: '', velocityFps: '', name: '', caliber: '', sd: '' };
+const EMPTY_RIFLE = { name: '', cartridge: '', barrelLength: '', twist: '', notes: '', priorRounds: '' };
+const EMPTY_LOAD = { rifleId: '', bullet: '', powder: '', chargeGr: '', primer: '', brass: '', coalOrCbto: '', velocityFps: '', name: '', caliber: '', sd: '', powderLot: '', primerLot: '', bulletLot: '', brassLot: '' };
 
 /**
  * Coerce a stored row into form state. Persisted rows hold numbers and may omit
@@ -42,7 +43,7 @@ function FormField({ label, value, onChangeText, placeholder, colors, keyboardTy
 export default function EquipmentScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { rifles, loads, addRifle, updateRifle, deleteRifle, addLoad, updateLoad, deleteLoad } = useData();
+  const { rifles, loads, sessions, addRifle, updateRifle, deleteRifle, addLoad, updateLoad, deleteLoad } = useData();
   const [rifleModal, setRifleModal] = useState(null);
   const [loadModal, setLoadModal] = useState(null);
 
@@ -54,9 +55,9 @@ export default function EquipmentScreen() {
   const saveRifle = () => {
     if (!rifleModal.name.trim()) return;
     if (rifleModal._isNew) {
-      addRifle({ name: rifleModal.name, cartridge: rifleModal.cartridge, barrelLength: rifleModal.barrelLength, twist: rifleModal.twist, notes: rifleModal.notes });
+      addRifle({ name: rifleModal.name, cartridge: rifleModal.cartridge, barrelLength: rifleModal.barrelLength, twist: rifleModal.twist, notes: rifleModal.notes, priorRounds: Number(rifleModal.priorRounds) || 0 });
     } else {
-      updateRifle(rifleModal.id, { name: rifleModal.name, cartridge: rifleModal.cartridge, barrelLength: rifleModal.barrelLength, twist: rifleModal.twist, notes: rifleModal.notes });
+      updateRifle(rifleModal.id, { name: rifleModal.name, cartridge: rifleModal.cartridge, barrelLength: rifleModal.barrelLength, twist: rifleModal.twist, notes: rifleModal.notes, priorRounds: Number(rifleModal.priorRounds) || 0 });
     }
     setRifleModal(null);
   };
@@ -129,6 +130,20 @@ export default function EquipmentScreen() {
                 <View style={s.mid}>
                   <Text style={[s.name, { color: colors.tx }]}>{r.name}</Text>
                   <Text style={[s.spec, { color: colors.mut }]}>{r.cartridge} · {r.barrelLength} {r.twist ? `· ${r.twist}` : ''}</Text>
+                  {(() => {
+                    const rc = totalRounds(sessions, r.id, r.priorRounds);
+                    if (rc.total === 0) return null;
+                    const life = lifeStatus(rc.total, r.cartridge);
+                    const tint = life.stage === 'past' ? colors.dngt
+                      : life.stage === 'approaching' ? colors.warnt : colors.mut;
+                    return (
+                      <Text style={[s.spec, { color: tint, marginTop: 3 }]}>
+                        {rc.total} rounds
+                        {rc.prior ? ` (${rc.logged} logged + ${rc.prior} prior)` : ''}
+                        {life.est ? ` · est. life ${life.est.low}–${life.est.high}` : ''}
+                      </Text>
+                    );
+                  })()}
                 </View>
                 <ChevronRight size={18} color={colors.fnt} />
               </TouchableOpacity>
@@ -199,6 +214,7 @@ export default function EquipmentScreen() {
                 <FormField label="Cartridge" value={rifleModal.cartridge} onChangeText={v => updateRifleField('cartridge', v)} placeholder="e.g. 6.5 Creedmoor" colors={colors} />
                 <FormField label="Barrel Length" value={rifleModal.barrelLength} onChangeText={v => updateRifleField('barrelLength', v)} placeholder={'e.g. 26"'} colors={colors} />
                 <FormField label="Twist Rate" value={rifleModal.twist} onChangeText={v => updateRifleField('twist', v)} placeholder="e.g. 1:8" colors={colors} />
+                <FormField label="Rounds before this app" value={String(rifleModal.priorRounds ?? '')} onChangeText={v => updateRifleField('priorRounds', v)} placeholder="e.g. 1200" colors={colors} keyboardType="number-pad" />
                 <FormField label="Notes" value={rifleModal.notes} onChangeText={v => updateRifleField('notes', v)} placeholder="Optional" colors={colors} />
               </ScrollView>
               <View style={s.modalActions}>
@@ -247,6 +263,14 @@ export default function EquipmentScreen() {
                 <FormField label="Primer" value={loadModal.primer} onChangeText={v => updateLoadField('primer', v)} placeholder="e.g. Fed 210M" colors={colors} />
                 <FormField label="Brass" value={loadModal.brass} onChangeText={v => updateLoadField('brass', v)} placeholder="e.g. Lapua" colors={colors} />
                 <FormField label="COAL / CBTO" value={loadModal.coalOrCbto} onChangeText={v => updateLoadField('coalOrCbto', v)} placeholder="e.g. 2.825" colors={colors} keyboardType="decimal-pad" />
+                <Text style={[s.lotHeading, { color: colors.mut }]}>LOT NUMBERS</Text>
+                <Text style={[s.lotHint, { color: colors.fnt }]}>
+                  Components vary batch to batch. Recording lots is what makes a velocity shift attributable later.
+                </Text>
+                <FormField label="Powder lot" value={loadModal.powderLot} onChangeText={v => updateLoadField('powderLot', v)} placeholder="Optional" colors={colors} />
+                <FormField label="Primer lot" value={loadModal.primerLot} onChangeText={v => updateLoadField('primerLot', v)} placeholder="Optional" colors={colors} />
+                <FormField label="Bullet lot" value={loadModal.bulletLot} onChangeText={v => updateLoadField('bulletLot', v)} placeholder="Optional" colors={colors} />
+                <FormField label="Brass lot" value={loadModal.brassLot} onChangeText={v => updateLoadField('brassLot', v)} placeholder="Optional" colors={colors} />
                 <FormField label="Velocity (fps)" value={loadModal.velocityFps} onChangeText={v => updateLoadField('velocityFps', v)} placeholder="e.g. 2820" colors={colors} keyboardType="number-pad" />
                 <FormField label="SD (fps)" value={loadModal.sd} onChangeText={v => updateLoadField('sd', v)} placeholder="e.g. 8.4" colors={colors} keyboardType="decimal-pad" />
               </ScrollView>
@@ -283,6 +307,8 @@ const s = StyleSheet.create({
   iconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   mid: { flex: 1, minWidth: 0 },
   name: { fontSize: 15, fontWeight: '700' },
+  lotHeading: { fontSize: 11, fontWeight: '800', letterSpacing: 0.6, marginTop: 8 },
+  lotHint: { fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: -4, marginBottom: 2 },
   spec: { fontSize: 12, fontWeight: '500', marginTop: 3 },
   loadRow: { borderWidth: 1, borderRadius: 16, padding: 15 },
   loadHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

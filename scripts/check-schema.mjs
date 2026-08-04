@@ -74,6 +74,11 @@ if (inserts === 0) fail('found no INSERT statements — did db.js move?');
 const created = {};
 for (const m of src.matchAll(/CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\n\);/g)) {
   created[m[1]] = m[2]
+    // Strip -- comments first. Splitting the raw body on commas turned a
+    // comment line into a phantom column named "--" and swallowed the real
+    // column declared after it, which reported priorRounds and powderLot as
+    // missing when both were present.
+    .replace(/--[^\n]*/g, '')
     .split(',')
     .map(s => s.trim().split(/\s+/)[0])
     .filter(c => c && !/^(PRIMARY|FOREIGN|UNIQUE|CHECK)$/i.test(c));
