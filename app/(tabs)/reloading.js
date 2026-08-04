@@ -9,12 +9,13 @@ import { parseRungs, findNode, bestGroup } from '../../lib/loaddev';
 import { parseDepths, analyseSeating } from '../../lib/seating';
 import { assessReference } from '../../lib/refload';
 import { parseStrings, comparePrimers } from '../../lib/primers';
+import { parseWorkup, analyseWorkup } from '../../lib/pressure';
 import ChronoImport from '../../components/ChronoImport';
 
 const STEP_META = [
   { num: 1, label: 'Goal', icon: Target, desc: 'Define your accuracy goal and hit-rate target for this load.' },
   { num: 2, label: 'Screen', icon: FlaskConical, desc: 'Screen candidate powders and bullets for the barrel.' },
-  { num: 3, label: 'Max Chg', icon: TrendingUp, desc: 'Work up to a pressure-safe maximum charge.' },
+  { num: 3, label: 'Max Chg', icon: TrendingUp, desc: 'Chart velocity against charge and watch for the curve bending upward.' },
   { num: 4, label: 'Accuracy', icon: BarChart3, desc: 'Coarse accuracy check across the charge range.' },
   { num: 5, label: 'Primers', icon: Zap, desc: 'Compare primer brands for the lowest velocity SD.' },
   { num: 6, label: 'Ladder', icon: Gauge, desc: 'Vary charge in small steps and look for a flat velocity node.' },
@@ -28,9 +29,10 @@ function NotBuiltStep({ colors, label }) {
     <View style={[cs.notBuilt, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
       <Info size={18} color={colors.mut} />
       <Text style={[cs.notBuiltText, { color: colors.mut }]}>
-        {label} isn't built yet. Goal (1), primers (5), the charge ladder (6),
-        seating depth (7) and the reference load (8) record real data and
-        analyse it. Nothing here is recorded, so there's nothing to show.
+        {label} isn't built yet. Goal (1), the charge work-up (3), primers (5),
+        the charge ladder (6), seating depth (7) and the reference load (8)
+        record real data and analyse it. Nothing here is recorded, so there's
+        nothing to show.
       </Text>
     </View>
   );
@@ -102,6 +104,37 @@ export default function ReloadingScreen() {
   };
   const removeDepth = (id) =>
     project && updateProject(project.id, { seatingRows: seatingRows.filter(r => r.id !== id) });
+
+  const workupRows = project?.workupRows || [];
+  const workupPoints = useMemo(() => parseWorkup(workupRows), [workupRows]);
+  const workup = useMemo(
+    () => analyseWorkup(workupPoints, project?.bookMaxGr ? Number(project.bookMaxGr) : null),
+    [workupPoints, project?.bookMaxGr]
+  );
+
+  const setWorkup = (id, field, value) => {
+    if (!project) return;
+    updateProject(project.id, {
+      workupRows: workupRows.map(r => r.id === id ? { ...r, [field]: value } : r),
+    });
+  };
+  const addWorkup = () => {
+    if (!project) return;
+    const last = workupRows[workupRows.length - 1];
+    const prev = workupRows[workupRows.length - 2];
+    let next = '';
+    if (last) {
+      const lc = parseFloat(last.charge), pc = prev ? parseFloat(prev.charge) : NaN;
+      const inc = isFinite(lc) && isFinite(pc) ? +(lc - pc).toFixed(2) : 0.3;
+      if (isFinite(lc)) next = String(+(lc + (inc || 0.3)).toFixed(2));
+    }
+    updateProject(project.id, {
+      workupRows: [...workupRows, { id: 'w' + Date.now(), charge: next, velocity: '', sign: null }],
+    });
+  };
+  const removeWorkup = (id) => project && updateProject(project.id, {
+    workupRows: workupRows.filter(r => r.id !== id),
+  });
 
   const primerRows = project?.primerRows || [];
   const primerStrings = useMemo(() => parseStrings(primerRows), [primerRows]);
@@ -244,7 +277,7 @@ export default function ReloadingScreen() {
             // Only the ladder can be "done" — it is the only step holding data.
             const done = (sm.num === 6 && parsed.length >= 3) ||
               (sm.num === 7 && depths.length >= 3) || (sm.num === 8 && ref.ok) ||
-              (sm.num === 5 && primerStrings.length >= 2);
+              (sm.num === 5 && primerStrings.length >= 2) || (sm.num === 3 && workup.ok);
             return (
               <TouchableOpacity key={sm.num} onPress={() => goStep(sm.num)} style={s.stepBtn}>
                 <View style={[s.stepCircle, {
@@ -513,6 +546,115 @@ export default function ReloadingScreen() {
 
 
 
+
+          {step === 3 && (
+            <View style={cs.wrap}>
+              <View style={[cs.note, { backgroundColor: colors.warns }]}>
+                <Text style={[cs.noteText, { color: colors.warnt }]}>
+                  This screen cannot tell you a load is safe, and never will. Your
+                  powder and bullet maker's published data is the authority on
+                  maximum charge. What it can do is spot velocity climbing faster
+                  than the charge — a bend that shows up before brass does.
+                </Text>
+              </View>
+
+              <View style={cs.ladderHead}>
+                <Text style={[cs.colH, { color: colors.fnt, flex: 1 }]}>CHARGE</Text>
+                <Text style={[cs.colH, { color: colors.fnt, flex: 1, textAlign: 'center' }]}>VEL</Text>
+                <View style={{ width: 26 }} />
+              </View>
+
+              {workupRows.length === 0 && (
+                <Text style={[cs.emptyLadder, { color: colors.mut }]}>
+                  No charges yet. Add one per charge weight you fired.
+                </Text>
+              )}
+
+              {workupRows.map(r => {
+                const stat = workup.rungs?.find(x => x.id === r.id);
+                const hot = workup.bending && workup.departureCharge != null &&
+                  parseFloat(r.charge) >= workup.departureCharge;
+                return (
+                  <View key={r.id}>
+                    <View style={[cs.ladderRow, hot && { backgroundColor: colors.warns }]}>
+                      <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                        <TextInput value={r.charge} onChangeText={v => setWorkup(r.id, 'charge', v)}
+                          placeholder="gr" placeholderTextColor={colors.fnt}
+                          keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
+                      </View>
+                      <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                        <TextInput value={r.velocity} onChangeText={v => setWorkup(r.id, 'velocity', v)}
+                          placeholder="fps" placeholderTextColor={colors.fnt}
+                          keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
+                      </View>
+                      <TouchableOpacity onPress={() => removeWorkup(r.id)} style={cs.rowAct}>
+                        <Trash2 size={15} color={colors.fnt} />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={cs.signRow}>
+                      {['none', 'stiff bolt', 'ejector mark', 'cratered primer'].map(sg => {
+                        const on = (r.sign || 'none') === sg;
+                        return (
+                          <TouchableOpacity key={sg} onPress={() => setWorkup(r.id, 'sign', sg)}
+                            style={[cs.signChip, {
+                              backgroundColor: on && sg !== 'none' ? colors.warns : on ? colors.inset : 'transparent',
+                              borderColor: on ? colors.act : colors.ibd,
+                            }]}>
+                            <Text style={[cs.signText, {
+                              color: on && sg !== 'none' ? colors.warnt : on ? colors.tx : colors.fnt,
+                            }]}>{sg}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    {stat && (
+                      <Text style={[cs.hint, { color: colors.mut, marginBottom: 6 }]}>
+                        {stat.excess >= 0 ? '+' : ''}{stat.excess} fps against the lower-charge trend
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
+
+              <TouchableOpacity onPress={addWorkup} style={[cs.addRung, { borderColor: colors.ibd }]}>
+                <Plus size={15} color={colors.act} />
+                <Text style={[cs.addRungText, { color: colors.act }]}>Add charge</Text>
+              </TouchableOpacity>
+
+              <View style={{ width: '55%' }}>
+                <Text style={[cs.lbl, { color: colors.mut }]}>Book maximum</Text>
+                <View style={[cs.inp, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                  <TextInput value={project.bookMaxGr == null ? '' : String(project.bookMaxGr)}
+                    onChangeText={v => setField('bookMaxGr', v)}
+                    placeholder="from your manual" placeholderTextColor={colors.fnt}
+                    keyboardType="decimal-pad" style={[cs.inpText, { color: colors.tx }]} />
+                  <Text style={[cs.unit, { color: colors.fnt }]}>gr</Text>
+                </View>
+              </View>
+
+              {workup.ok ? (
+                <View style={[cs.result, {
+                  backgroundColor: workup.bending || workup.signs.length || workup.overBook.length
+                    ? colors.warns : colors.inset,
+                }]}>
+                  {workup.bending || workup.signs.length || workup.overBook.length
+                    ? <TriangleAlert size={17} color={colors.warnt} />
+                    : <Info size={17} color={colors.mut} />}
+                  <Text style={[cs.resultText, {
+                    color: workup.bending || workup.signs.length || workup.overBook.length
+                      ? colors.warnt : colors.mut,
+                    flex: 1,
+                  }]}>{workup.verdict}</Text>
+                </View>
+              ) : (
+                <View style={[cs.result, { backgroundColor: colors.inset }]}>
+                  <Info size={17} color={colors.mut} />
+                  <Text style={[cs.resultText, { color: colors.mut, flex: 1 }]}>{workup.reason}</Text>
+                </View>
+              )}
+            </View>
+          )}
+
           {step === 5 && (
             <View style={cs.wrap}>
               {primerRows.length === 0 && (
@@ -641,7 +783,7 @@ export default function ReloadingScreen() {
             </View>
           )}
 
-          {step !== 1 && step !== 5 && step !== 6 && step !== 7 && step !== 8 &&
+          {step !== 1 && step !== 3 && step !== 5 && step !== 6 && step !== 7 && step !== 8 &&
             <NotBuiltStep colors={colors} label={meta.label} />}
         </View>
 
@@ -674,6 +816,9 @@ const cs = StyleSheet.create({
   notBuilt: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', padding: 14, borderRadius: 12, borderWidth: 1, marginTop: 4 },
   hint: { fontSize: 12, marginTop: -4 },
   primerCard: { borderWidth: 1, borderRadius: 10, padding: 12, gap: 6 },
+  signRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  signChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
+  signText: { fontSize: 11, fontWeight: '600' },
   notBuiltText: { flex: 1, fontSize: 12.5, fontWeight: '600', lineHeight: 18 },
   ladderHead: { flexDirection: 'row', gap: 8, paddingBottom: 4 },
   colH: { fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
