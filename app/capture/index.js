@@ -344,7 +344,6 @@ export default function CaptureScreen() {
       targets: [{
         id: 't' + Date.now(),
         shots: shots.map(sh => ({ x: sh.x, y: sh.y })),
-        photoUri: photo?.uri && !photo.uri.startsWith('data:') ? photo.uri : null,
         scale: ordered ? { corners: ordered, widthIn: refWIn, heightIn: refHIn } : null,
       }],
       best: stats ? stats.extremeSpreadIn.toFixed(2) : '—',
