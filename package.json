@@ -34,7 +34,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test": "node scripts/check-all.mjs",
+    "check": "node scripts/check-syntax.mjs && node scripts/check-schema.mjs"
   },
   "private": true
 }
