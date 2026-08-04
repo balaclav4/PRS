@@ -17,13 +17,15 @@ function gauss() {
   return Math.sqrt(-2 * Math.log(rnd() + 1e-9)) * Math.cos(2 * Math.PI * rnd());
 }
 
-function makeTarget({ w, h, holes, r, noise = 4, gradient = 0, bullseye = null, rings = false }) {
+function makeTarget({ w, h, holes, r, noise = 4, gradient = 0, bullseye = null, rings = false, splatter = false }) {
   const img = new Float32Array(w * h);
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      // Paper, optionally with a lighting gradient across it.
-      let v = 232 - gradient * ((x / w) * 0.6 + (y / h) * 0.4) * 100;
+      // Paper, optionally with a lighting gradient across it. Splatter targets
+      // (Shoot-N-C and the like) are a dark coating instead.
+      const base = splatter ? 52 : 232;
+      let v = base - gradient * ((x / w) * 0.6 + (y / h) * 0.4) * 100;
       img[y * w + x] = v;
     }
   }
@@ -48,10 +50,34 @@ function makeTarget({ w, h, holes, r, noise = 4, gradient = 0, bullseye = null, 
     }
   }
 
+  // A splatter target flakes its dark coating away around the hole, leaving a
+  // bright halo on a dark field — a signature inverted from ordinary paper, and
+  // one where the hole itself is the darkest thing inside a bright ring.
+  if (splatter) {
+    for (const hole of holes) {
+      const HALO = r * 2.6;
+      for (let dy = -Math.ceil(HALO); dy <= Math.ceil(HALO); dy++) {
+        for (let dx = -Math.ceil(HALO); dx <= Math.ceil(HALO); dx++) {
+          const x = Math.round(hole.x + dx), y = Math.round(hole.y + dy);
+          if (x < 0 || x >= w || y < 0 || y >= h) continue;
+          const d = Math.hypot(dx, dy);
+          if (d > HALO) continue;
+          // Ragged edge: the coating does not flake in a neat circle.
+          const ragged = HALO * (0.82 + 0.18 * Math.abs(Math.sin(Math.atan2(dy, dx) * 5)));
+          if (d <= ragged) {
+            const t = Math.min(1, Math.max(0, (ragged - d) / 2.5));
+            img[y * w + x] = img[y * w + x] * (1 - t) + 226 * t;
+          }
+        }
+      }
+    }
+  }
+
   // Punch holes: dark disc with a soft edge, or bright where over the bullseye.
   for (const hole of holes) {
     const overDark = bullseye && Math.hypot(hole.x - bullseye.x, hole.y - bullseye.y) < bullseye.r;
-    const core = overDark ? 200 : 26;
+    // On a splatter target the hole is dark again, sitting inside its bright halo.
+    const core = splatter ? 30 : overDark ? 200 : 26;
     const R = Math.ceil(r + 2);
     for (let dy = -R; dy <= R; dy++) {
       for (let dx = -R; dx <= R; dx++) {
@@ -122,6 +148,25 @@ const scenarios = [
     opts: { noise: 4 },
   },
   {
+    // Known gap, not a regression. The detector finds every hole on a splatter
+    // target but also reports each lobe of the bright halo around it. The
+    // obvious fix — suppressing weaker opposite-polarity detections nearby —
+    // cleared these and broke the real Ballistic-X photograph, 10/10 to 8/10,
+    // because its printed grid makes neighbouring real holes detect with
+    // opposite polarity. Reported rather than asserted, and rather than deleted,
+    // until a real splatter photograph exists to validate a fix.
+    name: 'splatter target (bright halo)',
+    holes: [{ x: 200, y: 240 }, { x: 224, y: 256 }, { x: 186, y: 262 }, { x: 210, y: 220 }],
+    opts: { splatter: true, noise: 5 },
+    knownGap: 'halo lobes reported as extra shots',
+  },
+  {
+    name: 'splatter, gradient + tighter group',
+    holes: [{ x: 200, y: 250 }, { x: 218, y: 258 }, { x: 206, y: 234 }],
+    opts: { splatter: true, noise: 6, gradient: 0.8 },
+    knownGap: 'halo lobes reported as extra shots',
+  },
+  {
     name: 'wide 10-shot group',
     holes: Array.from({ length: 10 }, (_, i) => ({
       x: 120 + (i % 5) * 45 + (i > 4 ? 20 : 0),
@@ -132,6 +177,7 @@ const scenarios = [
 ];
 
 let failures = 0;
+const knownGaps = [];
 console.log('scenario                              recall  precision  err(px)  FP  miss');
 console.log('─'.repeat(78));
 
@@ -141,9 +187,14 @@ for (const sc of scenarios) {
   const m = score(sc.holes, shots, R * 1.5);
 
   const ok = m.recall >= 0.99 && m.precision >= 0.99;
-  if (!ok) failures++;
+  // A known gap must never quietly become a pass: if one starts succeeding, the
+  // note is stale and the harness says so.
+  if (sc.knownGap) {
+    if (ok) { failures++; console.log('✗ ' + sc.name.padEnd(36) + ' now passes — remove the knownGap note'); }
+    else knownGaps.push(`${sc.name}: ${sc.knownGap} (recall ${m.recall.toFixed(2)}, precision ${m.precision.toFixed(2)})`);
+  } else if (!ok) failures++;
   console.log(
-    (ok ? '✓ ' : '✗ ') + sc.name.padEnd(36) +
+    (sc.knownGap ? '- ' : ok ? '✓ ' : '✗ ') + sc.name.padEnd(36) +
     m.recall.toFixed(2).padStart(6) +
     m.precision.toFixed(2).padStart(11) +
     (isNaN(m.meanErr) ? '  n/a' : m.meanErr.toFixed(2).padStart(9)) +
@@ -233,5 +284,11 @@ for (const core of [26, 90, 140, 170, 195]) {
   );
 }
 
-console.log('\n' + (failures === 0 ? 'all scenarios passed' : `${failures} scenario(s) below threshold`));
+if (knownGaps.length) {
+  console.log('\nknown gaps (reported, not asserted — need a real photo to fix):');
+  for (const g of knownGaps) console.log('  - ' + g);
+}
+console.log('\n' + (failures === 0
+  ? `all scenarios passed${knownGaps.length ? ` (${knownGaps.length} known gap${knownGaps.length > 1 ? 's' : ''})` : ''}`
+  : `${failures} scenario(s) below threshold`));
 process.exit(failures === 0 ? 0 : 1);
