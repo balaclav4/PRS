@@ -1,7 +1,7 @@
 import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, useWindowDimensions, Alert, Platform, PanResponder } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react-native';
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import Svg, { Circle, Polygon, Line } from 'react-native-svg';
@@ -15,6 +15,7 @@ import { detectShots } from '../../lib/detect';
 import { bulletDiameterIn } from '../../lib/calibers';
 import { normalizePhoto } from '../../lib/photo';
 import { toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre } from '../../lib/viewport';
+import { quadCentre } from '../../lib/homography';
 import { formatGroup, groupUnitLabel, formatDistance } from '../../lib/units';
 
 const STEP_LABELS = ['Photo', 'Setup', 'Corners', 'Mark Shots', 'Review'];
@@ -109,6 +110,13 @@ export default function CaptureScreen() {
       severity: perspectiveSeverity(ord),
     };
   }, [corners, refWIn, refHIn]);
+
+  // Seed the aim at the centre of the framed reference as soon as it exists, so
+  // the assumption is visible and movable at capture time rather than applied
+  // silently when the target is read back.
+  useEffect(() => {
+    if (ordered && !aim) setAim(quadCentre(ordered));
+  }, [ordered, aim]);
 
   // Shot positions on the target plane, in inches.
   const shotsIn = useMemo(

@@ -156,10 +156,20 @@ console.log('\nperspective is corrected, not ignored');
 
 console.log('\nmissing data is reported, not guessed');
 {
+  // With no aim point the centre of the framed reference is assumed, because
+  // that is what people aim at. It is still an assumption and is flagged.
   const noAim = targetMetrics({ shots: [{ x: 0.6, y: 0.5 }], scale: SQUARE }, 100, 'Inches');
   check('  group stats work without an aim point', noAim.ok && noAim.extremeSpread != null);
-  check('  but POI is refused', noAim.poi.available === false);
-  check('  and says why', /No aim point recorded/.test(noAim.poi.reason));
+  check('  POI falls back to the sheet centre', noAim.poi.available === true);
+  check('  and lands where that centre implies',
+    near(noAim.poi.horizontal, 1, 0.01) && noAim.poi.horizontalWord === 'right',
+    `${noAim.poi.horizontal}" right`);
+  check('  the assumption is flagged', noAim.aimAssumed === true && noAim.poi.assumed === true);
+  check('  an explicit aim is not flagged',
+    targetMetrics(target([{ x: 0.6, y: 0.5 }]), 100, 'Inches').aimAssumed === false);
+  check('  the assumed centre is the diagonal intersection, not the corner average',
+    near(noAim.aimIn.x, 5, 1e-6) && near(noAim.aimIn.y, 5, 1e-6),
+    `(${noAim.aimIn.x.toFixed(3)}, ${noAim.aimIn.y.toFixed(3)})`);
 
   check('  no corners is refused',
     targetMetrics({ shots: [{ x: 0.5, y: 0.5 }] }, 100).ok === false);
@@ -197,9 +207,14 @@ console.log('\nsession level: pooling across targets');
   check('  weights by shots, not targets', near(weighted.horizontal, 0.5, 0.01),
     `${weighted.horizontal}" right (3 right + 1 left)`);
 
-  const none = sessionPoi({ distanceYd: 100, targets: [{ shots: [{ x: 0.5, y: 0.5 }], scale: SQUARE }] });
-  check('  a session with no aim points is refused', none.ok === false);
-  check('  and says why', /aim point recorded/i.test(none.reason), none.reason.slice(0, 40));
+  // A session whose targets have corners but no aim points now resolves, on the
+  // assumed centre, and says so.
+  const assumed = sessionPoi({ distanceYd: 100, targets: [{ shots: [{ x: 0.6, y: 0.5 }], scale: SQUARE }] });
+  check('  a session without aim points uses the assumed centre', assumed.ok === true);
+  check('  and flags the assumption', assumed.assumed === true);
+  const none = sessionPoi({ distanceYd: 100, targets: [{ shots: [{ x: 0.5, y: 0.5 }] }] });
+  check('  but a session with no reference at all is refused', none.ok === false);
+  check('  and says why', /reference corners/i.test(none.reason), none.reason.slice(0, 44));
   check('  an empty session is safe', sessionPoi({ targets: [] }).ok === false);
 }
 

@@ -2,13 +2,15 @@
  * Verifies perspective correction against known ground truth.
  * Run: node scripts/test-homography.mjs
  */
-import { solveHomography, project, rectifyToInches, perspectiveSeverity, orderCorners } from '../lib/homography.js';
+import {
+  quadCentre, solveHomography, project, rectifyToInches, perspectiveSeverity, orderCorners } from '../lib/homography.js';
 
 let fails = 0;
 const check = (name, ok, detail = '') => {
   if (!ok) fails++;
   console.log((ok ? '✓ ' : '✗ ') + name.padEnd(46) + detail);
 };
+const near = (a, b, tol) => Math.abs(a - b) <= tol;
 
 // A synthetic camera: rotate the target plane away from the sensor, then
 // project. This is what an off-axis photo does to a flat target.
@@ -151,6 +153,29 @@ for (const [tilt, pan] of [[0, 0], [10, 5], [20, 10], [30, 20], [45, 30]]) {
     `${String(tilt).padStart(3)}°  ${String(pan).padStart(3)}°   ` +
     `${naiveErr.toFixed(2).padStart(7)}%   (corrected ${corrErr.toFixed(4)}%)`
   );
+}
+
+console.log('\nquad centre (the default point of aim)');
+{
+  const sq = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+  const c = quadCentre(sq);
+  check('  square-on is the obvious centre', near(c.x, 0.5, 1e-9) && near(c.y, 0.5, 1e-9));
+
+  // Under perspective the corner average is NOT the centre. Averaging drifts
+  // toward the near edge; the diagonals do not.
+  const tr = [{ x: 0.20, y: 0.10 }, { x: 0.90, y: 0.20 }, { x: 0.80, y: 0.85 }, { x: 0.10, y: 0.70 }];
+  const H = rectifyToInches(orderCorners(tr), 10, 10);
+  const viaDiagonals = project(H, quadCentre(orderCorners(tr)));
+  const avg = { x: tr.reduce((a, p) => a + p.x, 0) / 4, y: tr.reduce((a, p) => a + p.y, 0) / 4 };
+  const viaAverage = project(H, avg);
+  check('  off-axis, diagonals land on the true centre',
+    near(viaDiagonals.x, 5, 1e-6) && near(viaDiagonals.y, 5, 1e-6),
+    `(${viaDiagonals.x.toFixed(4)}, ${viaDiagonals.y.toFixed(4)})`);
+  check('  while the corner average does not',
+    Math.hypot(viaAverage.x - 5, viaAverage.y - 5) > 0.1,
+    `off by ${Math.hypot(viaAverage.x - 5, viaAverage.y - 5).toFixed(3)}" on a 10" sheet`);
+  check('  degenerate input is refused',
+    quadCentre(null) === null && quadCentre([{ x: 0, y: 0 }]) === null);
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));

@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Download, Gauge, ChevronDown } from 'lucide-react-native';
+import { ArrowLeft, Download, Gauge, ChevronDown, Crosshair } from 'lucide-react-native';
 import { useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme, groupColor } from '../../lib/theme';
@@ -11,6 +11,7 @@ import { targetGroups } from '../../lib/analytics';
 import TargetPlot from '../../components/TargetPlot';
 import TargetDetail from '../../components/TargetDetail';
 import { targetMetrics, sessionPoi } from '../../lib/poi';
+import { inchesToNormalised, orderCorners, project } from '../../lib/homography';
 import ChronoImport from '../../components/ChronoImport';
 
 export default function SessionDetailScreen() {
@@ -20,6 +21,15 @@ export default function SessionDetailScreen() {
   const { getSession, getRifleName, exportSessionsCSV, updateSession, units } = useData();
   const [importing, setImporting] = useState(false);
   const [openTarget, setOpenTarget] = useState(null);
+  const [aimEditing, setAimEditing] = useState(null);
+
+  // Store a new aim point for one target, in the same normalised space the
+  // shots and corners already live in.
+  const setAim = (targetId, aim) => {
+    updateSession(sess.id, {
+      targets: sess.targets.map(t => (t.id === targetId ? { ...t, aim } : t)),
+    });
+  };
 
   const sess = getSession(id);
   if (!sess) return null;
@@ -173,7 +183,32 @@ export default function SessionDetailScreen() {
 
                 {open && (
                   <View style={[s.targetPanel, { backgroundColor: colors.card, borderColor: colors.act }]}>
-                    <TargetDetail metrics={m} size={250} />
+                    <TargetDetail
+                      metrics={m}
+                      size={250}
+                      onSetAim={aimEditing === t.id ? (pt) => setAim(t.id, pt) : null}
+                      invert={aimEditing === t.id && t.scale ? (planePt) => {
+                        const Hi = inchesToNormalised(orderCorners(t.scale.corners), t.scale.widthIn, t.scale.heightIn);
+                        return Hi ? project(Hi, planePt) : null;
+                      } : null}
+                    />
+
+                    {m.ok && (
+                      <TouchableOpacity
+                        onPress={() => setAimEditing(aimEditing === t.id ? null : t.id)}
+                        style={[s.aimBtn, {
+                          backgroundColor: aimEditing === t.id ? colors.act : colors.inset,
+                          borderColor: aimEditing === t.id ? colors.act : colors.ibd,
+                        }]}
+                      >
+                        <Crosshair size={14} color={aimEditing === t.id ? '#fff' : colors.act} />
+                        <Text style={[s.aimBtnText, { color: aimEditing === t.id ? '#fff' : colors.act }]}>
+                          {aimEditing === t.id
+                            ? 'Tap the plot to place your aim point · Done'
+                            : m.aimAssumed ? 'Aim assumed at centre — adjust' : 'Adjust aim point'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                     {m.ok && (
                       <>
                         <View style={s.statGrid}>
@@ -255,6 +290,8 @@ const s = StyleSheet.create({
   chronoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 13, padding: 13, marginTop: 10 },
   chronoBtnText: { fontSize: 14, fontWeight: '700' },
   targetsTitle: { fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 22, marginBottom: 10 },
+  aimBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, marginTop: 10, width: '100%' },
+  aimBtnText: { fontSize: 12, fontWeight: '700', flexShrink: 1 },
   poiCard: { padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 16 },
   poiLabel: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.7 },
   poiValue: { fontSize: 21, fontWeight: '800', marginTop: 5, fontFamily: 'JetBrainsMono_700Bold' },

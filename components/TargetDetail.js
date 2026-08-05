@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import Svg, { Circle, Line, Text as SvgText } from 'react-native-svg';
 import { useTheme } from '../lib/theme';
 
@@ -14,7 +14,7 @@ import { useTheme } from '../lib/theme';
  * The view is squared and centred on the union of shots and aim, so the aim
  * point is never cropped out no matter how far the group landed from it.
  */
-export default function TargetDetail({ metrics, size = 260 }) {
+export default function TargetDetail({ metrics, size = 260, onSetAim, invert }) {
   const { colors } = useTheme();
 
   if (!metrics?.ok) {
@@ -26,7 +26,7 @@ export default function TargetDetail({ metrics, size = 260 }) {
   }
 
   const pts = metrics.shotsIn;
-  const aim = metrics.poi?.available ? metrics.aimIn : null;
+  const aim = metrics.aimIn;
   const c = metrics.centroidIn;
 
   // Bounds over everything that must stay visible.
@@ -41,8 +41,27 @@ export default function TargetDetail({ metrics, size = 260 }) {
   const px = (p) => ({ cx: toPx(p.x, cxMid), cy: toPx(p.y, cyMid) });
   const dot = Math.max(4, Math.min(8, size / 34));
 
+  // Screen pixel -> plane inches, the inverse of `px` above. Used to turn a tap
+  // into a new aim point.
+  const fromPx = (sx, sy) => ({
+    x: (sx - size / 2) / size * span + cxMid,
+    y: (sy - size / 2) / size * span + cyMid,
+  });
+
+  const handleTap = (e) => {
+    if (!onSetAim || !invert) return;
+    const { locationX, locationY } = e.nativeEvent;
+    const sx = locationX ?? e.nativeEvent.offsetX;
+    const sy = locationY ?? e.nativeEvent.offsetY;
+    if (!isFinite(sx) || !isFinite(sy)) return;
+    const planePt = fromPx(sx, sy);
+    const normalised = invert(planePt);
+    if (normalised) onSetAim(normalised);
+  };
+
   return (
     <View>
+      <Pressable onPress={handleTap} disabled={!onSetAim}>
       <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         {/* One-inch grid, so the scale is readable without a legend. */}
         {(() => {
@@ -68,7 +87,8 @@ export default function TargetDetail({ metrics, size = 260 }) {
           const a = px(aim);
           return (
             <>
-              <Circle cx={a.cx} cy={a.cy} r={11} fill="none" stroke="#12B76A" strokeWidth={2} />
+              <Circle cx={a.cx} cy={a.cy} r={11} fill="none" stroke="#12B76A" strokeWidth={2}
+                strokeDasharray={metrics.aimAssumed ? '3 3' : undefined} />
               <Line x1={a.cx} y1={a.cy - 16} x2={a.cx} y2={a.cy - 5} stroke="#12B76A" strokeWidth={2} />
               <Line x1={a.cx} y1={a.cy + 5} x2={a.cx} y2={a.cy + 16} stroke="#12B76A" strokeWidth={2} />
               <Line x1={a.cx - 16} y1={a.cy} x2={a.cx - 5} y2={a.cy} stroke="#12B76A" strokeWidth={2} />
@@ -107,11 +127,12 @@ export default function TargetDetail({ metrics, size = 260 }) {
           {span > 8 ? '2in grid' : '1in grid'}
         </SvgText>
       </Svg>
+      </Pressable>
 
       <View style={s.legend}>
         <Legend colour="rgba(130,87,240,0.9)" label={`${metrics.n} shots`} colors={colors} />
         <Legend colour={colors.act} label="Group centre" colors={colors} />
-        {aim && <Legend colour="#12B76A" label="Aim point" colors={colors} />}
+        {aim && <Legend colour="#12B76A" label={metrics.aimAssumed ? 'Aim (assumed centre)' : 'Aim point'} colors={colors} />}
       </View>
     </View>
   );
