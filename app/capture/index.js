@@ -4,7 +4,7 @@ import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, 
 import { useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import Svg, { Circle, Polygon } from 'react-native-svg';
+import Svg, { Circle, Polygon, Line } from 'react-native-svg';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { computeGroupStats } from '../../lib/math';
@@ -45,6 +45,10 @@ export default function CaptureScreen() {
   const [suppressed, setSuppressed] = useState(true);
   const [sessionName, setSessionName] = useState('');
   const [corners, setCorners] = useState([]);
+  // Point of aim. Optional: only a shooter zeroing or truing needs it, so it
+  // never blocks saving, but without it point of impact is unmeasurable.
+  const [aim, setAim] = useState(null);
+  const [markMode, setMarkMode] = useState('shot');
   const [shots, setShots] = useState([]);
   const [detecting, setDetecting] = useState(false);
   const [detectNote, setDetectNote] = useState(null);
@@ -191,6 +195,10 @@ export default function CaptureScreen() {
       // Extra taps are inert rather than restarting — a stray 5th tap must not
       // silently destroy the calibration. Reset is the deliberate redo.
       setCorners(prev => prev.length >= 4 ? prev : [...prev, pt]);
+      mediumTap();
+    } else if (mode === 'aim') {
+      // One aim point per target; tapping again moves it.
+      setAim(pt);
       mediumTap();
     } else {
       detectedRef.current = false;
@@ -346,6 +354,7 @@ export default function CaptureScreen() {
         id: 't' + Date.now(),
         shots: shots.map(sh => ({ x: sh.x, y: sh.y })),
         scale: ordered ? { corners: ordered, widthIn: refWIn, heightIn: refHIn } : null,
+        aim,
       }],
       best: stats ? stats.extremeSpreadIn.toFixed(2) : '—',
       meanRadius: stats ? stats.meanRadiusIn.toFixed(2) : '—',
@@ -619,9 +628,32 @@ export default function CaptureScreen() {
                 <Text style={[s.detectNoteText, { color: colors.mut }]}>{detectNote}</Text>
               </View>
             )}
+            <View style={s.markModeRow}>
+              {[['shot', 'Shots'], ['aim', 'Aim point']].map(([k, label]) => (
+                <TouchableOpacity
+                  key={k}
+                  onPress={() => setMarkMode(k)}
+                  style={[s.markModeBtn, {
+                    backgroundColor: markMode === k ? colors.act : colors.card,
+                    borderColor: markMode === k ? colors.act : colors.bd,
+                  }]}
+                >
+                  <Text style={[s.markModeText, { color: markMode === k ? '#fff' : colors.mut }]}>
+                    {label}{k === 'aim' && aim ? ' ✓' : ''}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {markMode === 'aim' && (
+              <Text style={[s.markModeHint, { color: colors.fnt }]}>
+                Tap where you were aiming. Optional — but without it, point of impact
+                can't be measured for zeroing or truing.
+              </Text>
+            )}
+
             <TouchableOpacity
               activeOpacity={1}
-              onPress={(e) => onTapImage(e, 'shots')}
+              onPress={(e) => onTapImage(e, markMode === 'aim' ? 'aim' : 'shots')}
               style={[s.imgContainer, { borderColor: colors.bd, width: IMG_W, height: IMG_H }]}
               {...panResponder.panHandlers}
             >
@@ -639,6 +671,22 @@ export default function CaptureScreen() {
                   </Svg>
                 ) : null}
               </View>
+              {aim && (
+                <View pointerEvents="none" style={{
+                  position: 'absolute',
+                  left: aim.x * IMG_W * zoom + pan.x - 13,
+                  top: aim.y * IMG_W * zoom + pan.y - 13,
+                  width: 26, height: 26,
+                }}>
+                  <Svg width={26} height={26} viewBox="0 0 26 26">
+                    <Circle cx="13" cy="13" r="10" fill="none" stroke="#12B76A" strokeWidth="2" />
+                    <Line x1="13" y1="0" x2="13" y2="8" stroke="#12B76A" strokeWidth="2" />
+                    <Line x1="13" y1="18" x2="13" y2="26" stroke="#12B76A" strokeWidth="2" />
+                    <Line x1="0" y1="13" x2="8" y2="13" stroke="#12B76A" strokeWidth="2" />
+                    <Line x1="18" y1="13" x2="26" y2="13" stroke="#12B76A" strokeWidth="2" />
+                  </Svg>
+                </View>
+              )}
               {shots.map((p, i) => (
                 <TouchableOpacity
                   key={i}
@@ -819,6 +867,10 @@ const s = StyleSheet.create({
   shotOverlayText: { color: '#fff', fontSize: 11, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' },
   detectBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#6D3BEB', padding: 13, borderRadius: 13, marginBottom: 10 },
   detectBtnText: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
+  markModeRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
+  markModeBtn: { flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
+  markModeText: { fontSize: 13, fontWeight: '700' },
+  markModeHint: { fontSize: 11.5, fontWeight: '600', marginBottom: 8, lineHeight: 16 },
   detectNote: { borderWidth: 1, borderRadius: 11, padding: 11, paddingHorizontal: 13, marginBottom: 10 },
   detectNoteText: { fontSize: 12.5, fontWeight: '600', lineHeight: 18 },
   zoomBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },

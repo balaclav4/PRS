@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Download, Gauge } from 'lucide-react-native';
+import { ArrowLeft, Download, Gauge, ChevronDown } from 'lucide-react-native';
 import { useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme, groupColor } from '../../lib/theme';
@@ -9,6 +9,8 @@ import { saveCSV, slugify } from '../../lib/export';
 import { formatGroup, formatVelocity, formatDistance, groupUnitLabel } from '../../lib/units';
 import { targetGroups } from '../../lib/analytics';
 import TargetPlot from '../../components/TargetPlot';
+import TargetDetail from '../../components/TargetDetail';
+import { targetMetrics, sessionPoi } from '../../lib/poi';
 import ChronoImport from '../../components/ChronoImport';
 
 export default function SessionDetailScreen() {
@@ -17,6 +19,7 @@ export default function SessionDetailScreen() {
   const { colors } = useTheme();
   const { getSession, getRifleName, exportSessionsCSV, updateSession, units } = useData();
   const [importing, setImporting] = useState(false);
+  const [openTarget, setOpenTarget] = useState(null);
 
   const sess = getSession(id);
   if (!sess) return null;
@@ -109,20 +112,104 @@ export default function SessionDetailScreen() {
           </Text>
         </TouchableOpacity>
 
+        {/* Point of impact for the whole session: what to dial. */}
+        {(() => {
+          const poi = sessionPoi(sess, units.group);
+          return (
+            <View style={[s.poiCard, {
+              backgroundColor: poi.ok ? colors.acs : colors.inset,
+              borderColor: poi.ok ? colors.act : colors.ibd,
+            }]}>
+              <Text style={[s.poiLabel, { color: poi.ok ? colors.act : colors.mut }]}>
+                POINT OF IMPACT
+              </Text>
+              {poi.ok ? (
+                <>
+                  <Text style={[s.poiValue, { color: colors.act }]}>{poi.summary}</Text>
+                  <Text style={[s.poiDial, { color: colors.act }]}>Dial {poi.dial}</Text>
+                  <Text style={[s.poiMeta, { color: colors.act }]}>
+                    Pooled from {poi.shots} shot{poi.shots === 1 ? '' : 's'} across{' '}
+                    {poi.targetsUsed} target{poi.targetsUsed === 1 ? '' : 's'} · {poi.unit}
+                  </Text>
+                </>
+              ) : (
+                <Text style={[s.poiMeta, { color: colors.mut, marginTop: 2 }]}>{poi.reason}</Text>
+              )}
+            </View>
+          );
+        })()}
+
         <Text style={[s.targetsTitle, { color: colors.tx }]}>Targets ({sess.targetCount})</Text>
+        <Text style={[s.targetsHint, { color: colors.fnt }]}>Tap a target to see its shots and point of impact.</Text>
         <View style={s.targetsList}>
           {sess.targets.map((t, i) => {
             const measured = perTarget.find(g => g.id === t.id);
             const groupSize = measured ? measured.inches.toFixed(2) : null;
+            const open = openTarget === t.id;
+            const m = open ? targetMetrics(t, sess.distanceYd, units.group) : null;
             return (
-              <View key={t.id} style={[s.targetRow, { backgroundColor: colors.card, borderColor: colors.bd }]}>
-                <View style={[s.targetNum, { backgroundColor: colors.acs }]}>
-                  <Text style={[s.targetNumText, { color: colors.act }]}>{i + 1}</Text>
-                </View>
-                <Text style={[s.targetShots, { color: colors.mut }]}>{t.shots.length} shots</Text>
-                <Text style={[s.targetGroup, { color: groupColor(groupSize, colors), fontFamily: 'JetBrainsMono_700Bold' }]}>
-                  {groupSize ? formatGroup(parseFloat(groupSize), sess.distanceYd, units.group) : '—'}
-                </Text>
+              <View key={t.id}>
+                <TouchableOpacity
+                  onPress={() => setOpenTarget(open ? null : t.id)}
+                  activeOpacity={0.7}
+                  style={[s.targetRow, {
+                    backgroundColor: colors.card,
+                    borderColor: open ? colors.act : colors.bd,
+                  }]}
+                >
+                  <View style={[s.targetNum, { backgroundColor: colors.acs }]}>
+                    <Text style={[s.targetNumText, { color: colors.act }]}>{i + 1}</Text>
+                  </View>
+                  <Text style={[s.targetShots, { color: colors.mut }]}>{t.shots.length} shots</Text>
+                  <Text style={[s.targetGroup, { color: groupColor(groupSize, colors), fontFamily: 'JetBrainsMono_700Bold' }]}>
+                    {groupSize ? formatGroup(parseFloat(groupSize), sess.distanceYd, units.group) : '—'}
+                  </Text>
+                  <ChevronDown
+                    size={16}
+                    color={colors.fnt}
+                    style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
+                  />
+                </TouchableOpacity>
+
+                {open && (
+                  <View style={[s.targetPanel, { backgroundColor: colors.card, borderColor: colors.act }]}>
+                    <TargetDetail metrics={m} size={250} />
+                    {m.ok && (
+                      <>
+                        <View style={s.statGrid}>
+                          {[
+                            ['GROUP', m.extremeSpread],
+                            ['MEAN RADIUS', m.meanRadius],
+                            ['SIGMA', m.sigma],
+                            ['CENTRE ±95%', m.centre95],
+                          ].map(([label, val]) => (
+                            <View key={label} style={[s.statTile, { backgroundColor: colors.inset }]}>
+                              <Text style={[s.statLabel, { color: colors.mut }]}>{label}</Text>
+                              <Text style={[s.statVal, { color: colors.tx }]}>
+                                {val == null ? '—' : `${val} ${m.unit}`}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        {m.poi.available ? (
+                          <View style={[s.poiInline, { backgroundColor: m.poi.meaningful ? colors.oks : colors.warns }]}>
+                            <Text style={[s.poiInlineVal, { color: m.poi.meaningful ? colors.okt : colors.warnt }]}>
+                              {m.poi.summary} · dial {m.poi.dial}
+                            </Text>
+                            {!!m.poi.note && (
+                              <Text style={[s.poiInlineNote, { color: colors.warnt }]}>{m.poi.note}</Text>
+                            )}
+                          </View>
+                        ) : (
+                          <View style={[s.poiInline, { backgroundColor: colors.inset }]}>
+                            <Text style={[s.poiInlineNote, { color: colors.mut }]}>{m.poi.reason}</Text>
+                          </View>
+                        )}
+                      </>
+                    )}
+                  </View>
+                )}
               </View>
             );
           })}
@@ -168,6 +255,20 @@ const s = StyleSheet.create({
   chronoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 13, padding: 13, marginTop: 10 },
   chronoBtnText: { fontSize: 14, fontWeight: '700' },
   targetsTitle: { fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 22, marginBottom: 10 },
+  poiCard: { padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 16 },
+  poiLabel: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.7 },
+  poiValue: { fontSize: 21, fontWeight: '800', marginTop: 5, fontFamily: 'JetBrainsMono_700Bold' },
+  poiDial: { fontSize: 14, fontWeight: '800', marginTop: 2 },
+  poiMeta: { fontSize: 11.5, fontWeight: '600', marginTop: 4, lineHeight: 16 },
+  targetsHint: { fontSize: 11.5, fontWeight: '600', marginTop: -6, marginBottom: 8 },
+  targetPanel: { padding: 14, borderRadius: 12, borderWidth: 1, marginTop: -4, marginBottom: 8, alignItems: 'center' },
+  statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12, width: '100%' },
+  statTile: { flexGrow: 1, flexBasis: '45%', padding: 10, borderRadius: 10 },
+  statLabel: { fontSize: 9.5, fontWeight: '800', letterSpacing: 0.5 },
+  statVal: { fontSize: 15, fontWeight: '800', marginTop: 3, fontFamily: 'JetBrainsMono_700Bold' },
+  poiInline: { padding: 11, borderRadius: 10, marginTop: 10, width: '100%' },
+  poiInlineVal: { fontSize: 13.5, fontWeight: '800' },
+  poiInlineNote: { fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 3 },
   targetsList: { gap: 10 },
   targetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 14, paddingVertical: 13, paddingHorizontal: 15 },
   targetNum: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
