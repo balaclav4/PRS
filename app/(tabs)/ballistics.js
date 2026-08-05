@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { formatVelocity, formatDistance, mToYd, cToF, mpsToFps, ydToM, fToC, fpsToMps } from '../../lib/units';
+import { establishZero, zeroUnderConditions, densityAltitude } from '../../lib/zeroing';
 import { dopeCard, trueBC } from '../../lib/ballistics';
 import { sightTape, tapeToRows } from '../../lib/sighttape';
 import { saveCSV, slugify } from '../../lib/export';
@@ -47,7 +48,7 @@ function Segmented({ options, value, onChange, colors }) {
 export default function BallisticsScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { loads, rifles, addDopeCard, units } = useData();
+  const { loads, rifles, addDopeCard, updateRifle, units } = useData();
 
   const [loadIdx, setLoadIdx] = useState(0);
   const [picking, setPicking] = useState(false);
@@ -254,6 +255,71 @@ export default function BallisticsScreen() {
           90° is a full-value crosswind, 0° a pure headwind. Drift scales with the sine,
           so a 30° wind is about half value.
         </Text>
+
+        {/* Zero baseline: the angle, not a range. */}
+        <Text style={[s.sectionLabel, { color: colors.fnt }]}>ZERO</Text>
+        {(() => {
+          const baseline = rifle?.zeroBaseline || null;
+          const todayDa = densityAltitude({
+            tempF: opts.tempF, pressureInHg: opts.pressureInHg, elevationFt: opts.altitudeFt || 0,
+          });
+          const check = baseline ? zeroUnderConditions(baseline, opts) : null;
+          return (
+            <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+              <Text style={[s.zeroDa, { color: colors.mut }]}>
+                Density altitude right now: {todayDa == null ? '—' : `${todayDa} ft`}
+              </Text>
+              {baseline ? (
+                <>
+                  <Text style={[s.zeroAngle, { color: colors.tx }]}>
+                    {baseline.angleMil} mil bore angle · set at {baseline.zeroYd} yd,
+                    {' '}{baseline.conditions.densityAltitudeFt} ft DA
+                  </Text>
+                  {check?.ok && (
+                    <View style={[s.zeroResult, {
+                      backgroundColor: check.matters ? colors.warns : colors.oks,
+                    }]}>
+                      <Text style={[s.zeroResultText, {
+                        color: check.matters ? colors.warnt : colors.okt,
+                      }]}>{check.verdict}</Text>
+                    </View>
+                  )}
+                  <Text style={[s.note, { color: colors.fnt }]}>
+                    The angle is the thing that does not move — only the turret changes it.
+                    The range it zeroes at is computed for the conditions above.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => rifle && updateRifle(rifle.id, { zeroBaseline: null })}
+                    style={[s.zeroBtn, { borderColor: colors.ibd }]}
+                  >
+                    <Text style={[s.zeroBtnText, { color: colors.mut }]}>Clear baseline</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text style={[s.note, { color: colors.fnt }]}>
+                    {rifle
+                      ? 'Record the bore angle once, in the conditions you zeroed in. After that the app tells you where the rifle shoots today instead of assuming the zero range never moved.'
+                      : 'Link this load to a rifle to record a zero baseline.'}
+                  </Text>
+                  {!!rifle && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        const z = establishZero(opts);
+                        if (z.ok) updateRifle(rifle.id, { zeroBaseline: z });
+                      }}
+                      style={[s.zeroBtn, { borderColor: colors.act, backgroundColor: colors.acs }]}
+                    >
+                      <Text style={[s.zeroBtnText, { color: colors.act }]}>
+                        Set zero baseline from these conditions
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+            </View>
+          );
+        })()}
 
         {/* Table extent */}
         <Text style={[s.sectionLabel, { color: colors.fnt }]}>TABLE</Text>
@@ -498,6 +564,12 @@ const s = StyleSheet.create({
   seg: { flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: 7 },
   segText: { fontSize: 13, fontWeight: '700' },
 
+  zeroDa: { fontSize: 11.5, fontWeight: '700' },
+  zeroAngle: { fontSize: 14, fontWeight: '800', fontFamily: 'JetBrainsMono_700Bold', lineHeight: 20 },
+  zeroResult: { padding: 11, borderRadius: 10 },
+  zeroResultText: { fontSize: 12.5, fontWeight: '700', lineHeight: 17 },
+  zeroBtn: { paddingVertical: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
+  zeroBtnText: { fontSize: 12.5, fontWeight: '700' },
   sectionLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5, marginTop: 18, marginBottom: 8 },
   row: { flexDirection: 'row', gap: 10, marginBottom: 8 },
   fieldLabel: { fontSize: 11.5, fontWeight: '700', marginBottom: 6 },
@@ -506,7 +578,7 @@ const s = StyleSheet.create({
   fieldUnit: { fontSize: 11, fontWeight: '700' },
   note: { fontSize: 11, fontWeight: '600', lineHeight: 16, marginTop: 2, marginHorizontal: 2 },
 
-  card: { borderWidth: 1, borderRadius: 18, padding: 16, marginTop: 18 },
+  card: { borderWidth: 1, borderRadius: 18, padding: 16, marginTop: 18, gap: 10 },
   cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   cardTitle: { fontSize: 15, fontWeight: '800' },
   cardSub: { fontSize: 11, fontWeight: '600' },
