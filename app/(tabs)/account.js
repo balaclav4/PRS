@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { initialsFrom } from '../../lib/profile';
+import { useAuth } from '../../store/auth';
 
 /**
  * Account and data.
@@ -27,6 +28,7 @@ export default function AccountScreen() {
     profileName, setProfile, clearAllData, deleteAccount,
   } = useData();
 
+  const { configured, user, projectId, signOut } = useAuth();
   const back = () => (router.canGoBack?.() ? router.back() : router.replace('/'));
   const initials = initialsFrom(profileName);
   const total = sessions.length + rifles.length + loads.length + dopeCards.length + projects.length;
@@ -64,11 +66,16 @@ export default function AccountScreen() {
   const confirmDeleteAccount = () => {
     ask(
       'Delete account?',
-      'Accounts are not connected yet, so there is nothing on a server to delete. ' +
-      'This erases everything on this device — every session, rifle, load, dope card ' +
-      'and load dev project, plus your settings — and returns you to the login screen.',
-      () => ask('Delete everything?', 'This cannot be undone.', () => {
+      (user
+        ? 'This erases everything on this device — every session, rifle, load, dope card ' +
+          'and load dev project, plus your settings — and signs you out. Your account itself ' +
+          'is not deleted from the server yet; ask to have it removed if you need that.'
+        : 'No account is signed in, so there is nothing on a server to delete. ' +
+          'This erases everything on this device — every session, rifle, load, dope card ' +
+          'and load dev project, plus your settings — and returns you to the login screen.'),
+      () => ask('Delete everything?', 'This cannot be undone.', async () => {
         deleteAccount();
+        await signOut();
         router.replace('/login');
       })
     );
@@ -132,7 +139,11 @@ export default function AccountScreen() {
               />
             </View>
             <Text style={[s.sub, { color: colors.mut }]}>
-              Not signed in — accounts aren't connected yet, so this is a local label.
+              {user
+                ? `Signed in as ${user.email}`
+                : configured
+                  ? 'Not signed in — sign in to use your account.'
+                  : "This device isn't connected to an account, so the name is a local label."}
             </Text>
           </View>
         </View>
@@ -166,7 +177,8 @@ export default function AccountScreen() {
             <HardDrive size={17} color={colors.act} />
             <Text style={[s.privacyText, { color: colors.tx }]}>
               Your data stays on this device. Sessions, rifles, loads and dope
-              cards are stored locally and are not uploaded anywhere.
+              cards are stored locally and are not uploaded anywhere — signing in
+              identifies you, but nothing is synced yet.
             </Text>
           </View>
           <View style={s.privacyRow}>
@@ -189,8 +201,8 @@ export default function AccountScreen() {
         <Row
           icon={LogOut}
           label="Sign out"
-          sub="Returns to the login screen"
-          onPress={() => router.replace('/login')}
+          sub={user ? `Signs out ${user.email}` : 'Returns to the login screen'}
+          onPress={async () => { await signOut(); router.replace('/login'); }}
         />
 
         <Text style={[s.section, { color: colors.mut }]}>DANGER ZONE</Text>

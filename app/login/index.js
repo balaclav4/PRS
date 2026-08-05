@@ -1,18 +1,44 @@
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Target } from 'lucide-react-native';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
+import { useAuth } from '../../store/auth';
 
 export default function LoginScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const { configured, projectId, user, ready, busy, error, clearError, signIn, signUp, resetPassword } = useAuth();
 
-  const login = () => {
-    router.replace('/(tabs)');
+  // A restored session should land on the app, not on this screen.
+  useEffect(() => {
+    if (ready && user) router.replace('/(tabs)');
+  }, [ready, user, router]);
+
+  const submit = async () => {
+    setNotice(null);
+    // With no backend configured the app is local-only, which is a supported
+    // mode rather than an error — going straight in is the honest behaviour.
+    if (!configured) return router.replace('/(tabs)');
+    if (!email.trim() || !password) {
+      setNotice('Enter an email and password.');
+      return;
+    }
+    const r = creating ? await signUp(email, password) : await signIn(email, password);
+    if (r.ok) router.replace('/(tabs)');
+  };
+
+  const forgot = async () => {
+    setNotice(null);
+    if (!configured) return;
+    if (!email.trim()) { setNotice('Enter your email first, then tap this again.'); return; }
+    const r = await resetPassword(email);
+    if (r.ok) setNotice('Password reset email sent.');
   };
 
   return (
@@ -52,24 +78,42 @@ export default function LoginScreen() {
               </View>
             </View>
 
-            <TouchableOpacity onPress={login} style={s.signIn}>
-              <Text style={s.signInText}>Sign In</Text>
+            {(error || notice) && (
+              <View style={[s.banner, { backgroundColor: error ? colors.dngs : colors.acs }]}>
+                <Text style={[s.bannerText, { color: error ? colors.dngt : colors.act }]}>
+                  {error || notice}
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity onPress={submit} disabled={busy} style={[s.signIn, busy && { opacity: 0.6 }]}>
+              {busy
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={s.signInText}>
+                    {!configured ? 'Continue' : creating ? 'Create Account' : 'Sign In'}
+                  </Text>}
             </TouchableOpacity>
 
-            <View style={s.divider}>
-              <View style={[s.dividerLine, { backgroundColor: colors.ibd }]} />
-              <Text style={[s.dividerText, { color: colors.fnt }]}>OR</Text>
-              <View style={[s.dividerLine, { backgroundColor: colors.ibd }]} />
-            </View>
-
-            <TouchableOpacity onPress={login} style={[s.apple, { backgroundColor: colors.card, borderColor: colors.ibd }]}>
-              <Text style={[s.appleText, { color: colors.tx }]}>Continue with Apple</Text>
-            </TouchableOpacity>
+            {configured && (
+              <TouchableOpacity onPress={forgot} disabled={busy} style={s.forgotBtn}>
+                <Text style={[s.forgotText, { color: colors.mut }]}>Forgot password?</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
-          <Text style={[s.footer, { color: colors.fnt }]}>
-            New here? <Text style={{ color: colors.act }}>Create an account</Text>
-          </Text>
+          {configured ? (
+            <TouchableOpacity onPress={() => { clearError(); setNotice(null); setCreating(v => !v); }}>
+              <Text style={[s.footer, { color: colors.fnt }]}>
+                {creating ? 'Already have an account? ' : 'New here? '}
+                <Text style={{ color: colors.act }}>{creating ? 'Sign in' : 'Create an account'}</Text>
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={[s.footer, { color: colors.fnt }]}>
+              No account needed — this device isn't connected to an account, so
+              everything stays local to it.
+            </Text>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -78,6 +122,10 @@ export default function LoginScreen() {
 
 const s = StyleSheet.create({
   content: { flex: 1, padding: 26, paddingTop: 28, paddingBottom: 40 },
+  banner: { width: '100%', padding: 11, borderRadius: 11, marginTop: 14 },
+  bannerText: { fontSize: 12.5, fontWeight: '600', lineHeight: 17 },
+  forgotBtn: { marginTop: 12, alignSelf: 'center' },
+  forgotText: { fontSize: 12.5, fontWeight: '600' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   logo: {
     width: 76, height: 76, borderRadius: 22, alignItems: 'center', justifyContent: 'center',

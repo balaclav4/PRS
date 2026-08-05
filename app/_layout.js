@@ -4,9 +4,18 @@ import { useFonts, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manr
 import { JetBrainsMono_500Medium, JetBrainsMono_700Bold } from '@expo-google-fonts/jetbrains-mono';
 import { ThemeProvider, useTheme } from '../lib/theme';
 import { DataProvider } from '../store/data';
+import { AuthProvider, useAuth } from '../store/auth';
 
 function InnerLayout() {
   const { colors } = useTheme();
+  const { ready } = useAuth();
+
+  // Firebase restores a persisted session asynchronously. Rendering the stack
+  // before that resolves would flash a signed-in user past the login screen and
+  // back, so hold until the first auth state is known. When Firebase is not
+  // configured this is already true on the first render and costs nothing.
+  if (!ready) return null;
+
   return (
     <>
       <StatusBar style={colors.statusBar} />
@@ -34,9 +43,11 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
-      <DataProvider>
-        <InnerLayout />
-      </DataProvider>
+      <AuthProvider>
+        <DataProvider>
+          <InnerLayout />
+        </DataProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }
