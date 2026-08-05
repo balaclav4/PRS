@@ -10,7 +10,7 @@
  * Run: node scripts/test-barrel.mjs
  */
 import {
-  barrelLifeEstimate, totalRounds, lifeStatus, erosionTrend, compareLots,
+  barrelLifeEstimate, totalRounds, lifeStatus, erosionTrend, compareLots, compareLotPoi,
 } from '../lib/barrel.js';
 
 let seed = 24601;
@@ -158,10 +158,62 @@ console.log('\nlot comparison');
     `${same.diff} fps, p = ${same.p?.toFixed(2)}`);
   check('  and it says to treat them as the same', /treat them as the same/i.test(same.verdict));
 
-  check('  POI is explicitly not claimed', /not compared/.test(r.poiNote));
+  check('  and points at the separate POI comparison', /compareLotPoi/.test(r.poiNote));
   check('  short strings are refused',
     compareLots({ label: 'A', velocities: [2850, 2855] }, b).ok === false);
   check('  empty is safe', compareLots({}, {}).ok === false);
+}
+
+console.log('\npoint of impact between lots');
+{
+  // A square-on 10" sheet on the unit square: one normalised unit is 10 inches,
+  // so every expected value is checkable by hand.
+  const SQUARE = { corners: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }], widthIn: 10, heightIn: 10 };
+  const AIM = { x: 0.5, y: 0.5 };
+  // A tight group centred `off` normalised units below aim.
+  const sess = (off, reps) => ({
+    distanceYd: 100,
+    targets: Array.from({ length: reps }, (_, k) => ({
+      id: 't' + k,
+      scale: SQUARE, aim: AIM,
+      shots: [
+        { x: 0.49, y: 0.5 + off }, { x: 0.51, y: 0.5 + off },
+        { x: 0.50, y: 0.49 + off }, { x: 0.50, y: 0.51 + off },
+      ],
+    })),
+  });
+
+  // Lot B prints 1" (0.1 units) lower than lot A, from tight groups.
+  const moved = compareLotPoi(
+    { label: 'Lot A', sessions: [sess(0, 3)] },
+    { label: 'Lot B', sessions: [sess(0.1, 3)] },
+    100, 'Inches'
+  );
+  check('  a real 1" drop is caught', moved.ok && moved.resolved,
+    `${moved.radial}" vs ±${moved.ci95}" resolvable`);
+  check('  direction is named', /lower/.test(moved.verdict), moved.verdict.slice(0, 52));
+  check('  and it says to re-confirm zero', /Re-confirm your zero/.test(moved.verdict));
+
+  // The same lot twice must not read as a shift.
+  const same = compareLotPoi(
+    { label: 'Lot A', sessions: [sess(0, 3)] },
+    { label: 'Lot A again', sessions: [sess(0, 3)] },
+    100, 'Inches'
+  );
+  check('  the same lot twice shows no shift', !same.resolved, `${same.radial}"`);
+  check('  and says so', /No shift shown/.test(same.verdict));
+
+  // Converts to the display unit.
+  const moa = compareLotPoi(
+    { label: 'A', sessions: [sess(0, 3)] },
+    { label: 'B', sessions: [sess(0.1, 3)] },
+    100, 'MOA'
+  );
+  check('  reports in the requested unit', near(moa.radial, 1 / 1.047, 0.02),
+    `${moa.radial} MOA for a 1" shift at 100yd`);
+
+  check('  targets without an aim point are refused',
+    compareLotPoi({ label: 'A', sessions: [] }, { label: 'B', sessions: [] }, 100).ok === false);
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));
