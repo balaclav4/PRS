@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, Pressable, StyleSheet, Platform } from 'react-native';
-import { Wind, FlaskConical, Wrench, Settings, LogOut, ChevronRight, BookOpen } from 'lucide-react-native';
+import { Wind, FlaskConical, Wrench, Settings, LogOut, ChevronRight, BookOpen, Crosshair } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../lib/theme';
 
@@ -8,6 +8,7 @@ const items = [
   { icon: BookOpen, label: 'Dope Cards', sub: 'Saved solutions', route: '/dopecards' },
   { icon: FlaskConical, label: 'Load Development', sub: '8-step reloading wizard', route: '/reloading' },
   { icon: Wrench, label: 'Equipment', sub: 'Rifles & loads', route: '/equipment' },
+  { icon: Crosshair, label: 'Scope Evaluation', sub: 'Tracking & return to zero', route: '/scope' },
   { icon: Settings, label: 'Settings', sub: 'Units, export, appearance', route: '/settings' },
 ];
 
