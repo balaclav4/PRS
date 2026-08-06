@@ -73,6 +73,30 @@ export function AuthProvider({ children }) {
     await sendPasswordResetEmail(auth, email.trim());
   }), [run]);
 
+  /**
+   * Delete the signed-in account.
+   *
+   * Required by App Store guideline 5.1.1(v): an app that lets users create an
+   * account must let them delete it. Wiping local data and signing out is not
+   * deletion — the account still exists and the reviewer can see it.
+   *
+   * Firebase refuses deleteUser unless the session is recent, so this
+   * reauthenticates with the password first. That is also the right safety
+   * behaviour: an unattended phone should not be able to destroy an account.
+   */
+  const deleteAccountForever = useCallback((password) => run(async () => {
+    const auth = getFirebaseAuth();
+    if (!auth?.currentUser) throw { code: 'auth/operation-not-allowed' };
+    if (!password) throw { code: 'auth/missing-password' };
+    const {
+      EmailAuthProvider, reauthenticateWithCredential, deleteUser,
+    } = require('firebase/auth');
+    const u = auth.currentUser;
+    const cred = EmailAuthProvider.credential(u.email, password);
+    await reauthenticateWithCredential(u, cred);
+    await deleteUser(u);
+  }), [run]);
+
   const signOut = useCallback(async () => {
     const auth = getFirebaseAuth();
     if (!auth) return;
@@ -88,8 +112,8 @@ export function AuthProvider({ children }) {
     busy,
     error,
     clearError: () => setError(null),
-    signIn, signUp, signOut, resetPassword,
-  }), [user, ready, busy, error, signIn, signUp, signOut, resetPassword]);
+    signIn, signUp, signOut, resetPassword, deleteAccountForever,
+  }), [user, ready, busy, error, signIn, signUp, signOut, resetPassword, deleteAccountForever]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

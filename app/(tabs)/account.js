@@ -6,6 +6,7 @@ import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { initialsFrom } from '../../lib/profile';
 import { useAuth } from '../../store/auth';
+import { useState } from 'react';
 
 /**
  * Account and data.
@@ -28,7 +29,12 @@ export default function AccountScreen() {
     profileName, setProfile, clearAllData, deleteAccount,
   } = useData();
 
-  const { configured, user, projectId, signOut } = useAuth();
+  const { configured, user, projectId, signOut, deleteAccountForever, busy, error } = useAuth();
+  // Deleting a real account needs the password back, so it happens in a prompt
+  // rather than a system confirm.
+  const [deleting, setDeleting] = useState(false);
+  const [password, setPassword] = useState('');
+  const [deleteNote, setDeleteNote] = useState(null);
   const back = () => (router.canGoBack?.() ? router.back() : router.replace('/'));
   const initials = initialsFrom(profileName);
   const total = sessions.length + rifles.length + loads.length + dopeCards.length + projects.length;
@@ -64,21 +70,34 @@ export default function AccountScreen() {
   };
 
   const confirmDeleteAccount = () => {
+    // Signed in: the account itself has to go, not just this device's copy.
+    // App Store guideline 5.1.1(v) treats a local wipe as not deleting at all.
+    if (user) {
+      setPassword('');
+      setDeleteNote(null);
+      setDeleting(true);
+      return;
+    }
     ask(
       'Delete account?',
-      (user
-        ? 'This erases everything on this device — every session, rifle, load, dope card ' +
-          'and load dev project, plus your settings — and signs you out. Your account itself ' +
-          'is not deleted from the server yet; ask to have it removed if you need that.'
-        : 'No account is signed in, so there is nothing on a server to delete. ' +
-          'This erases everything on this device — every session, rifle, load, dope card ' +
-          'and load dev project, plus your settings — and returns you to the login screen.'),
+      'No account is signed in, so there is nothing on a server to delete. ' +
+      'This erases everything on this device — every session, rifle, load, dope card ' +
+      'and load dev project, plus your settings — and returns you to the login screen.',
       () => ask('Delete everything?', 'This cannot be undone.', async () => {
         deleteAccount();
         await signOut();
         router.replace('/login');
       })
     );
+  };
+
+  const runDelete = async () => {
+    setDeleteNote(null);
+    const r = await deleteAccountForever(password);
+    if (!r.ok) return;                       // error surfaces from useAuth
+    deleteAccount();                          // wipe the device too
+    setDeleting(false);
+    router.replace('/login');
   };
 
   const counts = [
@@ -206,6 +225,57 @@ export default function AccountScreen() {
         />
 
         <Text style={[s.section, { color: colors.mut }]}>DANGER ZONE</Text>
+        {deleting && (
+          <View style={[s.deleteBox, { backgroundColor: colors.dngs, borderColor: colors.dngt }]}>
+            <Text style={[s.deleteTitle, { color: colors.dngt }]}>
+              Permanently delete {user?.email}?
+            </Text>
+            <Text style={[s.deleteBody, { color: colors.dngt }]}>
+              This deletes your account itself, not just this device. Every session,
+              rifle, load, dope card and load dev project on this phone goes with it.
+              It cannot be undone and there is no backup to restore from.
+            </Text>
+            <Text style={[s.deleteBody, { color: colors.dngt }]}>
+              Enter your password to confirm.
+            </Text>
+            <View style={[s.nameInput, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Password"
+                placeholderTextColor={colors.fnt}
+                secureTextEntry
+                style={[s.nameInputText, { color: colors.tx }]}
+              />
+            </View>
+            {!!(error || deleteNote) && (
+              <Text style={[s.deleteBody, { color: colors.dngt, fontWeight: '800' }]}>
+                {error || deleteNote}
+              </Text>
+            )}
+            <View style={{ flexDirection: 'row', gap: 9 }}>
+              <TouchableOpacity
+                onPress={() => { setDeleting(false); setPassword(''); }}
+                style={[s.deleteBtn, { backgroundColor: colors.card, borderColor: colors.bd }]}
+              >
+                <Text style={[s.deleteBtnText, { color: colors.tx }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={runDelete}
+                disabled={busy || !password}
+                style={[s.deleteBtn, {
+                  backgroundColor: colors.dngt,
+                  borderColor: colors.dngt,
+                  opacity: busy || !password ? 0.5 : 1,
+                }]}
+              >
+                <Text style={[s.deleteBtnText, { color: '#fff' }]}>
+                  {busy ? 'Deleting…' : 'Delete forever'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
         <Row
           icon={Trash2}
           label="Erase all data"
@@ -218,7 +288,7 @@ export default function AccountScreen() {
         <Row
           icon={UserX}
           label="Delete account"
-          sub="Erases everything on this device, including settings"
+          sub={user ? 'Permanently deletes your account' : 'Erases everything on this device, including settings'}
           tint={colors.dngt}
           onPress={confirmDeleteAccount}
         />
@@ -236,6 +306,11 @@ const s = StyleSheet.create({
   avatar: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
   name: { fontSize: 16, fontWeight: '800' },
   avatarInitials: { fontWeight: '800', fontSize: 16 },
+  deleteBox: { padding: 14, borderRadius: 14, borderWidth: 1, gap: 10 },
+  deleteTitle: { fontSize: 14.5, fontWeight: '800' },
+  deleteBody: { fontSize: 12, fontWeight: '600', lineHeight: 17 },
+  deleteBtn: { flex: 1, paddingVertical: 11, borderRadius: 11, borderWidth: 1, alignItems: 'center' },
+  deleteBtnText: { fontSize: 13, fontWeight: '800' },
   nameInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 11 },
   nameInputText: { paddingVertical: 8, fontSize: 14.5, fontWeight: '700' },
   sub: { fontSize: 12.5, fontWeight: '600', marginTop: 3, lineHeight: 17 },
