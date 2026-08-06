@@ -13,7 +13,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "PRS Precision needs camera access to photograph your targets for shot group analysis.",
         "NSPhotoLibraryUsageDescription": "PRS Precision needs photo library access to import target photos for shot group analysis."
-      }
+      },
+      "buildNumber": "1"
     },
     "android": {
       "package": "com.prsprecision.app",
@@ -25,7 +26,8 @@
       },
       "permissions": [
         "android.permission.CAMERA"
-      ]
+      ],
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -48,7 +50,19 @@
           "photosPermission": "PRS Precision needs photo library access to import target photos."
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#F4F3F8",
+          "dark": {
+            "backgroundColor": "#0F0E14"
+          }
+        }
+      ]
     ]
   }
 }
