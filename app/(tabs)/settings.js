@@ -1,11 +1,12 @@
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Palette, Sparkles, Sun, Moon, SunMoon, Ruler, Thermometer, Gauge, FileDown, Sheet, LogOut, ChevronRight } from 'lucide-react-native';
+import { ArrowLeft, Palette, Sparkles, Sun, Moon, SunMoon, Ruler, Thermometer, Gauge, FileDown, LogOut, ChevronRight } from 'lucide-react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { CONSENT_SUMMARY, consentIsCurrent, consentNeedsRenewal, describeConsent } from '../../lib/consent';
 import { useData } from '../../store/data';
+import { useAuth } from '../../store/auth';
 import { saveCSV } from '../../lib/export';
 
 import { GROUP_UNITS, TEMP_UNITS, VELOCITY_UNITS, DISTANCE_UNITS } from '../../lib/units';
@@ -23,6 +24,7 @@ export default function SettingsScreen() {
   const consentOn = consentIsCurrent(trainingConsent);
   const needsRenewal = consentNeedsRenewal(trainingConsent);
   const router = useRouter();
+  const { signOut } = useAuth();
 
   const [exporting, setExporting] = useState(false);
 
@@ -149,17 +151,17 @@ export default function SettingsScreen() {
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd, padding: 0, overflow: 'hidden' }]}>
           <TouchableOpacity onPress={doExport} disabled={exporting} style={s.dataRow}>
             <FileDown size={19} color={colors.mut} />
-            <Text style={[s.dataLabel, { color: colors.tx }]}>Export all sessions (CSV)</Text>
-            <ChevronRight size={18} color={colors.fnt} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={doExport} disabled={exporting} style={[s.dataRow, { borderTopWidth: 1, borderTopColor: colors.line }]}>
-            <Sheet size={19} color={colors.mut} />
-            <Text style={[s.dataLabel, { color: colors.tx }]}>Export to Excel</Text>
+            <Text style={[s.dataLabel, { color: colors.tx }]}>
+              {exporting ? 'Exporting…' : 'Export all sessions (CSV)'}
+            </Text>
             <ChevronRight size={18} color={colors.fnt} />
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity onPress={() => router.replace('/login')} style={[s.signOut, { backgroundColor: colors.dngs }]}>
+        <TouchableOpacity
+          onPress={async () => { await signOut(); router.replace('/login'); }}
+          style={[s.signOut, { backgroundColor: colors.dngs }]}
+        >
           <LogOut size={18} color={colors.dngt} />
           <Text style={[s.signOutText, { color: colors.dngt }]}>Sign Out</Text>
         </TouchableOpacity>

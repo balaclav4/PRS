@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import * as db from '../lib/db';
-import { DEFAULT_UNITS } from '../lib/units';
+import { DEFAULT_UNITS, groupUnitLabel, inchesToUnit } from '../lib/units';
 import { noConsent, grantConsent, revokeConsent } from '../lib/consent';
 
 const SEED_RIFLES = [
@@ -278,18 +278,54 @@ export function DataProvider({ children }) {
    * named `6.5 "hot" load` previously produced a malformed row.
    */
   const exportSessionsCSV = useCallback((ids = null) => {
-    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const header = 'Name,Date,Rifle,Load,Distance (yd),Suppressed,Best Group (in),Mean Radius (in),MV (fps),SD (fps),Targets,Total Shots';
+    // Quotes are doubled and the value wrapped, which handles commas and
+    // newlines. Leading =, +, - and @ need separate treatment: Excel and Sheets
+    // read those as formulas, so a session named `=HYPERLINK(...)` becomes
+    // executable content in the reader rather than text. Prefixing a tab keeps
+    // the value visually identical and stops it being parsed as a formula.
+    const cell = (v) => {
+      let t = String(v ?? '');
+      if (/^[=+\-@\t\r]/.test(t)) t = '\t' + t;
+      return `"${t.replace(/"/g, '""')}"`;
+    };
+
+    // Group sizes are stored in inches and velocities in fps; the export follows
+    // the same unit preference as every screen, and the header says which.
+    const gLabel = groupUnitLabel(units.group);
+    const dLabel = units.distance;
+    const vLabel = units.velocity;
+    const grp = (inches, distanceYd) => {
+      const v = inchesToUnit(parseFloat(inches), distanceYd, units.group);
+      return v == null ? '' : v.toFixed(2);
+    };
+    const vel = (fps) => {
+      const n = Number(fps);
+      if (!isFinite(n) || n <= 0) return '';
+      return units.velocity === 'm/s' ? (n * 0.3048).toFixed(0) : String(Math.round(n));
+    };
+
+    const header = [
+      'Name', 'Date', 'Rifle', 'Load', `Distance (${dLabel})`, 'Suppressed',
+      `Best Group (${gLabel})`, `Mean Radius (${gLabel})`,
+      `MV (${vLabel})`, `SD (${vLabel})`, 'Targets', 'Total Shots',
+    ].join(',');
+
     const scoped = ids ? sessions.filter(s => ids.includes(s.id)) : sessions;
     const rows = scoped.map(s => {
       const rifleName = rifles.find(r => r.id === s.rifleId)?.name || '';
       const loadName = loads.find(l => l.id === s.loadId)?.name || '';
       const totalShots = s.targets.reduce((a, t) => a + t.shots.length, 0);
-      return [s.name, s.date, rifleName, loadName, s.distanceYd, s.suppressed ? 'Yes' : 'No', s.best, s.meanRadius, s.mv, s.sd, s.targetCount, totalShots]
-        .map(cell).join(',');
+      const dist = units.distance === 'm'
+        ? Math.round(Number(s.distanceYd) * 0.9144)
+        : s.distanceYd;
+      return [
+        s.name, s.date, rifleName, loadName, dist, s.suppressed ? 'Yes' : 'No',
+        grp(s.best, s.distanceYd), grp(s.meanRadius, s.distanceYd),
+        vel(s.mv), vel(s.sd), s.targetCount, totalShots,
+      ].map(cell).join(',');
     });
     return header + '\n' + rows.join('\n');
-  }, [sessions, rifles, loads]);
+  }, [sessions, rifles, loads, units]);
 
   const value = useMemo(() => ({
     rifles, loads, sessions, projects, dopeCards, units, setUnit, ready,
