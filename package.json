@@ -44,8 +44,10 @@
     "ios:build": "expo run:ios --device",
     "android:build": "expo run:android --device",
     "doctor": "expo-doctor",
-    "rules:deploy": "firebase deploy --only firestore:rules",
-    "functions:deploy": "firebase deploy --only functions"
+    "rules:deploy": "npx --yes --package firebase-tools firebase deploy --only firestore:rules",
+    "functions:deploy": "npx --yes --package firebase-tools firebase deploy --only functions",
+    "firebase": "npx --yes --package firebase-tools firebase",
+    "eas": "npx --yes eas-cli"
   },
   "private": true
 }

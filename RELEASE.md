@@ -52,7 +52,12 @@ been verified, not merely written.
       `users/{uid}` recursively when an account is deleted, plus any training
       contributions it submitted. Written, not deployed:
 
-      cd functions && npm install && cd .. && npm run functions:deploy
+      npm run firebase -- login          # once
+      cd functions && npm install && cd ..
+      npm run functions:deploy
+
+      Requires Blaze billing on the project; Cloud Functions will not deploy on
+      the free Spark plan.
 
       The client cannot do this — the web SDK has no recursive delete, and
       deleting `users/{uid}` leaves every subcollection beneath it stored and
@@ -76,7 +81,8 @@ been verified, not merely written.
       builds, so the six `EXPO_PUBLIC_FIREBASE_*` values must be registered with
       EAS or builds will ship unconfigured and run local-only:
 
-      eas secret:create --name EXPO_PUBLIC_FIREBASE_API_KEY --value <value>
+      npm run eas -- login               # once
+      npm run eas -- secret:create --name EXPO_PUBLIC_FIREBASE_API_KEY --value <value>
 
       (repeat for AUTH_DOMAIN, PROJECT_ID, STORAGE_BUCKET, MESSAGING_SENDER_ID,
       APP_ID). They are inlined into the bundle in plain text by design — a
@@ -88,6 +94,7 @@ been verified, not merely written.
       unmatched and therefore denied, and `training-data` had no rule at all
       despite the web app reading and writing it.
 
+      npm run firebase -- login          # once
       npm run rules:deploy
 
       Review the `training-data` policy before deploying — it allows any
@@ -98,6 +105,17 @@ been verified, not merely written.
       email address, linked to identity, for account management. Nothing else
       leaves the device — target photos are never stored, and no analytics or
       tracking SDK is present.
+
+## Tooling
+
+Neither the Firebase nor the EAS CLI is installed globally, and npm's global
+prefix here is `/usr/lib/node_modules`, which needs root. Both run through `npx`
+instead — no sudo, nothing installed outside the project:
+
+    npm run firebase -- <args>     # e.g. npm run firebase -- login
+    npm run eas -- <args>
+
+The `--` matters: it passes the rest through to the CLI rather than to npm.
 
 ## Done
 
