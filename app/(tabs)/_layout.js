@@ -4,21 +4,32 @@ import { Home, History, Camera, ChartColumn, Menu } from 'lucide-react-native';
 import { useTheme } from '../../lib/theme';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import MoreSheet from '../../components/MoreSheet';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function TabBarIcon({ icon: Icon, color, size }) {
   return <Icon size={size || 23} color={color} />;
 }
 
+/**
+ * The capture button is given a full tab slot and centres itself inside it.
+ *
+ * Returning the 56px button directly left-aligned it: React Navigation sizes the
+ * slot, and a fixed-width child with no alignment sits at its leading edge. It
+ * measured 36px left of centre, which reads as a mistake rather than a design.
+ */
 function CaptureButton({ onPress }) {
   return (
-    <TouchableOpacity onPress={onPress} style={s.fab} activeOpacity={0.8}>
-      <Camera size={24} color="#fff" />
-    </TouchableOpacity>
+    <View style={s.fabSlot} pointerEvents="box-none">
+      <TouchableOpacity onPress={onPress} style={s.fab} activeOpacity={0.8}>
+        <Camera size={24} color="#fff" />
+      </TouchableOpacity>
+    </View>
   );
 }
 
 export default function TabLayout() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
@@ -58,17 +69,44 @@ export default function TabLayout() {
           headerShown: false,
           tabBarActiveTintColor: colors.act,
           tabBarInactiveTintColor: colors.fnt,
-          // A 23px icon plus a 10px label needs about 36px of content box. At
-          // height 64 with 20px of padding the tab item had 33px, so the label
-          // — flex: 0 1 auto in a column — was shrunk to 5.2px and cropped by
-          // overflow: hidden, leaving the tops of the letters and nothing else.
+          // A floating pill rather than a docked bar. Detached from the bottom
+          // edge, so it needs its own safe-area inset — the navigator no longer
+          // supplies one — and the scene needs padding to match or content
+          // scrolls underneath and stops there.
+          //
+          // A 23px icon plus a 10px label needs about 36px of content box; at 64
+          // with 20px of padding the label was shrunk to 5.2px and cropped.
           tabBarStyle: {
-            backgroundColor: colors.nav,
-            borderTopColor: colors.bd,
+            position: 'absolute',
+            left: 14,
+            right: 14,
+            bottom: Math.max(insets.bottom, 10),
+            height: 68,
+            borderRadius: 26,
+            // A hairline edge, not decoration: on dark the nav colour sits close
+            // to the background and a drop shadow is invisible, so without this
+            // the pill loses its outline and stops reading as a floating
+            // surface. In light it is barely perceptible.
+            borderWidth: 1,
             borderTopWidth: 1,
-            paddingBottom: Platform.OS === 'ios' ? 24 : 10,
+            borderColor: colors.bd,
+            backgroundColor: colors.nav,
             paddingTop: 8,
-            height: Platform.OS === 'ios' ? 88 : 74,
+            paddingBottom: 8,
+            paddingHorizontal: 6,
+            // Lifts the pill off the content behind it.
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.16,
+            shadowRadius: 20,
+            elevation: 12,
+          },
+          // A detached bar no longer reserves space, so the scene has to. Without
+          // this the last item on every long screen sits behind the pill and
+          // cannot be scrolled to — measured 55px of "Next: Seating" hidden.
+          sceneStyle: {
+            backgroundColor: colors.bg,
+            paddingBottom: Math.max(insets.bottom, 10) + 68 + 8,
           },
           // flexShrink: 0 keeps the label at its natural height rather than
           // letting it collapse again if the icon or padding ever changes;
@@ -139,13 +177,14 @@ export default function TabLayout() {
 }
 
 const s = StyleSheet.create({
+  fabSlot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   fab: {
     width: 56,
     height: 56,
     borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -24,
+    marginTop: -26,
     shadowColor: '#6D3BEB',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.6,
