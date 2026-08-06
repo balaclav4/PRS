@@ -40,7 +40,7 @@ This is stored **on your device**. If cloud sync is enabled on your account, a
 copy is stored in our database so it can reach your other devices. It is
 associated with your account and is not shared with anyone else.
 
-### 1.3 Target photographs — only if you opt in
+### 1.3 Target photographs - only if you opt in
 
 By default, photographs are used on your device to measure a group and are then
 discarded. A saved target keeps only the shot coordinates and the reference
@@ -62,7 +62,7 @@ load names, session names, notes, or any other data from your account. The
 upload is not linked to your account in the training set.
 
 **Camera metadata is removed.** The App re-encodes every photograph before it is
-used, which strips EXIF data — including any camera model, timestamp or GPS
+used, which strips EXIF data - including any camera model, timestamp or GPS
 coordinates the original file contained. This happens regardless of whether you
 contribute images, because the App requires an upright, metadata-free image to
 measure accurately.
@@ -94,7 +94,7 @@ prevention. We do not use this to build a profile of you.
 | Security and abuse prevention | Technical/operational data | Legitimate interests |
 
 Consent for training data is separate from using the App. Declining costs you
-nothing — every feature works exactly the same.
+nothing - every feature works exactly the same.
 
 ---
 
@@ -130,7 +130,7 @@ advertising.
 
 We use these processors:
 
-- **Google Firebase** (Google LLC) — authentication and database hosting.
+- **Google Firebase** (Google LLC) - authentication and database hosting.
 
 We may disclose information where legally required, or to protect the rights or
 safety of users or the public.
@@ -165,7 +165,7 @@ Clauses.
 
 **Note on scope:** deleting your account removes your login. If you have also
 contributed training images, tell us at [PRIVACY CONTACT EMAIL] so we can remove
-those separately — they are stored without an account identifier and cannot be
+those separately - they are stored without an account identifier and cannot be
 found automatically. [Update this once server-side deletion is automated.]
 
 ---
@@ -200,8 +200,8 @@ absolute security.
 
 ## 11. Changes
 
-If we change this policy materially — in particular if we change what is
-collected or why — we will notify you in the App before the change takes effect.
+If we change this policy materially - in particular if we change what is
+collected or why - we will notify you in the App before the change takes effect.
 **We will not use previously contributed images for a materially different
 purpose without asking you again.**
 

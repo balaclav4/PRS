@@ -51,6 +51,13 @@ export default function CaptureScreen() {
   // never blocks saving, but without it point of impact is unmeasurable.
   const [aim, setAim] = useState(null);
   const [markMode, setMarkMode] = useState('shot');
+  // Which placed corner is being moved. Tap a corner to pick it up, tap the
+  // photo to put it down — more reliable than dragging a 24px dot on a zoomed
+  // photo, and it works the same whether or not the view is panned.
+  const [editingCorner, setEditingCorner] = useState(null);
+  // 'quad' corrects perspective from four corners. 'span' takes two points a
+  // known distance apart and assumes the photo is square-on.
+  const [refMode, setRefMode] = useState('quad');
   const [shots, setShots] = useState([]);
   const [detecting, setDetecting] = useState(false);
   const [detectNote, setDetectNote] = useState(null);
@@ -100,17 +107,42 @@ export default function CaptureScreen() {
   // Four corners of a reference rectangle of known size give both the absolute
   // scale and the perspective correction in one homography — shots project
   // straight to inches on the target plane, no marker sticker needed.
+  const maxRefPoints = refMode === 'span' ? 2 : 4;
+
+  /**
+   * Four corners, however they were obtained.
+   *
+   * Span mode records two points a known width apart and builds the rectangle
+   * they imply, using the reference aspect ratio for the perpendicular edge.
+   * The result feeds the same homography, so nothing downstream changes — but
+   * it encodes an assumption the four-corner path does not make, namely that
+   * the photo was taken square-on. Perspective cannot be recovered from two
+   * points; there is not enough information in them.
+   */
+  const refQuad = useMemo(() => {
+    if (refMode === 'quad') return corners.length === 4 ? corners : null;
+    if (corners.length !== 2 || !(refWIn > 0) || !(refHIn > 0)) return null;
+    const [a, b] = corners;
+    const vx = b.x - a.x, vy = b.y - a.y;
+    const len = Math.hypot(vx, vy);
+    if (len < 1e-6) return null;
+    // Perpendicular, scaled so the rectangle matches the reference aspect.
+    const k = (refHIn / refWIn);
+    const px = -vy * k, py = vx * k;
+    return [a, b, { x: b.x + px, y: b.y + py }, { x: a.x + px, y: a.y + py }];
+  }, [refMode, corners, refWIn, refHIn]);
+
   const { Hmat, ordered, severity } = useMemo(() => {
-    if (corners.length !== 4 || refWIn <= 0 || refHIn <= 0) {
+    if (!refQuad || refWIn <= 0 || refHIn <= 0) {
       return { Hmat: null, ordered: null, severity: 0 };
     }
-    const ord = orderCorners(corners);
+    const ord = orderCorners(refQuad);
     return {
       Hmat: rectifyToInches(ord, refWIn, refHIn),
       ordered: ord,
       severity: perspectiveSeverity(ord),
     };
-  }, [corners, refWIn, refHIn]);
+  }, [refQuad, refWIn, refHIn]);
 
   // Seed the aim at the centre of the framed reference as soon as it exists, so
   // the assumption is visible and movable at capture time rather than applied
@@ -232,9 +264,18 @@ export default function CaptureScreen() {
     const pt = { x, y };
 
     if (mode === 'corner') {
-      // Extra taps are inert rather than restarting — a stray 5th tap must not
-      // silently destroy the calibration. Reset is the deliberate redo.
-      setCorners(prev => prev.length >= 4 ? prev : [...prev, pt]);
+      setCorners(prev => {
+        // A corner was picked up: put it down here.
+        if (editingCorner != null && editingCorner < prev.length) {
+          const next = [...prev];
+          next[editingCorner] = pt;
+          return next;
+        }
+        // Extra taps are inert rather than restarting — a stray tap past the
+        // last point must not silently destroy the calibration.
+        return prev.length >= maxRefPoints ? prev : [...prev, pt];
+      });
+      setEditingCorner(null);
       mediumTap();
     } else if (mode === 'aim') {
       // One aim point per target; tapping again moves it.
@@ -245,7 +286,7 @@ export default function CaptureScreen() {
       setShots(prev => [...prev, pt]);
       lightTap();
     }
-  }, [IMG_W]);
+  }, [IMG_W, editingCorner, maxRefPoints]);
 
   /**
    * One responder handles both panning and pinching, and decides at release
@@ -554,9 +595,29 @@ export default function CaptureScreen() {
         {/* Step 2: Corners */}
         {step === 2 && (
           <View>
+            <View style={s.markModeRow}>
+              {[['quad', '4 corners'], ['span', '2 points']].map(([k, label]) => (
+                <TouchableOpacity
+                  key={k}
+                  onPress={() => { setRefMode(k); setCorners([]); setEditingCorner(null); }}
+                  style={[s.markModeBtn, {
+                    backgroundColor: refMode === k ? colors.act : colors.card,
+                    borderColor: refMode === k ? colors.act : colors.bd,
+                  }]}
+                >
+                  <Text style={[s.markModeText, { color: refMode === k ? '#fff' : colors.mut }]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <View style={[s.instruction, { backgroundColor: colors.acs }]}>
               <Ruler size={17} color={colors.act} />
-              <Text style={[s.instructionText, { color: colors.act }]}>Tap the four corners of your {refW}″ × {refH}″ reference, in any order.</Text>
+              <Text style={[s.instructionText, { color: colors.act }]}>
+                {editingCorner != null
+                  ? `Moving point ${editingCorner + 1} — tap where it should go.`
+                  : refMode === 'span'
+                    ? `Tap the two ends of the ${refW}″ edge. Faster, but it assumes the photo is square-on — it cannot correct for angle.`
+                    : `Tap the four corners of your ${refW}″ × ${refH}″ reference, in any order. Tap a placed corner to move it.`}
+              </Text>
             </View>
             <TouchableOpacity
               activeOpacity={1}
@@ -595,9 +656,17 @@ export default function CaptureScreen() {
                 </Svg>
               )}
               {corners.map((p, i) => (
-                <View key={i} style={[s.cornerDot, { left: p.x * IMG_W * zoom + pan.x - 12, top: p.y * IMG_W * zoom + pan.y - 12 }]}>
+                <TouchableOpacity
+                  key={i}
+                  onPress={(e) => { e.stopPropagation(); setEditingCorner(editingCorner === i ? null : i); mediumTap(); }}
+                  style={[
+                    s.cornerDot,
+                    { left: p.x * IMG_W * zoom + pan.x - 12, top: p.y * IMG_W * zoom + pan.y - 12 },
+                    editingCorner === i && s.cornerDotEditing,
+                  ]}
+                >
                   <Text style={s.cornerDotText}>{i + 1}</Text>
-                </View>
+                </TouchableOpacity>
               ))}
             </TouchableOpacity>
             {Hmat && severity > 0.04 && (
@@ -607,10 +676,10 @@ export default function CaptureScreen() {
                 </Text>
               </View>
             )}
-            {corners.length === 4 && !Hmat && (
+            {corners.length === maxRefPoints && !Hmat && (
               <View style={[s.detectNote, { backgroundColor: colors.inset, borderColor: colors.ibd, marginTop: 10, marginBottom: 0 }]}>
                 <Text style={[s.detectNoteText, { color: colors.mut }]}>
-                  Those corners don't form a usable rectangle — tap Reset and try again.
+                  Those points don't form a usable reference. Tap one to move it, or Reset.
                 </Text>
               </View>
             )}
@@ -634,9 +703,9 @@ export default function CaptureScreen() {
             </View>
             <View style={s.scaleFooter}>
               <Text style={[s.scaleCount, { color: colors.mut }]}>
-                <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{corners.length}</Text>/4 corners set
+                <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{corners.length}</Text>/{maxRefPoints} {refMode === 'span' ? 'points' : 'corners'} set
               </Text>
-              <TouchableOpacity onPress={() => setCorners([])} style={s.resetBtn}>
+              <TouchableOpacity onPress={() => { setCorners([]); setEditingCorner(null); }} style={s.resetBtn}>
                 <RotateCcw size={14} color={colors.act} />
                 <Text style={[s.resetText, { color: colors.act }]}>Reset</Text>
               </TouchableOpacity>
@@ -912,6 +981,7 @@ const s = StyleSheet.create({
   detectBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#6D3BEB', padding: 13, borderRadius: 13, marginBottom: 10 },
   detectBtnText: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
   markModeRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
+  cornerDotEditing: { borderColor: '#12B76A', borderWidth: 3, transform: [{ scale: 1.25 }] },
   markModeBtn: { flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
   markModeText: { fontSize: 13, fontWeight: '700' },
   markModeHint: { fontSize: 11.5, fontWeight: '600', marginBottom: 8, lineHeight: 16 },

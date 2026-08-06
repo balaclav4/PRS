@@ -9,7 +9,7 @@ the App you agree to them. If you do not agree, do not use the App.
 
 ---
 
-## 1. Safety — read this one
+## 1. Safety - read this one
 
 **The App is a measurement and record-keeping tool. It is not a substitute for
 published load data, and nothing in it is a safety authority.**
@@ -60,7 +60,7 @@ may suspend or terminate accounts that breach these terms.
 everything else you put into the App remain yours. We claim no ownership.
 
 To operate the App we need a limited licence to store and transmit that content
-— for example to sync it to your other devices. That licence exists only to
+- for example to sync it to your other devices. That licence exists only to
 provide the service to you, and ends when you delete the content or your account.
 
 ### 4.1 Training Data Contribution
@@ -106,7 +106,7 @@ Do not:
 
 We provide the App as it is and may change, suspend or discontinue features. We
 do not guarantee uninterrupted availability. The App is designed to work offline,
-but features that depend on a network — sign-in and sync — require a connection.
+but features that depend on a network - sign-in and sync - require a connection.
 
 **Keep your own backups.** Use the export function for anything you cannot afford
 to lose.
