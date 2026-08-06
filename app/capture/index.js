@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, useWindowDimensions, Alert, Platform, PanResponder } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react-native';
+import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle, ZoomIn, ZoomOut, Maximize2, Plus } from 'lucide-react-native';
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -49,7 +49,17 @@ export default function CaptureScreen() {
   const [corners, setCorners] = useState([]);
   // Point of aim. Optional: only a shooter zeroing or truing needs it, so it
   // never blocks saving, but without it point of impact is unmeasurable.
-  const [aim, setAim] = useState(null);
+  /**
+   * One photo can hold several targets - a sheet of diamonds, a row of bulls.
+   * They share the reference and therefore the scale, but each has its own
+   * shots and its own point of aim, because each is a separate group.
+   *
+   * `shots` and `aim` below are views onto the active group, with setters that
+   * write through. Everything downstream that already reads them keeps working
+   * unchanged, which is what makes this tractable rather than a rewrite.
+   */
+  const [groups, setGroups] = useState([{ id: 'g' + Date.now(), shots: [], aim: null }]);
+  const [activeGroup, setActiveGroup] = useState(0);
   const [markMode, setMarkMode] = useState('shot');
   // Which placed corner is being moved. Tap a corner to pick it up, tap the
   // photo to put it down — more reliable than dragging a 24px dot on a zoomed
@@ -58,7 +68,33 @@ export default function CaptureScreen() {
   // 'quad' corrects perspective from four corners. 'span' takes two points a
   // known distance apart and assumes the photo is square-on.
   const [refMode, setRefMode] = useState('quad');
-  const [shots, setShots] = useState([]);
+  const shots = groups[activeGroup]?.shots ?? [];
+  const aim = groups[activeGroup]?.aim ?? null;
+
+  const setShots = useCallback((updater) => {
+    setGroups(prev => prev.map((g, i) => (i === activeGroup
+      ? { ...g, shots: typeof updater === 'function' ? updater(g.shots) : updater }
+      : g)));
+  }, [activeGroup]);
+
+  const setAim = useCallback((updater) => {
+    setGroups(prev => prev.map((g, i) => (i === activeGroup
+      ? { ...g, aim: typeof updater === 'function' ? updater(g.aim) : updater }
+      : g)));
+  }, [activeGroup]);
+
+  const addGroup = useCallback(() => {
+    setGroups(prev => [...prev, { id: 'g' + Date.now(), shots: [], aim: null }]);
+    setActiveGroup(prev => prev + 1);
+    detectedRef.current = false;
+    mediumTap();
+  }, []);
+
+  const removeGroup = useCallback((idx) => {
+    setGroups(prev => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)));
+    setActiveGroup(prev => (prev >= idx && prev > 0 ? prev - 1 : prev));
+  }, []);
+
   const [detecting, setDetecting] = useState(false);
   const [detectNote, setDetectNote] = useState(null);
   // True while the shot set is exactly what detection produced. Re-running
@@ -157,6 +193,19 @@ export default function CaptureScreen() {
     [Hmat, shots]
   );
   const stats = computeGroupStats(shotsIn, Hmat ? 1 : null, distance);
+
+  // Every group measured, not just the visible one.
+  const groupStats = useMemo(() => groups.map(g => {
+    const pts = Hmat ? g.shots.map(p => project(Hmat, p)).filter(Boolean) : [];
+    return computeGroupStats(pts, Hmat ? 1 : null, distance);
+  }), [groups, Hmat, distance]);
+
+  const savedCount = groups.filter(g => g.shots.length >= 2).length;
+  const savedShots = groups.reduce((a, g) => a + (g.shots.length >= 2 ? g.shots.length : 0), 0);
+  const scored = groupStats.filter(Boolean);
+  const bestStat = scored.length
+    ? scored.reduce((a, b) => (b.extremeSpreadIn < a.extremeSpreadIn ? b : a))
+    : null;
 
   // Shrink the markers when the group is tight enough that fixed 24px badges
   // would overlap and make individual shots impossible to tap. Floors at 14px
@@ -286,7 +335,11 @@ export default function CaptureScreen() {
       setShots(prev => [...prev, pt]);
       lightTap();
     }
-  }, [IMG_W, editingCorner, maxRefPoints]);
+  // setShots and setAim are rebound whenever the active target changes. Omitting
+  // them here meant every tap wrote to whichever target was selected when the
+  // handler was first created, so adding a second target silently kept filling
+  // the first.
+  }, [IMG_W, editingCorner, maxRefPoints, setShots, setAim]);
 
   /**
    * One responder handles both panning and pinching, and decides at release
@@ -417,11 +470,15 @@ export default function CaptureScreen() {
   const canNext =
     (step === 1 && refWIn > 0 && refHIn > 0 && distance > 0) ||
     (step === 2 && !!Hmat) ||
-    (step === 3 && shots.length >= 2);
+    (step === 3 && groups.some(g => g.shots.length >= 2));
 
   const saveAndFinish = async () => {
     await successTap();
     const id = 's' + Date.now();
+    // An empty group is one the shooter added and did not use; saving it would
+    // create a target with no shots that every downstream statistic has to
+    // guard against.
+    const savedGroups = groups.filter(g => g.shots.length >= 2);
     addSession({
       id,
       name: sessionName.trim() || defaultSessionName,
@@ -431,21 +488,23 @@ export default function CaptureScreen() {
       distanceYd: distance,
       suppressed,
       notes: '',
-      targets: [{
-        id: 't' + Date.now(),
-        shots: shots.map(sh => ({ x: sh.x, y: sh.y })),
+      // Every group from this photo becomes its own target. They share the
+      // reference, so they share the scale.
+      targets: savedGroups.map(g => ({
+        id: g.id,
+        shots: g.shots.map(sh => ({ x: sh.x, y: sh.y })),
         scale: ordered ? { corners: ordered, widthIn: refWIn, heightIn: refHIn } : null,
-        aim,
+        aim: g.aim,
         // Recorded at capture, because that is when the decision applied.
         // Enabling contribution later must not reach back over photos taken
         // while it was off.
         contributeConsent: consentIsCurrent(trainingConsent) ? trainingConsent : null,
-      }],
-      best: stats ? stats.extremeSpreadIn.toFixed(2) : '—',
-      meanRadius: stats ? stats.meanRadiusIn.toFixed(2) : '—',
+      })),
+      best: bestStat ? bestStat.extremeSpreadIn.toFixed(2) : '—',
+      meanRadius: bestStat ? bestStat.meanRadiusIn.toFixed(2) : '—',
       sd: 0,
       mv: 0,
-      targetCount: 1,
+      targetCount: savedGroups.length,
     });
     // On web a deep link straight to /capture has no history to pop.
     if (router.canGoBack?.()) router.back();
@@ -741,6 +800,34 @@ export default function CaptureScreen() {
                 <Text style={[s.detectNoteText, { color: colors.mut }]}>{detectNote}</Text>
               </View>
             )}
+            {/* One photo, several targets. */}
+            <View style={s.groupRow}>
+              {groups.map((g, i) => (
+                <TouchableOpacity
+                  key={g.id}
+                  onPress={() => { setActiveGroup(i); detectedRef.current = false; }}
+                  onLongPress={() => removeGroup(i)}
+                  style={[s.groupChip, {
+                    backgroundColor: i === activeGroup ? colors.act : colors.card,
+                    borderColor: i === activeGroup ? colors.act : colors.bd,
+                  }]}
+                >
+                  <Text style={[s.groupChipText, { color: i === activeGroup ? '#fff' : colors.mut }]}>
+                    Target {i + 1}{g.shots.length ? ` · ${g.shots.length}` : ''}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity onPress={addGroup} style={[s.groupAdd, { borderColor: colors.ibd }]}>
+                <Plus size={14} color={colors.act} />
+              </TouchableOpacity>
+            </View>
+            {groups.length > 1 && (
+              <Text style={[s.markModeHint, { color: colors.fnt }]}>
+                Each target is measured separately and saved as its own group. They
+                share this photo's reference. Long-press a chip to remove it.
+              </Text>
+            )}
+
             <View style={s.markModeRow}>
               {[['shot', 'Shots'], ['aim', 'Aim point']].map(([k, label]) => (
                 <TouchableOpacity
@@ -784,6 +871,18 @@ export default function CaptureScreen() {
                   </Svg>
                 ) : null}
               </View>
+              {groups.map((g, gi) => (gi === activeGroup ? null : g.shots.map((p, i) => (
+                <View
+                  key={`${g.id}-${i}`}
+                  pointerEvents="none"
+                  style={[s.shotDot, {
+                    width: dotSize, height: dotSize, borderRadius: dotSize / 2,
+                    left: p.x * IMG_W * zoom + pan.x - dotSize / 2,
+                    top: p.y * IMG_W * zoom + pan.y - dotSize / 2,
+                    opacity: 0.28,
+                  }]}
+                />
+              ))))}
               {aim && (
                 <View pointerEvents="none" style={{
                   position: 'absolute',
@@ -863,26 +962,45 @@ export default function CaptureScreen() {
               </View>
               <View>
                 <Text style={[s.reviewMsg, { color: capGood ? colors.okt : colors.tx }]}>
-                  {capGood ? 'Tight group!' : (shots.length >= 2 ? 'Group measured' : 'Mark at least 2 shots')}
+                  {capGood ? 'Tight group!' : (savedCount ? (savedCount > 1 ? `${savedCount} groups measured` : 'Group measured') : 'Mark at least 2 shots')}
                 </Text>
                 <Text style={[s.reviewSub, { color: colors.mut }]}>
-                  <Text style={{ fontFamily: 'JetBrainsMono_700Bold' }}>{shots.length}</Text> shots · <Text style={{ fontFamily: 'JetBrainsMono_700Bold' }}>{stats ? formatGroup(stats.extremeSpreadIn, distance, units.group) : '—'}</Text> extreme spread
+                  <Text style={{ fontFamily: 'JetBrainsMono_700Bold' }}>{savedShots}</Text> shots
+                  {savedCount > 1 ? ` across ${savedCount} targets` : ''} · best{' '}
+                  <Text style={{ fontFamily: 'JetBrainsMono_700Bold' }}>{bestStat ? formatGroup(bestStat.extremeSpreadIn, distance, units.group) : '—'}</Text>
                 </Text>
               </View>
             </View>
 
+            {savedCount > 1 && (
+              <View style={[s.perTarget, { backgroundColor: colors.inset }]}>
+                {groups.map((g, i) => {
+                  const st = groupStats[i];
+                  if (g.shots.length < 2) return null;
+                  return (
+                    <View key={g.id} style={s.perTargetRow}>
+                      <Text style={[s.perTargetLabel, { color: colors.mut }]}>Target {i + 1}</Text>
+                      <Text style={[s.perTargetVal, { color: colors.tx }]}>
+                        {g.shots.length} shots · {st ? formatGroup(st.extremeSpreadIn, distance, units.group) : '—'}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
             <View style={s.reviewGrid}>
               {[
-                [`GROUP (${groupUnitLabel(units.group)})`,
-                  stats ? formatGroup(stats.extremeSpreadIn, distance, units.group, { withUnit: false }) : '—'],
+                [`BEST GROUP (${groupUnitLabel(units.group)})`,
+                  bestStat ? formatGroup(bestStat.extremeSpreadIn, distance, units.group, { withUnit: false }) : '—'],
                 // The complement: an angle alone hides how big the group is, an
                 // absolute length alone hides how it compares across distances.
                 units.group === 'Inches'
-                  ? ['GROUP MOA', stats ? stats.groupMoa.toFixed(2) : '—']
-                  : ['GROUP SIZE', stats ? formatGroup(stats.extremeSpreadIn, distance, 'Inches') : '—'],
+                  ? ['BEST MOA', bestStat ? bestStat.groupMoa.toFixed(2) : '—']
+                  : ['BEST SIZE', bestStat ? formatGroup(bestStat.extremeSpreadIn, distance, 'Inches') : '—'],
                 [`MEAN RADIUS (${groupUnitLabel(units.group)})`,
-                  stats ? formatGroup(stats.meanRadiusIn, distance, units.group, { withUnit: false }) : '—'],
-                ['SHOTS', String(shots.length)],
+                  bestStat ? formatGroup(bestStat.meanRadiusIn, distance, units.group, { withUnit: false }) : '—'],
+                [savedCount > 1 ? 'TARGETS' : 'SHOTS', savedCount > 1 ? String(savedCount) : String(savedShots)],
               ].map(([label, val], i) => (
                 <View key={i} style={[s.reviewTile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
                   <Text style={[s.reviewTileLabel, { color: colors.mut }]}>{label}</Text>
@@ -981,6 +1099,10 @@ const s = StyleSheet.create({
   detectBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#6D3BEB', padding: 13, borderRadius: 13, marginBottom: 10 },
   detectBtnText: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
   markModeRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
+  groupRow: { flexDirection: 'row', gap: 7, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 },
+  groupChip: { paddingHorizontal: 11, paddingVertical: 7, borderRadius: 9, borderWidth: 1 },
+  groupChipText: { fontSize: 12, fontWeight: '700' },
+  groupAdd: { width: 32, height: 32, borderRadius: 9, borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },
   cornerDotEditing: { borderColor: '#12B76A', borderWidth: 3, transform: [{ scale: 1.25 }] },
   markModeBtn: { flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
   markModeText: { fontSize: 13, fontWeight: '700' },
@@ -1001,6 +1123,10 @@ const s = StyleSheet.create({
   reviewThumb: { width: 78, height: 78, borderRadius: 12, overflow: 'hidden', borderWidth: 1, backgroundColor: '#222' },
   reviewMsg: { fontSize: 17, fontWeight: '800' },
   reviewSub: { fontSize: 13, fontWeight: '600', marginTop: 4 },
+  perTarget: { padding: 12, borderRadius: 12, gap: 7, marginBottom: 12 },
+  perTargetRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  perTargetLabel: { fontSize: 12, fontWeight: '700' },
+  perTargetVal: { fontSize: 12.5, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' },
   reviewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 },
   reviewTile: { flexGrow: 1, flexBasis: '47%', borderWidth: 1, borderRadius: 14, padding: 14 },
   reviewTileLabel: { fontSize: 11, fontWeight: '600' },

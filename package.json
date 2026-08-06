@@ -48,7 +48,12 @@
     "rules:deploy": "npx --yes --package firebase-tools firebase deploy --only firestore:rules",
     "functions:deploy": "npx --yes --package firebase-tools firebase deploy --only functions",
     "firebase": "npx --yes --package firebase-tools firebase",
-    "eas": "npx --yes eas-cli"
+    "eas": "npx --yes eas-cli",
+    "lint": "eslint . --no-warn-ignored"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~57.0.1"
+  }
 }

@@ -7,12 +7,36 @@ import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 
 const gates = ['scripts/check-syntax.mjs', 'scripts/check-schema.mjs'];
+
+/**
+ * ESLint runs first and separately because it catches a class the parser
+ * cannot: an identifier with no binding. A JSX component used without being
+ * imported parses perfectly and throws the moment the screen renders, which is
+ * how one reached a device. Warnings do not fail the run; undefined references
+ * do.
+ */
+function runLint() {
+  const r = spawnSync('npx', ['eslint', '.', '--no-warn-ignored'], { encoding: 'utf8' });
+  const out = (r.stdout || '') + (r.stderr || '');
+  const m = out.match(/(\d+) error/);
+  const errors = m ? Number(m[1]) : (r.status === 0 ? 0 : 1);
+  if (errors > 0) {
+    console.log(`✗ ${'lint'.padEnd(16)} ${errors} error(s)`);
+    for (const l of out.split('\n')) if (/\serror\s/.test(l)) console.log('    ' + l.trim());
+    return false;
+  }
+  const warn = out.match(/(\d+) warning/);
+  console.log(`✓ ${'lint'.padEnd(16)} no undefined references${warn ? ` (${warn[1]} warnings)` : ''}`);
+  return true;
+}
 const harnesses = readdirSync('scripts')
   .filter(f => /^test-.*\.mjs$/.test(f))
   .sort()
   .map(f => 'scripts/' + f);
 
 let failed = [];
+
+if (!runLint()) failed.push('lint');
 
 for (const script of [...gates, ...harnesses]) {
   const r = spawnSync('node', [script], { encoding: 'utf8' });
@@ -31,6 +55,6 @@ for (const script of [...gates, ...harnesses]) {
 }
 
 console.log(failed.length === 0
-  ? `\nall ${gates.length + harnesses.length} checks passed`
+  ? `\nall ${gates.length + harnesses.length + 1} checks passed`
   : `\n${failed.length} failed: ${failed.join(', ')}`);
 process.exit(failed.length === 0 ? 0 : 1);
