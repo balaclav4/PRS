@@ -8,10 +8,39 @@ been verified, not merely written.
 - [ ] **Run on real hardware.** Nothing in this app has ever executed outside
       react-native-web. `expo-sqlite`, `expo-camera`, `expo-image-picker`,
       `expo-haptics` and the AsyncStorage auth persistence have never run once.
-      The SQLite path in particular is guarded only by a schema linter, and photo
-      capture depends on native EXIF handling that the web canvas path does not
-      exercise. Build a development client and work through capture, load dev,
-      ballistics and sign-in on a device before anything else here matters.
+
+      `npm run ios:build` or `npm run android:build` with a device attached.
+
+      The checks below are the ones the web preview structurally cannot make.
+      Each names what breaks if it fails, so a failure is recognisable rather
+      than merely wrong:
+
+      - [ ] **App launches at all.** Reanimated needs `react-native-worklets`,
+            which was missing until recently; a crash on launch points there.
+      - [ ] **Splash appears, then the app** — not a white flash.
+      - [ ] **Take a photo with the camera.** The web path uses a canvas and a
+            file input; nothing about `expo-camera` has run.
+      - [ ] **Photo lands upright.** EXIF orientation is applied natively by
+            expo-image-manipulator and by canvas on web — different code. If a
+            phone photo appears rotated, every detected hole is 90 degrees from
+            where it should be.
+      - [ ] **Import from the photo library** via expo-image-picker.
+      - [ ] **Corners and shots land where tapped.** Native taps carry
+            `locationX`; web carries `offsetX`. Zoom and pan too.
+      - [ ] **Detection finds holes** in a real photo, and the caliber-derived
+            radius is sane.
+      - [ ] **Save a session, force-quit, reopen.** This is the SQLite path,
+            which no browser check has ever touched — web uses localStorage.
+            Confirm the session, its shots, aim point and scale all survive.
+      - [ ] **Sign in, force-quit, reopen — still signed in.** Proves
+            `getReactNativePersistence(AsyncStorage)`. Plain `getAuth` would
+            look identical until the app restarts.
+      - [ ] **Haptics fire** when placing corners and shots.
+      - [ ] **Export CSV** — expo-sharing opens the native share sheet.
+      - [ ] **Load dev, ballistics, scope evaluation** each compute without a
+            crash; the number-heavy screens are where a string-vs-number bug
+            would surface.
+      - [ ] **Dark mode follows the system** and switches live in Control Centre.
 
 - [ ] **Verify account deletion with a throwaway account.** The code
       reauthenticates and calls `deleteUser`, and the prompt is verified, but the
@@ -19,10 +48,16 @@ been verified, not merely written.
       Create one via "Create an account", delete it, confirm it is gone from the
       Firebase console. App Review will do exactly this.
 
-- [ ] **Delete Firestore data on account deletion.** Deletion currently removes
-      the auth record but not the documents under `users/{uid}`. Firestore has no
-      client-side recursive delete, so this needs a Cloud Function. Required for
-      GDPR, and a partial client-side sweep would silently miss subcollections.
+- [ ] **Deploy the deletion function.** `functions/index.js` removes
+      `users/{uid}` recursively when an account is deleted, plus any training
+      contributions it submitted. Written, not deployed:
+
+      cd functions && npm install && cd .. && npm run functions:deploy
+
+      The client cannot do this — the web SDK has no recursive delete, and
+      deleting `users/{uid}` leaves every subcollection beneath it stored and
+      orphaned. Firebase's official "Delete User Data" extension is a reasonable
+      alternative for the account tree, but does not know about `training-data`.
 
 - [ ] **Privacy policy URL.** Required by App Store Connect, and the app collects
       email addresses through authentication. Drafts are in `docs/PRIVACY.md` and
@@ -48,16 +83,16 @@ been verified, not merely written.
       Firebase web key identifies a project and is not a credential. Firestore
       rules are the access control.
 
-- [ ] **Firestore rules** need `loaddev` and `dopecards`, which the mobile app
-      has and the web app does not. A recursive wildcard covers both and anything
-      added later:
+- [ ] **Deploy the Firestore rules.** `firestore.rules` is in the repo and
+      fixes two gaps in what is currently live: `loaddev` and `dopecards` were
+      unmatched and therefore denied, and `training-data` had no rule at all
+      despite the web app reading and writing it.
 
-      match /users/{userId}/{document=**} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
+      npm run rules:deploy
 
-      Separately, `training-data` is a root-level collection the web app reads and
-      writes but no rule matches, so it is currently denied for everyone.
+      Review the `training-data` policy before deploying — it allows any
+      signed-in user to read the corpus and permits no client-side edits or
+      deletes. Tighten if that is not what you want.
 
 - [ ] **Apple privacy nutrition labels** in App Store Connect. What is collected:
       email address, linked to identity, for account management. Nothing else

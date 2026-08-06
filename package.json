@@ -40,7 +40,12 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "test": "node scripts/check-all.mjs",
-    "check": "node scripts/check-syntax.mjs && node scripts/check-schema.mjs"
+    "check": "node scripts/check-syntax.mjs && node scripts/check-schema.mjs",
+    "ios:build": "expo run:ios --device",
+    "android:build": "expo run:android --device",
+    "doctor": "expo-doctor",
+    "rules:deploy": "firebase deploy --only firestore:rules",
+    "functions:deploy": "firebase deploy --only functions"
   },
   "private": true
 }
