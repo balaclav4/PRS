@@ -7,14 +7,16 @@ import { DataProvider } from '../store/data';
 import { AuthProvider, useAuth } from '../store/auth';
 
 function InnerLayout() {
-  const { colors } = useTheme();
+  const { colors, ready: themeReady } = useTheme();
   const { ready } = useAuth();
 
   // Firebase restores a persisted session asynchronously. Rendering the stack
   // before that resolves would flash a signed-in user past the login screen and
   // back, so hold until the first auth state is known. When Firebase is not
   // configured this is already true on the first render and costs nothing.
-  if (!ready) return null;
+  // Also wait for the stored theme, or a dark-preference user sees a light
+  // flash on every launch while the preference is read.
+  if (!ready || !themeReady) return null;
 
   return (
     <>

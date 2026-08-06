@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Palette, Sun, Moon, Ruler, Thermometer, Gauge, FileDown, Sheet, LogOut, ChevronRight } from 'lucide-react-native';
+import { ArrowLeft, Palette, Sun, Moon, SunMoon, Ruler, Thermometer, Gauge, FileDown, Sheet, LogOut, ChevronRight } from 'lucide-react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
@@ -17,7 +17,7 @@ const UNIT_OPTIONS = {
 };
 
 export default function SettingsScreen() {
-  const { colors, isDark, setDark, setLight } = useTheme();
+  const { colors, pref, choose, systemScheme } = useTheme();
   const { exportSessionsCSV, units, setUnit } = useData();
   const router = useRouter();
 
@@ -65,18 +65,27 @@ export default function SettingsScreen() {
             </View>
             <View>
               <Text style={[s.themeTitle, { color: colors.tx }]}>Theme</Text>
-              <Text style={[s.themeSub, { color: colors.mut }]}>Choose light or dark</Text>
+              <Text style={[s.themeSub, { color: colors.mut }]}>
+                {pref === 'system'
+                  ? `Following your device — currently ${systemScheme === 'dark' ? 'dark' : 'light'}`
+                  : `Always ${pref}`}
+              </Text>
             </View>
           </View>
           <View style={[s.segmented, { backgroundColor: colors.inset }]}>
-            <TouchableOpacity onPress={setLight} style={[s.seg, !isDark && [s.segActive, { backgroundColor: colors.card }]]}>
-              <Sun size={16} color={!isDark ? colors.tx : colors.mut} />
-              <Text style={[s.segText, { color: !isDark ? colors.tx : colors.mut }]}>Light</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={setDark} style={[s.seg, isDark && [s.segActive, { backgroundColor: colors.card }]]}>
-              <Moon size={16} color={isDark ? colors.tx : colors.mut} />
-              <Text style={[s.segText, { color: isDark ? colors.tx : colors.mut }]}>Dark</Text>
-            </TouchableOpacity>
+            {[['system', 'Auto', SunMoon], ['light', 'Light', Sun], ['dark', 'Dark', Moon]].map(([k, label, Icon]) => {
+              const on = pref === k;
+              return (
+                <TouchableOpacity
+                  key={k}
+                  onPress={() => choose(k)}
+                  style={[s.seg, on && [s.segActive, { backgroundColor: colors.card }]]}
+                >
+                  <Icon size={16} color={on ? colors.tx : colors.mut} />
+                  <Text style={[s.segText, { color: on ? colors.tx : colors.mut }]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
 
