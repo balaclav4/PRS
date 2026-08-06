@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CircleCheck, Target, FlaskConical, TrendingUp, Gauge, Zap, BarChart3, Ruler, BookCheck, ChevronRight, ArrowLeft, Plus, Trash2, Info, TriangleAlert } from 'lucide-react-native';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
@@ -12,6 +12,8 @@ import { parseStrings, comparePrimers } from '../../lib/primers';
 import { parseWorkup, analyseWorkup } from '../../lib/pressure';
 import { parseCandidates, analyseScreen } from '../../lib/screening';
 import { groupUnitLabel, inchesToUnit, formatDistance } from '../../lib/units';
+import { reconcileRows, variantLabel } from '../../lib/variants';
+import { targetGroups } from '../../lib/analytics';
 import ChronoImport from '../../components/ChronoImport';
 
 const STEP_META = [
@@ -45,7 +47,7 @@ function NumField({ colors, label, unit, value, onChange }) {
 export default function ReloadingScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { projects, rifles, loads, updateProject, units } = useData();
+  const { projects, rifles, loads, sessions, updateProject, units } = useData();
   // Load dev figures are whatever the shooter enters — the analyses are
   // scale-invariant (they work in ratios and multiples of sigma), so the unit
   // only has to be labelled consistently and used in the prose.
@@ -60,7 +62,26 @@ export default function ReloadingScreen() {
   const meta = STEP_META[step - 1];
   const StepIcon = meta.icon;
 
-  const rungs = project?.rungs || [];
+  /**
+   * Group sizes measured against each rung, in MOA.
+   *
+   * A session tagged to a rung supersedes whatever was typed there, because a
+   * measured group is better evidence than a remembered one. Rows with no
+   * sessions keep their typed value - a shooter working from a notebook should
+   * not have to re-shoot to use this screen.
+   */
+  const toMoa = useCallback(
+    (sess) => targetGroups(sess).map(g => g.moa),
+    []
+  );
+  const measuredRows = useCallback(
+    (rows, step, field = 'groupMoa') =>
+      reconcileRows(rows, sessions, project?.id, step, toMoa, field),
+    [sessions, project?.id, toMoa]
+  );
+
+  const rawRungs = project?.rungs || [];
+  const rungs = useMemo(() => measuredRows(rawRungs, 6), [measuredRows, rawRungs]);
   const parsed = useMemo(() => parseRungs(rungs), [rungs]);
   const analysis = useMemo(
     () => findNode(parsed, { shotsPerCharge: project?.shotsPerCharge || 1 }),
@@ -68,7 +89,8 @@ export default function ReloadingScreen() {
   );
   const best = useMemo(() => bestGroup(parsed), [parsed]);
 
-  const seatingRows = project?.seatingRows || [];
+  const rawSeatingRows = project?.seatingRows || [];
+  const seatingRows = useMemo(() => measuredRows(rawSeatingRows, 7), [measuredRows, rawSeatingRows]);
   const seatingShots = project?.seatingShots || 5;
   const depths = useMemo(() => parseDepths(seatingRows), [seatingRows]);
   const seating = useMemo(() => analyseSeating(depths, seatingShots, gLabel), [depths, seatingShots, gLabel]);
@@ -76,15 +98,15 @@ export default function ReloadingScreen() {
   const setDepth = (id, field, value) => {
     if (!project) return;
     updateProject(project.id, {
-      seatingRows: seatingRows.map(r => r.id === id ? { ...r, [field]: value } : r),
+      seatingRows: rawSeatingRows.map(r => r.id === id ? { ...r, [field]: value } : r),
     });
   };
   const addDepth = () => {
     if (!project) return;
     // Continue at whatever increment is already in use; 0.003" is the common
     // starting step for a seating ladder.
-    const last = seatingRows[seatingRows.length - 1];
-    const prev = seatingRows[seatingRows.length - 2];
+    const last = rawSeatingRows[rawSeatingRows.length - 1];
+    const prev = rawSeatingRows[rawSeatingRows.length - 2];
     let next = '';
     if (last) {
       const lc = parseFloat(last.cbto), pc = prev ? parseFloat(prev.cbto) : NaN;
@@ -92,11 +114,11 @@ export default function ReloadingScreen() {
       if (isFinite(lc)) next = String(+(lc + (inc || 0.003)).toFixed(3));
     }
     updateProject(project.id, {
-      seatingRows: [...seatingRows, { id: 'd' + Date.now(), cbto: next, groupMoa: '' }],
+      seatingRows: [...rawSeatingRows, { id: 'd' + Date.now(), cbto: next, groupMoa: '' }],
     });
   };
   const removeDepth = (id) =>
-    project && updateProject(project.id, { seatingRows: seatingRows.filter(r => r.id !== id) });
+    project && updateProject(project.id, { seatingRows: rawSeatingRows.filter(r => r.id !== id) });
 
   // Steps 2 and 4 are the same shape — several candidates, one group each, and
   // the same refusal to rank them. Only the label on the first column differs.
@@ -200,15 +222,15 @@ export default function ReloadingScreen() {
   const setRung = (id, field, value) => {
     if (!project) return;
     updateProject(project.id, {
-      rungs: rungs.map(r => r.id === id ? { ...r, [field]: value } : r),
+      rungs: rawRungs.map(r => r.id === id ? { ...r, [field]: value } : r),
     });
   };
 
   const addRung = () => {
     if (!project) return;
     // Continue the ladder at the same interval the user has been using.
-    const last = rungs[rungs.length - 1];
-    const prev = rungs[rungs.length - 2];
+    const last = rawRungs[rawRungs.length - 1];
+    const prev = rawRungs[rawRungs.length - 2];
     let nextCharge = '';
     if (last) {
       const lc = parseFloat(last.charge);
@@ -217,12 +239,12 @@ export default function ReloadingScreen() {
       if (isFinite(lc)) nextCharge = String(+(lc + (stepGr || 0.2)).toFixed(2));
     }
     updateProject(project.id, {
-      rungs: [...rungs, { id: 'r' + Date.now(), charge: nextCharge, velocity: '', groupMoa: '' }],
+      rungs: [...rawRungs, { id: 'r' + Date.now(), charge: nextCharge, velocity: '', groupMoa: '' }],
     });
   };
 
   const removeRung = (id) =>
-    project && updateProject(project.id, { rungs: rungs.filter(r => r.id !== id) });
+    project && updateProject(project.id, { rungs: rawRungs.filter(r => r.id !== id) });
 
   const goStep = (n) => {
     setStep(n);
@@ -418,11 +440,23 @@ export default function ReloadingScreen() {
                           keyboardType="number-pad" style={[cs.cellText, { color: colors.tx }]} />
                       </View>
                     )}
-                    <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
-                      <TextInput value={r.groupMoa} onChangeText={v => setRung(r.id, 'groupMoa', v)}
-                        placeholder={gLabel} placeholderTextColor={colors.fnt}
-                        keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
-                    </View>
+                    {/* A rung with sessions fired against it shows their mean
+                        and how many groups it came from, and stops being
+                        hand-editable. The measurement is the better evidence,
+                        and letting a typed number sit on top of it would hide
+                        which one the analysis actually used. */}
+                    {r.source === 'measured' ? (
+                      <View style={[cs.cell, cs.cellImported, { backgroundColor: colors.oks, borderColor: colors.okt }]}>
+                        <Text style={[cs.cellText, { color: colors.okt, paddingVertical: 10 }]}>{r.groupMoa}</Text>
+                        <Text style={[cs.cellBadge, { color: colors.okt }]}>×{r.measuredCount}</Text>
+                      </View>
+                    ) : (
+                      <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                        <TextInput value={r.groupMoa} onChangeText={v => setRung(r.id, 'groupMoa', v)}
+                          placeholder={gLabel} placeholderTextColor={colors.fnt}
+                          keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
+                      </View>
+                    )}
                     <TouchableOpacity onPress={() => setChronoRung(r.id)} style={cs.rowAct}>
                       <Gauge size={15} color={r.velocities?.length ? colors.act : colors.fnt} />
                     </TouchableOpacity>
@@ -432,6 +466,20 @@ export default function ReloadingScreen() {
                   </View>
                 );
               })}
+
+              {rungs.some(r => r.source === 'measured') && (
+                <Text style={[cs.hint, { color: colors.fnt }]}>
+                  Green group sizes are measured from sessions captured against that
+                  rung, pooled across every target. Shoot a group and tag it to a rung
+                  in the capture screen; it replaces anything typed here.
+                </Text>
+              )}
+              {!rungs.some(r => r.source === 'measured') && rungs.length > 0 && (
+                <Text style={[cs.hint, { color: colors.fnt }]}>
+                  Typed values. To measure instead, capture a group and pick this
+                  project and rung on the setup step.
+                </Text>
+              )}
 
               <TouchableOpacity onPress={addRung} style={[cs.addRung, { borderColor: colors.ibd }]}>
                 <Plus size={15} color={colors.act} />

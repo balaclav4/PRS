@@ -18,13 +18,14 @@ import { toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre }
 import { quadCentre } from '../../lib/homography';
 import { formatGroup, groupUnitLabel, formatDistance } from '../../lib/units';
 import { consentIsCurrent } from '../../lib/consent';
+import { rowsForStep, stepDimension, variantLabel, variantComponents } from '../../lib/variants';
 
 const STEP_LABELS = ['Photo', 'Setup', 'Corners', 'Mark Shots', 'Review'];
 const IMG_ASPECT = 1.25;
 
 export default function CaptureScreen() {
   const { colors } = useTheme();
-  const { addSession, rifles, loads, units, trainingConsent } = useData();
+  const { addSession, rifles, loads, projects, units, trainingConsent } = useData();
   const router = useRouter();
 
   // Reactive, not Dimensions.get() at module scope: that captured the width
@@ -43,6 +44,12 @@ export default function CaptureScreen() {
   const [refH, setRefH] = useState('11');
   const [distanceStr, setDistanceStr] = useState('100');
   const [rifleIdx, setRifleIdx] = useState(0);
+  // Which load development variant this group is being fired for, if any.
+  // Recorded here so the analysis reads measured sessions instead of numbers
+  // typed from a notebook.
+  const [devProjectId, setDevProjectId] = useState(null);
+  const [devStep, setDevStep] = useState(null);
+  const [devRowId, setDevRowId] = useState(null);
   const [loadIdx, setLoadIdx] = useState(0);
   const [suppressed, setSuppressed] = useState(true);
   const [sessionName, setSessionName] = useState('');
@@ -148,6 +155,35 @@ export default function CaptureScreen() {
     [loads, rifle]
   );
   const load = rifleLoads.length ? rifleLoads[loadIdx % rifleLoads.length] : null;
+
+  /**
+   * Every project, with ones for the selected rifle first.
+   *
+   * Filtering to the selected rifle hid the picker entirely whenever the rifle
+   * did not match, which reads as the feature not existing rather than as a
+   * filter doing its job. Ordering conveys the same relevance without removing
+   * the option - and a shooter genuinely might fire a ladder with a rifle other
+   * than the one recorded on the project.
+   */
+  const devProjects = useMemo(() => {
+    const all = projects || [];
+    if (!rifle) return all;
+    return [...all].sort((a, b) =>
+      (b.rifleId === rifle.id ? 1 : 0) - (a.rifleId === rifle.id ? 1 : 0));
+  }, [projects, rifle]);
+  const devProject = devProjects.find(pr => pr.id === devProjectId) || null;
+  const devRows = useMemo(
+    () => (devProject && devStep ? rowsForStep(devProject, devStep) : []),
+    [devProject, devStep]
+  );
+  const devVariant = useMemo(() => {
+    if (!devProject || !devRowId) return null;
+    const row = devRows.find(r => r.id === devRowId);
+    if (!row) return null;
+    const baseLoad = loads.find(l => l.id === devProject.loadId) || load;
+    return variantComponents(baseLoad, devStep, row);
+  }, [devProject, devRows, devRowId, devStep, loads, load]);
+
 
   const cycleRifle = () => { setRifleIdx(i => i + 1); setLoadIdx(0); };
   const cycleLoad = () => setLoadIdx(i => i + 1);
@@ -600,6 +636,9 @@ export default function CaptureScreen() {
       // A recorded distance is a fact about that session; changing the app's
       // units later must not rewrite what was shot.
       distanceYd: distance,
+      projectId: devProjectId,
+      projectStep: devStep,
+      projectRowId: devRowId,
       distanceUnit: units.distance,
       suppressed,
       notes: '',
@@ -768,6 +807,80 @@ export default function CaptureScreen() {
                 </TouchableOpacity>
               </View>
             </View>
+
+            {/* Load development: pin this group to the variant it tests. */}
+            {!!devProjects.length && (
+              <View style={[s.devCard, { backgroundColor: colors.card, borderColor: devRowId ? colors.act : colors.bd }]}>
+                <Text style={[s.fieldLabel, { color: colors.mut }]}>Load development</Text>
+
+                <View style={s.devChips}>
+                  <TouchableOpacity
+                    onPress={() => { setDevProjectId(null); setDevStep(null); setDevRowId(null); }}
+                    style={[s.devChip, {
+                      backgroundColor: devProjectId ? colors.inset : colors.act,
+                      borderColor: devProjectId ? colors.ibd : colors.act,
+                    }]}
+                  >
+                    <Text style={[s.devChipText, { color: devProjectId ? colors.mut : '#fff' }]}>Not a test</Text>
+                  </TouchableOpacity>
+                  {devProjects.map(pr => (
+                    <TouchableOpacity
+                      key={pr.id}
+                      onPress={() => {
+                        setDevProjectId(pr.id);
+                        setDevStep(pr.currentStep || 6);
+                        setDevRowId(null);
+                      }}
+                      style={[s.devChip, {
+                        backgroundColor: devProjectId === pr.id ? colors.act : colors.inset,
+                        borderColor: devProjectId === pr.id ? colors.act : colors.ibd,
+                      }]}
+                    >
+                      <Text style={[s.devChipText, { color: devProjectId === pr.id ? '#fff' : colors.mut }]}>
+                        {pr.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {!!devProjectId && (
+                  <>
+                    <Text style={[s.devHint, { color: colors.fnt }]}>
+                      Step {devStep} · pick which {stepDimension(devStep)?.noun || 'variant'} this group is
+                    </Text>
+                    <View style={s.devChips}>
+                      {devRows.length === 0 && (
+                        <Text style={[s.devHint, { color: colors.fnt }]}>
+                          No rows on that step yet. Add them in Load Development first.
+                        </Text>
+                      )}
+                      {devRows.map(row => (
+                        <TouchableOpacity
+                          key={row.id}
+                          onPress={() => setDevRowId(devRowId === row.id ? null : row.id)}
+                          style={[s.devChip, {
+                            backgroundColor: devRowId === row.id ? colors.act : colors.inset,
+                            borderColor: devRowId === row.id ? colors.act : colors.ibd,
+                          }]}
+                        >
+                          <Text style={[s.devChipText, { color: devRowId === row.id ? '#fff' : colors.mut }]}>
+                            {variantLabel(devStep, row)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                )}
+
+                {!!devVariant && (
+                  <Text style={[s.devHint, { color: colors.act }]}>
+                    {[devVariant.bullet, devVariant.powder, devVariant.charge ? `${devVariant.charge} gr` : null,
+                      devVariant.primer, devVariant.cbto ? `${devVariant.cbto}" CBTO` : null]
+                      .filter(Boolean).join(' · ')}
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
         )}
 
@@ -1211,6 +1324,11 @@ const s = StyleSheet.create({
   detectBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#6D3BEB', padding: 13, borderRadius: 13, marginBottom: 10 },
   detectBtnText: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
   markModeRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
+  devCard: { marginTop: 14, padding: 14, borderRadius: 14, borderWidth: 1, gap: 9 },
+  devChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  devChip: { paddingHorizontal: 11, paddingVertical: 7, borderRadius: 9, borderWidth: 1 },
+  devChipText: { fontSize: 12, fontWeight: '700' },
+  devHint: { fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
   groupRow: { flexDirection: 'row', gap: 7, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 },
   groupChip: { paddingHorizontal: 11, paddingVertical: 7, borderRadius: 9, borderWidth: 1 },
   groupChipText: { fontSize: 12, fontWeight: '700' },
