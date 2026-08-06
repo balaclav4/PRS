@@ -25,7 +25,16 @@ been verified, not merely written.
       GDPR, and a partial client-side sweep would silently miss subcollections.
 
 - [ ] **Privacy policy URL.** Required by App Store Connect, and the app collects
-      email addresses through authentication.
+      email addresses through authentication. Drafts are in `docs/PRIVACY.md` and
+      `docs/TERMS.md` — they need a lawyer's review, six placeholders filled
+      (company name, address, jurisdiction, two contact emails, dates) and
+      hosting at a public URL.
+
+- [ ] **Training Data Contribution is documented but not built.** Both documents
+      describe an opt-in that does not exist yet. Either build it — Settings
+      toggle, default off, consent recorded with a timestamp and policy version —
+      or remove those sections before publishing. Describing a control the user
+      cannot find is worse than not offering it.
 
 - [ ] **EAS secrets.** `.env.local` is gitignored and is not available to cloud
       builds, so the six `EXPO_PUBLIC_FIREBASE_*` values must be registered with
