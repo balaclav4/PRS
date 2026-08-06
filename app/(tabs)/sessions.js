@@ -66,7 +66,7 @@ export default function SessionsScreen() {
               name={sess.name}
               date={sess.date}
               rifle={getRifleName(sess.rifleId)}
-              meta={`${formatDistance(sess.distanceYd, units.distance)} · ${sess.targetCount} targets`}
+              meta={`${formatDistance(sess.distanceYd, sess.distanceUnit || units.distance)} · ${sess.targetCount} targets`}
               best={sess.best}
               bestLabelText={formatGroup(parseFloat(sess.best), sess.distanceYd, units.group)}
               onPress={() => router.push(`/session/${sess.id}`)}

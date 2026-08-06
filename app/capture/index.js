@@ -107,11 +107,22 @@ export default function CaptureScreen() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const draggedRef = useRef(false);
+  // Which marker a drag picked up, if any. Dragging is the reliable way to
+  // reposition a point: tapping a marker relies on the tap not also reaching
+  // the photo underneath, and that propagation behaves differently on native
+  // than on web, which is why moving a point worked in one place and not the
+  // other.
+  const dragMarkerRef = useRef(null);
   const gestureRef = useRef({ startPan: null, startDist: null, startZoom: 1 });
 
   const refWIn = parseFloat(refW) || 0;
   const refHIn = parseFloat(refH) || 0;
-  const distance = parseFloat(distanceStr) || 0;
+  // What the shooter typed, in whatever unit the field shows.
+  const distanceEntered = parseFloat(distanceStr) || 0;
+  // Yards is the canonical unit every angular calculation needs. Keeping the
+  // two separate is the whole point: the field can show metres without every
+  // MOA figure silently becoming wrong.
+  const distance = units.distance === 'm' ? distanceEntered / 0.9144 : distanceEntered;
 
   // Continue is disabled on bad input; say why rather than just greying it out.
   const badNum = (raw, parsed) => raw.trim() !== '' && parsed <= 0;
@@ -119,7 +130,7 @@ export default function CaptureScreen() {
     badNum(refW, refWIn) || badNum(refH, refHIn)
       ? 'Width and height must be positive numbers.'
       : null;
-  const distanceError = badNum(distanceStr, distance)
+  const distanceError = badNum(distanceStr, distanceEntered)
     ? 'Distance must be a positive number.'
     : null;
 
@@ -137,7 +148,7 @@ export default function CaptureScreen() {
   // Suggested name follows the selections, so leaving the field blank still
   // yields something more useful than a bare date.
   const defaultSessionName = rifle
-    ? `${rifle.name} · ${distance || '—'}yd`
+    ? `${rifle.name} · ${distanceEntered || '—'}${units.distance}`
     : 'Session ' + new Date().toLocaleDateString();
 
   // Four corners of a reference rectangle of known size give both the absolute
@@ -352,14 +363,50 @@ export default function CaptureScreen() {
     onMoveShouldSetPanResponder: (_e, g) =>
       Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3 || _e.nativeEvent.touches?.length === 2,
 
-    onPanResponderGrant: () => {
+    onPanResponderGrant: (e) => {
       draggedRef.current = false;
       gestureRef.current = { startPan: pan, startDist: null, startZoom: zoom };
+      dragMarkerRef.current = null;
+
+      // Did this touch land on an existing marker? Test in screen space so the
+      // hit radius stays a constant finger-sized target at any zoom.
+      const { locationX, locationY } = e.nativeEvent;
+      if (locationX == null || locationY == null) return;
+      const HIT_PX = 26;
+      const list = step === 2 ? corners : step === 3 ? shots : [];
+      let best = -1, bestD = HIT_PX;
+      for (let i = 0; i < list.length; i++) {
+        const sx = list[i].x * IMG_W * zoom + pan.x;
+        const sy = list[i].y * IMG_W * zoom + pan.y;
+        const d = Math.hypot(sx - locationX, sy - locationY);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best >= 0) {
+        dragMarkerRef.current = { kind: step === 2 ? 'corner' : 'shot', index: best };
+        if (step === 2) setEditingCorner(best);
+      }
     },
 
     onPanResponderMove: (e, g) => {
       const touches = e.nativeEvent.touches;
       const dist = pinchDistance(touches);
+
+      // A marker is being dragged: move it and do not pan the view.
+      const held = dragMarkerRef.current;
+      if (held && dist == null) {
+        if (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2) draggedRef.current = true;
+        const { locationX, locationY } = e.nativeEvent;
+        if (locationX == null || locationY == null) return;
+        const img = toImage({ x: locationX, y: locationY }, zoom, pan);
+        const pt = { x: img.x / IMG_W, y: img.y / IMG_W };
+        if (!isFinite(pt.x) || !isFinite(pt.y)) return;
+        if (held.kind === 'corner') {
+          setCorners(prev => prev.map((c, i) => (i === held.index ? pt : c)));
+        } else {
+          setShots(prev => prev.map((c, i) => (i === held.index ? pt : c)));
+        }
+        return;
+      }
 
       if (dist != null) {
         // Pinch: scale about the midpoint so the group stays under the fingers.
@@ -380,9 +427,18 @@ export default function CaptureScreen() {
       }
     },
 
-    onPanResponderRelease: () => { gestureRef.current.startDist = null; },
-    onPanResponderTerminate: () => { gestureRef.current.startDist = null; },
-  }), [zoom, pan, IMG_W, IMG_H]);
+    onPanResponderRelease: () => {
+      gestureRef.current.startDist = null;
+      // A dragged corner is already where it belongs; clear the pick-up state so
+      // the next tap on the photo adds a point rather than moving this one.
+      if (dragMarkerRef.current?.kind === 'corner' && draggedRef.current) setEditingCorner(null);
+      dragMarkerRef.current = null;
+    },
+    onPanResponderTerminate: () => {
+      gestureRef.current.startDist = null;
+      dragMarkerRef.current = null;
+    },
+  }), [zoom, pan, IMG_W, IMG_H, step, corners, shots, setShots]);
 
   const stepZoom = (factor) => {
     const next = zoomAbout({ x: IMG_W / 2, y: IMG_H / 2 }, zoom * factor, zoom, pan, IMG_W, IMG_H);
@@ -485,7 +541,11 @@ export default function CaptureScreen() {
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       rifleId: rifle?.id || null,
       loadId: load?.id || null,
+      // Canonical yards for every calculation, plus the unit it was entered in.
+      // A recorded distance is a fact about that session; changing the app's
+      // units later must not rewrite what was shot.
       distanceYd: distance,
+      distanceUnit: units.distance,
       suppressed,
       notes: '',
       // Every group from this photo becomes its own target. They share the
@@ -630,7 +690,7 @@ export default function CaptureScreen() {
                     keyboardType="number-pad"
                     style={[s.input, { color: colors.tx, fontFamily: 'JetBrainsMono_700Bold' }]}
                   />
-                  <Text style={[s.inputUnit, { color: colors.mut }]}>yd</Text>
+                  <Text style={[s.inputUnit, { color: colors.mut }]}>{units.distance}</Text>
                 </View>
                 {distanceError && <Text style={[s.fieldError, { color: colors.dngt }]}>{distanceError}</Text>}
               </View>

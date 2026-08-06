@@ -61,7 +61,7 @@ export default function SessionDetailScreen() {
         </View>
 
         <View style={s.badges}>
-          {[rifleName, formatDistance(sess.distanceYd, units.distance), sess.suppressed ? 'Suppressed' : 'Bare muzzle'].map((b, i) => (
+          {[rifleName, formatDistance(sess.distanceYd, sess.distanceUnit || units.distance), sess.suppressed ? 'Suppressed' : 'Bare muzzle'].map((b, i) => (
             <View key={i} style={[s.badge, { backgroundColor: colors.card, borderColor: colors.bd }]}>
               <Text style={[s.badgeText, { color: colors.tx }]}>{b}</Text>
             </View>
