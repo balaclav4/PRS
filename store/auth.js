@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { firebaseConfigured, getFirebaseAuth, authErrorMessage, firebaseProjectId } from '../lib/firebase';
+import { runAccountDeletion } from '../lib/accountdelete';
 
 /**
  * Authentication state.
@@ -86,15 +87,19 @@ export function AuthProvider({ children }) {
    */
   const deleteAccountForever = useCallback((password) => run(async () => {
     const auth = getFirebaseAuth();
-    if (!auth?.currentUser) throw { code: 'auth/operation-not-allowed' };
-    if (!password) throw { code: 'auth/missing-password' };
     const {
       EmailAuthProvider, reauthenticateWithCredential, deleteUser,
     } = require('firebase/auth');
-    const u = auth.currentUser;
-    const cred = EmailAuthProvider.credential(u.email, password);
-    await reauthenticateWithCredential(u, cred);
-    await deleteUser(u);
+    // The sequence lives in lib/accountdelete.js so its ordering can be tested
+    // with fakes — above all that deleteUser is unreachable unless reauth
+    // succeeded, which cannot be proved against a real account.
+    const r = await runAccountDeletion({
+      currentUser: auth?.currentUser,
+      credential: EmailAuthProvider.credential,
+      reauthenticate: reauthenticateWithCredential,
+      deleteUser,
+    }, password);
+    if (!r.ok) throw { code: r.code };
   }), [run]);
 
   const signOut = useCallback(async () => {
