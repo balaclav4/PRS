@@ -17,13 +17,14 @@ import { normalizePhoto } from '../../lib/photo';
 import { toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre } from '../../lib/viewport';
 import { quadCentre } from '../../lib/homography';
 import { formatGroup, groupUnitLabel, formatDistance } from '../../lib/units';
+import { consentIsCurrent } from '../../lib/consent';
 
 const STEP_LABELS = ['Photo', 'Setup', 'Corners', 'Mark Shots', 'Review'];
 const IMG_ASPECT = 1.25;
 
 export default function CaptureScreen() {
   const { colors } = useTheme();
-  const { addSession, rifles, loads, units } = useData();
+  const { addSession, rifles, loads, units, trainingConsent } = useData();
   const router = useRouter();
 
   // Reactive, not Dimensions.get() at module scope: that captured the width
@@ -363,6 +364,10 @@ export default function CaptureScreen() {
         shots: shots.map(sh => ({ x: sh.x, y: sh.y })),
         scale: ordered ? { corners: ordered, widthIn: refWIn, heightIn: refHIn } : null,
         aim,
+        // Recorded at capture, because that is when the decision applied.
+        // Enabling contribution later must not reach back over photos taken
+        // while it was off.
+        contributeConsent: consentIsCurrent(trainingConsent) ? trainingConsent : null,
       }],
       best: stats ? stats.extremeSpreadIn.toFixed(2) : '—',
       meanRadius: stats ? stats.meanRadiusIn.toFixed(2) : '—',

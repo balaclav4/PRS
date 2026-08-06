@@ -1,9 +1,10 @@
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Palette, Sun, Moon, SunMoon, Ruler, Thermometer, Gauge, FileDown, Sheet, LogOut, ChevronRight } from 'lucide-react-native';
+import { ArrowLeft, Palette, Sparkles, Sun, Moon, SunMoon, Ruler, Thermometer, Gauge, FileDown, Sheet, LogOut, ChevronRight } from 'lucide-react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
+import { CONSENT_SUMMARY, consentIsCurrent, consentNeedsRenewal, describeConsent } from '../../lib/consent';
 import { useData } from '../../store/data';
 import { saveCSV } from '../../lib/export';
 
@@ -18,7 +19,9 @@ const UNIT_OPTIONS = {
 
 export default function SettingsScreen() {
   const { colors, pref, choose, systemScheme } = useTheme();
-  const { exportSessionsCSV, units, setUnit } = useData();
+  const { exportSessionsCSV, units, setUnit, trainingConsent, setTrainingConsent } = useData();
+  const consentOn = consentIsCurrent(trainingConsent);
+  const needsRenewal = consentNeedsRenewal(trainingConsent);
   const router = useRouter();
 
   const [exporting, setExporting] = useState(false);
@@ -89,6 +92,46 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 22 }]}>CONTRIBUTE</Text>
+        <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+          <View style={s.themeHeader}>
+            <View style={[s.themeIcon, { backgroundColor: colors.acs }]}>
+              <Sparkles size={18} color={colors.act} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.themeTitle, { color: colors.tx }]}>{CONSENT_SUMMARY}</Text>
+              <Text style={[s.themeSub, { color: colors.mut }]}>
+                {describeConsent(trainingConsent)}
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            onPress={() => setTrainingConsent(!consentOn)}
+            style={[s.consentBtn, {
+              backgroundColor: consentOn ? colors.oks : colors.inset,
+              borderColor: consentOn ? colors.okt : colors.ibd,
+            }]}
+          >
+            <Text style={[s.consentBtnText, { color: consentOn ? colors.okt : colors.act }]}>
+              {consentOn ? 'Contributing — tap to stop'
+                : needsRenewal ? 'Review and turn back on'
+                : 'Turn on'}
+            </Text>
+          </TouchableOpacity>
+
+          <Text style={[s.consentDetail, { color: colors.fnt }]}>
+            Only the target photo, the shot positions and aim point you marked, the
+            reference corners and the caliber are sent. Your name, email, rifles,
+            loads and notes are not. Camera metadata including any GPS location is
+            already stripped from every photo before it is used.
+          </Text>
+          <Text style={[s.consentDetail, { color: colors.fnt }]}>
+            Photos already captured are never included — only ones taken while this
+            is on. Every feature works the same either way.
+          </Text>
+        </View>
+
         <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 22 }]}>UNITS</Text>
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd, padding: 0, overflow: 'hidden' }]}>
           {unitRows.map((u, i) => (
@@ -132,6 +175,9 @@ const s = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
   backBtn: { width: 38, height: 38, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
+  consentBtn: { paddingVertical: 11, borderRadius: 11, borderWidth: 1, alignItems: 'center', marginTop: 12 },
+  consentBtnText: { fontSize: 13, fontWeight: '800' },
+  consentDetail: { fontSize: 11.5, fontWeight: '600', lineHeight: 16.5, marginTop: 9 },
   sectionLabel: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
   card: { borderWidth: 1, borderRadius: 16, padding: 16 },
   themeHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },

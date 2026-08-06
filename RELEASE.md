@@ -30,11 +30,12 @@ been verified, not merely written.
       (company name, address, jurisdiction, two contact emails, dates) and
       hosting at a public URL.
 
-- [ ] **Training Data Contribution is documented but not built.** Both documents
-      describe an opt-in that does not exist yet. Either build it — Settings
-      toggle, default off, consent recorded with a timestamp and policy version —
-      or remove those sections before publishing. Describing a control the user
-      cannot find is worse than not offering it.
+- [ ] **Training Data Contribution: consent is built, upload is not.** The
+      Settings toggle, the consent record and the per-target stamping all exist
+      and are tested. Nothing uploads yet, so the policy language describing what
+      is sent is accurate about intent but not yet about behaviour. Before
+      publishing, either build the upload path or soften those sections to
+      describe a feature that is coming.
 
 - [ ] **EAS secrets.** `.env.local` is gitignored and is not available to cloud
       builds, so the six `EXPO_PUBLIC_FIREBASE_*` values must be registered with

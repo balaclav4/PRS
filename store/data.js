@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import * as db from '../lib/db';
 import { DEFAULT_UNITS } from '../lib/units';
+import { noConsent, grantConsent, revokeConsent } from '../lib/consent';
 
 const SEED_RIFLES = [
   { id: 'r1', name: 'Impact 737R', cartridge: '6.5 Creedmoor', barrelLength: '26"', twist: '1:8', notes: 'Bartlein barrel' },
@@ -88,6 +89,8 @@ export function DataProvider({ children }) {
   // Backs the initials in the dashboard corner. Local label, not an identity —
   // there is no account behind it yet.
   const [profileName, setProfileName] = useState('');
+  // Off until explicitly granted. Never inferred, never defaulted on.
+  const [trainingConsent, setTrainingConsentState] = useState(noConsent());
   const [ready, setReady] = useState(false);
 
   // Hydrate from local storage on boot. If storage is unavailable we keep the
@@ -110,6 +113,7 @@ export function DataProvider({ children }) {
         // object still yields a complete unit set.
         setUnits({ ...DEFAULT_UNITS, ...(data.prefs?.units || {}) });
         setProfileName(data.prefs?.profileName ?? '');
+        setTrainingConsentState(data.prefs?.trainingConsent ?? noConsent());
       }
       if (!cancelled) setReady(true);
     })();
@@ -229,6 +233,7 @@ export function DataProvider({ children }) {
     setSessions([]); setRifles([]); setLoads([]); setProjects([]); setDopeCards([]);
     setUnits(DEFAULT_UNITS);
     setProfileName('');
+    setTrainingConsentState(noConsent());
     persist(() => db.clearEverything());
   }, []);
 
@@ -236,6 +241,14 @@ export function DataProvider({ children }) {
     setUnits(prev => {
       const next = { ...prev, [kind]: value };
       persist(() => db.putPref('units', next));
+      return next;
+    });
+  }, []);
+
+  const setTrainingConsent = useCallback((on) => {
+    setTrainingConsentState(prev => {
+      const next = on ? grantConsent() : revokeConsent(prev);
+      persist(() => db.putPref('trainingConsent', next));
       return next;
     });
   }, []);
@@ -281,6 +294,7 @@ export function DataProvider({ children }) {
   const value = useMemo(() => ({
     rifles, loads, sessions, projects, dopeCards, units, setUnit, ready,
     profileName, setProfile, clearAllData, deleteAccount,
+    trainingConsent, setTrainingConsent,
     getRifle, getLoad, getSession, getRifleName,
     addSession, updateSession, addRifle, addLoad,
     updateRifle, deleteRifle,
@@ -290,7 +304,8 @@ export function DataProvider({ children }) {
     getDopeCard, addDopeCard, deleteDopeCard,
     exportSessionsCSV,
   }), [rifles, loads, sessions, projects, dopeCards, units, setUnit, ready,
-       profileName, setProfile, clearAllData, deleteAccount, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, getDopeCard, addDopeCard, deleteDopeCard, exportSessionsCSV]);
+       profileName, setProfile, clearAllData, deleteAccount,
+       trainingConsent, setTrainingConsent, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, getDopeCard, addDopeCard, deleteDopeCard, exportSessionsCSV]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

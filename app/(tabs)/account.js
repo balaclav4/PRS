@@ -6,6 +6,7 @@ import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { initialsFrom } from '../../lib/profile';
 import { useAuth } from '../../store/auth';
+import { consentIsCurrent } from '../../lib/consent';
 import { useState } from 'react';
 
 /**
@@ -26,7 +27,7 @@ export default function AccountScreen() {
   const router = useRouter();
   const {
     sessions, rifles, loads, dopeCards, projects, exportSessionsCSV,
-    profileName, setProfile, clearAllData, deleteAccount,
+    profileName, setProfile, clearAllData, deleteAccount, trainingConsent,
   } = useData();
 
   const { configured, user, projectId, signOut, deleteAccountForever, busy, error } = useAuth();
@@ -203,9 +204,9 @@ export default function AccountScreen() {
           <View style={s.privacyRow}>
             <ShieldCheck size={17} color={colors.act} />
             <Text style={[s.privacyText, { color: colors.tx }]}>
-              Target photos are never stored. A photo is used to measure the
-              group and then discarded — a saved target keeps only the shot
-              coordinates and the reference corners.
+              {consentIsCurrent(trainingConsent)
+                ? 'You have turned on contributing target photos to improve shot detection. Photos captured from now on may be uploaded for that purpose; photos taken before you turned it on are not. Turn it off any time in Settings.'
+                : 'Target photos are never stored. A photo is used to measure the group and then discarded — a saved target keeps only the shot coordinates and the reference corners.'}
             </Text>
           </View>
           <View style={s.privacyRow}>
