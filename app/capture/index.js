@@ -46,7 +46,7 @@ export default function CaptureScreen() {
   const [loadIdx, setLoadIdx] = useState(0);
   const [suppressed, setSuppressed] = useState(true);
   const [sessionName, setSessionName] = useState('');
-  const [corners, setCorners] = useState([]);
+
   // Point of aim. Optional: only a shooter zeroing or truing needs it, so it
   // never blocks saving, but without it point of impact is unmeasurable.
   /**
@@ -58,7 +58,7 @@ export default function CaptureScreen() {
    * write through. Everything downstream that already reads them keeps working
    * unchanged, which is what makes this tractable rather than a rewrite.
    */
-  const [groups, setGroups] = useState([{ id: 'g' + Date.now(), shots: [], aim: null }]);
+  const [groups, setGroups] = useState([{ id: 'g' + Date.now(), corners: [], shots: [], aim: null }]);
   const [activeGroup, setActiveGroup] = useState(0);
   const [markMode, setMarkMode] = useState('shot');
   // Which placed corner is being moved. Tap a corner to pick it up, tap the
@@ -70,6 +70,13 @@ export default function CaptureScreen() {
   const [refMode, setRefMode] = useState('quad');
   const shots = groups[activeGroup]?.shots ?? [];
   const aim = groups[activeGroup]?.aim ?? null;
+  const corners = groups[activeGroup]?.corners ?? [];
+
+  const setCorners = useCallback((updater) => {
+    setGroups(prev => prev.map((g, i) => (i === activeGroup
+      ? { ...g, corners: typeof updater === 'function' ? updater(g.corners) : updater }
+      : g)));
+  }, [activeGroup]);
 
   const setShots = useCallback((updater) => {
     setGroups(prev => prev.map((g, i) => (i === activeGroup
@@ -84,7 +91,7 @@ export default function CaptureScreen() {
   }, [activeGroup]);
 
   const addGroup = useCallback(() => {
-    setGroups(prev => [...prev, { id: 'g' + Date.now(), shots: [], aim: null }]);
+    setGroups(prev => [...prev, { id: 'g' + Date.now(), corners: [], shots: [], aim: null }]);
     setActiveGroup(prev => prev + 1);
     detectedRef.current = false;
     mediumTap();
@@ -166,30 +173,32 @@ export default function CaptureScreen() {
    * the photo was taken square-on. Perspective cannot be recovered from two
    * points; there is not enough information in them.
    */
-  const refQuad = useMemo(() => {
-    if (refMode === 'quad') return corners.length === 4 ? corners : null;
-    if (corners.length !== 2 || !(refWIn > 0) || !(refHIn > 0)) return null;
-    const [a, b] = corners;
+  const quadFrom = useCallback((pts) => {
+    if (refMode === 'quad') return pts.length === 4 ? pts : null;
+    if (pts.length !== 2 || !(refWIn > 0) || !(refHIn > 0)) return null;
+    const [a, b] = pts;
     const vx = b.x - a.x, vy = b.y - a.y;
-    const len = Math.hypot(vx, vy);
-    if (len < 1e-6) return null;
+    if (Math.hypot(vx, vy) < 1e-6) return null;
     // Perpendicular, scaled so the rectangle matches the reference aspect.
     const k = (refHIn / refWIn);
     const px = -vy * k, py = vx * k;
     return [a, b, { x: b.x + px, y: b.y + py }, { x: a.x + px, y: a.y + py }];
-  }, [refMode, corners, refWIn, refHIn]);
+  }, [refMode, refWIn, refHIn]);
+
+  /** Ordered corners and homography for one target's own reference. */
+  const solveFor = useCallback((pts) => {
+    const quad = quadFrom(pts || []);
+    if (!quad || refWIn <= 0 || refHIn <= 0) return { H: null, ord: null, sev: 0 };
+    const ord = orderCorners(quad);
+    return { H: rectifyToInches(ord, refWIn, refHIn), ord, sev: perspectiveSeverity(ord) };
+  }, [quadFrom, refWIn, refHIn]);
+
+  const refQuad = useMemo(() => quadFrom(corners), [quadFrom, corners]);
 
   const { Hmat, ordered, severity } = useMemo(() => {
-    if (!refQuad || refWIn <= 0 || refHIn <= 0) {
-      return { Hmat: null, ordered: null, severity: 0 };
-    }
-    const ord = orderCorners(refQuad);
-    return {
-      Hmat: rectifyToInches(ord, refWIn, refHIn),
-      ordered: ord,
-      severity: perspectiveSeverity(ord),
-    };
-  }, [refQuad, refWIn, refHIn]);
+    const { H, ord, sev } = solveFor(corners);
+    return { Hmat: H, ordered: ord, severity: sev };
+  }, [solveFor, corners]);
 
   // Seed the aim at the centre of the framed reference as soon as it exists, so
   // the assumption is visible and movable at capture time rather than applied
@@ -207,9 +216,11 @@ export default function CaptureScreen() {
 
   // Every group measured, not just the visible one.
   const groupStats = useMemo(() => groups.map(g => {
-    const pts = Hmat ? g.shots.map(p => project(Hmat, p)).filter(Boolean) : [];
-    return computeGroupStats(pts, Hmat ? 1 : null, distance);
-  }), [groups, Hmat, distance]);
+    const { H } = solveFor(g.corners);
+    if (!H) return null;
+    const pts = g.shots.map(p => project(H, p)).filter(Boolean);
+    return computeGroupStats(pts, 1, distance);
+  }), [groups, solveFor, distance]);
 
   const savedCount = groups.filter(g => g.shots.length >= 2).length;
   const savedShots = groups.reduce((a, g) => a + (g.shots.length >= 2 ? g.shots.length : 0), 0);
@@ -301,6 +312,50 @@ export default function CaptureScreen() {
       reportPickerFailure('Camera', e);
     }
   }, [acceptPhoto, reportPickerFailure]);
+
+  /**
+   * Target selector.
+   *
+   * Shown at the reference step as well as the shot step, because on a
+   * competition face each target has its own edges and centre - the choice of
+   * which target you are working on has to come before marking its edges, not
+   * after.
+   */
+  const TargetChips = () => (
+    <>
+      <View style={s.groupRow}>
+        {groups.map((g, i) => {
+          const ready = solveFor(g.corners).H;
+          return (
+            <TouchableOpacity
+              key={g.id}
+              onPress={() => { setActiveGroup(i); setEditingCorner(null); detectedRef.current = false; }}
+              onLongPress={() => removeGroup(i)}
+              style={[s.groupChip, {
+                backgroundColor: i === activeGroup ? colors.act : colors.card,
+                borderColor: i === activeGroup ? colors.act : (ready ? colors.okt : colors.bd),
+              }]}
+            >
+              <Text style={[s.groupChipText, { color: i === activeGroup ? '#fff' : colors.mut }]}>
+                Target {i + 1}
+                {g.shots.length ? ` · ${g.shots.length}` : (ready ? ' ·' : '')}
+                {ready && !g.shots.length ? ' ✓' : ''}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+        <TouchableOpacity onPress={addGroup} style={[s.groupAdd, { borderColor: colors.ibd }]}>
+          <Plus size={14} color={colors.act} />
+        </TouchableOpacity>
+      </View>
+      {groups.length > 1 && (
+        <Text style={[s.markModeHint, { color: colors.fnt }]}>
+          Each target has its own edges, centre and shots, and is measured
+          separately. Long-press a chip to remove one.
+        </Text>
+      )}
+    </>
+  );
 
   const onTapImage = useCallback((e, mode) => {
     // A pan gesture ends with a release over the photo, which would otherwise
@@ -526,7 +581,7 @@ export default function CaptureScreen() {
   const canNext =
     (step === 1 && refWIn > 0 && refHIn > 0 && distance > 0) ||
     (step === 2 && !!Hmat) ||
-    (step === 3 && groups.some(g => g.shots.length >= 2));
+    (step === 3 && groups.some(g => g.shots.length >= 2 && solveFor(g.corners).H));
 
   const saveAndFinish = async () => {
     await successTap();
@@ -534,7 +589,7 @@ export default function CaptureScreen() {
     // An empty group is one the shooter added and did not use; saving it would
     // create a target with no shots that every downstream statistic has to
     // guard against.
-    const savedGroups = groups.filter(g => g.shots.length >= 2);
+    const savedGroups = groups.filter(g => g.shots.length >= 2 && solveFor(g.corners).H);
     addSession({
       id,
       name: sessionName.trim() || defaultSessionName,
@@ -553,7 +608,12 @@ export default function CaptureScreen() {
       targets: savedGroups.map(g => ({
         id: g.id,
         shots: g.shots.map(sh => ({ x: sh.x, y: sh.y })),
-        scale: ordered ? { corners: ordered, widthIn: refWIn, heightIn: refHIn } : null,
+        // Its own reference, not the active one - each face on the sheet is
+        // measured against the edges marked around it.
+        scale: (() => {
+          const { ord } = solveFor(g.corners);
+          return ord ? { corners: ord, widthIn: refWIn, heightIn: refHIn } : null;
+        })(),
         aim: g.aim,
         // Recorded at capture, because that is when the decision applied.
         // Enabling contribution later must not reach back over photos taken
@@ -714,6 +774,7 @@ export default function CaptureScreen() {
         {/* Step 2: Corners */}
         {step === 2 && (
           <View>
+            <TargetChips />
             <View style={s.markModeRow}>
               {[['quad', '4 corners'], ['span', '2 points']].map(([k, label]) => (
                 <TouchableOpacity
@@ -860,8 +921,8 @@ export default function CaptureScreen() {
                 <Text style={[s.detectNoteText, { color: colors.mut }]}>{detectNote}</Text>
               </View>
             )}
-            {/* One photo, several targets. */}
-            <View style={s.groupRow}>
+            <TargetChips />
+            <View style={{ display: 'none' }}>
               {groups.map((g, i) => (
                 <TouchableOpacity
                   key={g.id}
@@ -877,16 +938,7 @@ export default function CaptureScreen() {
                   </Text>
                 </TouchableOpacity>
               ))}
-              <TouchableOpacity onPress={addGroup} style={[s.groupAdd, { borderColor: colors.ibd }]}>
-                <Plus size={14} color={colors.act} />
-              </TouchableOpacity>
             </View>
-            {groups.length > 1 && (
-              <Text style={[s.markModeHint, { color: colors.fnt }]}>
-                Each target is measured separately and saved as its own group. They
-                share this photo's reference. Long-press a chip to remove it.
-              </Text>
-            )}
 
             <View style={s.markModeRow}>
               {[['shot', 'Shots'], ['aim', 'Aim point']].map(([k, label]) => (
