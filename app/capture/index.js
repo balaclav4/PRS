@@ -158,26 +158,57 @@ export default function CaptureScreen() {
     setProcessing(false);
   }, []);
 
+  /**
+   * Both pickers previously ran with no try/catch, so any rejection became an
+   * unhandled promise and the button simply did nothing — indistinguishable
+   * from a dead control. Every failure now says what went wrong.
+   */
+  const reportPickerFailure = useCallback((what, e) => {
+    const msg = e?.message || String(e);
+    if (Platform.OS === 'web') alert(`${what} failed: ${msg}`);
+    else Alert.alert(`${what} failed`, msg);
+  }, []);
+
   const pickPhoto = useCallback(async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-    });
-    if (!result.canceled && result.assets[0]) await acceptPhoto(result.assets[0]);
-  }, [acceptPhoto]);
+    try {
+      // Requested explicitly rather than relying on the picker to prompt.
+      // Without this a denied library permission returns `canceled` and looks
+      // identical to the user backing out.
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        const msg = 'Photo library access is needed to import a target. Enable it in Settings for PRS Precision.';
+        if (Platform.OS === 'web') alert(msg); else Alert.alert('Photo Permission', msg);
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets?.[0]) await acceptPhoto(result.assets[0]);
+    } catch (e) {
+      reportPickerFailure('Import', e);
+    }
+  }, [acceptPhoto, reportPickerFailure]);
 
   const takePhoto = useCallback(async () => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Camera Permission', 'Camera access is needed to photograph targets.');
-      return;
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        const msg = 'Camera access is needed to photograph targets. Enable it in Settings for PRS Precision.';
+        if (Platform.OS === 'web') alert(msg); else Alert.alert('Camera Permission', msg);
+        return;
+      }
+      // `capture` is not a valid ImagePickerOptions field in SDK 57 — it only
+      // ever meant anything to the web file input. Passing it on native was at
+      // best ignored and at worst rejected, so it is confined to web.
+      const opts = { quality: 0.8 };
+      if (Platform.OS === 'web') opts.capture = 'back';
+      const result = await ImagePicker.launchCameraAsync(opts);
+      if (!result.canceled && result.assets?.[0]) await acceptPhoto(result.assets[0]);
+    } catch (e) {
+      reportPickerFailure('Camera', e);
     }
-    // capture:'back' sets the file input's capture attribute on web, so mobile
-    // browsers open the camera instead of the generic file browser — without it
-    // this button behaved identically to Upload Photo.
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.8, capture: 'back' });
-    if (!result.canceled && result.assets[0]) await acceptPhoto(result.assets[0]);
-  }, [acceptPhoto]);
+  }, [acceptPhoto, reportPickerFailure]);
 
   const onTapImage = useCallback((e, mode) => {
     // A pan gesture ends with a release over the photo, which would otherwise

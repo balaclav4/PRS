@@ -1,6 +1,7 @@
-import { View, Text, TouchableOpacity, Pressable, StyleSheet, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, StyleSheet, Platform, Modal, Animated, PanResponder } from 'react-native';
 import { Wind, FlaskConical, Wrench, Settings, LogOut, ChevronRight, BookOpen, Crosshair } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
+import { useRef, useEffect } from 'react';
 import { useTheme } from '../lib/theme';
 
 const items = [
@@ -12,9 +13,56 @@ const items = [
   { icon: Settings, label: 'Settings', sub: 'Units, export, appearance', route: '/settings' },
 ];
 
+/**
+ * The More sheet.
+ *
+ * Rendered inside a Modal rather than as a sibling of the navigator. As a
+ * sibling it relied on zIndex, which Android ignores in favour of elevation —
+ * and the tab bar became an elevated absolute pill, so it could sit on top of
+ * the sheet and swallow the taps meant to dismiss it. A Modal is always above
+ * native content and does not compete.
+ *
+ * Dismissal has three routes now, because it previously had one that could be
+ * blocked: drag the sheet down, tap outside it, or press back on Android. A
+ * sheet with a grab handle that cannot be grabbed reads as broken even when
+ * tapping outside would have worked.
+ */
 export default function MoreSheet({ visible, onClose }) {
   const { colors } = useTheme();
   const router = useRouter();
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) translateY.setValue(0);
+  }, [visible, translateY]);
+
+  const close = () => {
+    // Animate out rather than vanishing, so the gesture feels connected to the
+    // result.
+    Animated.timing(translateY, { toValue: 600, duration: 180, useNativeDriver: true })
+      .start(({ finished }) => { if (finished) onClose(); });
+  };
+
+  const pan = useRef(
+    PanResponder.create({
+      // Only claim the gesture once it is clearly a downward drag, or the rows
+      // underneath stop being tappable.
+      onMoveShouldSetPanResponder: (_e, g) => g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_e, g) => {
+        if (g.dy > 0) translateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_e, g) => {
+        // Far enough, or fast enough — a flick should dismiss without needing
+        // the full distance.
+        if (g.dy > 90 || g.vy > 0.8) {
+          Animated.timing(translateY, { toValue: 600, duration: 160, useNativeDriver: true })
+            .start(({ finished }) => { if (finished) onClose(); });
+        } else {
+          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
+        }
+      },
+    })
+  ).current;
 
   if (!visible) return null;
 
@@ -24,45 +72,72 @@ export default function MoreSheet({ visible, onClose }) {
   };
 
   return (
-    <View style={[StyleSheet.absoluteFill, s.overlay]} pointerEvents="box-none">
-      <Pressable style={s.backdrop} onPress={onClose} />
-      <View
-        style={[s.sheet, { backgroundColor: colors.bg, borderTopLeftRadius: 26, borderTopRightRadius: 26 }]}
-      >
-        <View style={[s.handle, { backgroundColor: colors.bd }]} />
-        <Text style={[s.title, { color: colors.tx }]}>More</Text>
-        <View style={s.list}>
-          {items.map((item) => (
-            <TouchableOpacity key={item.route} onPress={() => go(item.route)} style={[s.row, { backgroundColor: colors.card, borderColor: colors.bd }]}>
-              <View style={[s.iconWrap, { backgroundColor: colors.acs }]}>
-                <item.icon size={20} color={colors.act} />
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={close}   // Android hardware back
+      statusBarTranslucent
+    >
+      <View style={s.overlay}>
+        <Pressable style={s.backdrop} onPress={close} />
+        <Animated.View
+          style={[
+            s.sheet,
+            {
+              backgroundColor: colors.bg,
+              borderTopLeftRadius: 26,
+              borderTopRightRadius: 26,
+              transform: [{ translateY }],
+            },
+          ]}
+          {...pan.panHandlers}
+        >
+          {/* Generous hit area around the handle: the visible bar is 5px tall,
+              which is far below a comfortable touch target. */}
+          <View style={s.handleArea}>
+            <View style={[s.handle, { backgroundColor: colors.bd }]} />
+          </View>
+
+          <Text style={[s.title, { color: colors.tx }]}>More</Text>
+          <View style={s.list}>
+            {items.map((item) => (
+              <TouchableOpacity key={item.route} onPress={() => go(item.route)} style={[s.row, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+                <View style={[s.iconWrap, { backgroundColor: colors.acs }]}>
+                  <item.icon size={20} color={colors.act} />
+                </View>
+                <View style={s.mid}>
+                  <Text style={[s.label, { color: colors.tx }]}>{item.label}</Text>
+                  <Text style={[s.sub, { color: colors.mut }]}>{item.sub}</Text>
+                </View>
+                <ChevronRight size={18} color={colors.fnt} />
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity onPress={() => { onClose(); router.replace('/login'); }} style={[s.row, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+              <View style={[s.iconWrap, { backgroundColor: colors.dngs }]}>
+                <LogOut size={20} color={colors.dngt} />
               </View>
               <View style={s.mid}>
-                <Text style={[s.label, { color: colors.tx }]}>{item.label}</Text>
-                <Text style={[s.sub, { color: colors.mut }]}>{item.sub}</Text>
+                <Text style={[s.label, { color: colors.dngt }]}>Sign Out</Text>
               </View>
-              <ChevronRight size={18} color={colors.fnt} />
             </TouchableOpacity>
-          ))}
-          <TouchableOpacity onPress={() => { onClose(); router.replace('/login'); }} style={[s.row, { backgroundColor: colors.card, borderColor: colors.bd }]}>
-            <View style={[s.iconWrap, { backgroundColor: colors.dngs }]}>
-              <LogOut size={20} color={colors.dngt} />
-            </View>
-            <View style={s.mid}>
-              <Text style={[s.label, { color: colors.dngt }]}>Sign Out</Text>
-            </View>
+          </View>
+
+          <TouchableOpacity onPress={close} style={[s.closeBtn, { borderColor: colors.bd }]}>
+            <Text style={[s.closeText, { color: colors.mut }]}>Close</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
       </View>
-    </View>
+    </Modal>
   );
 }
 
 const s = StyleSheet.create({
-  overlay: { zIndex: 9999, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(11,11,16,0.4)' },
-  sheet: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 40 : 30 },
-  handle: { width: 38, height: 5, borderRadius: 99, alignSelf: 'center', marginBottom: 14 },
+  overlay: { flex: 1, justifyContent: 'flex-end' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(11,11,16,0.45)' },
+  sheet: { paddingHorizontal: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 30 },
+  handleArea: { paddingTop: 10, paddingBottom: 12, alignItems: 'center' },
+  handle: { width: 42, height: 5, borderRadius: 99 },
   title: { fontSize: 17, fontWeight: '800', marginBottom: 12 },
   list: { gap: 8 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1, borderRadius: 15, padding: 15 },
@@ -70,4 +145,6 @@ const s = StyleSheet.create({
   mid: { flex: 1 },
   label: { fontSize: 15, fontWeight: '700' },
   sub: { fontSize: 12, fontWeight: '500', marginTop: 2 },
+  closeBtn: { marginTop: 12, paddingVertical: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
+  closeText: { fontSize: 14, fontWeight: '700' },
 });
