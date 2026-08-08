@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CircleCheck, Target, FlaskConical, TrendingUp, Gauge, Zap, BarChart3, Ruler, BookCheck, ChevronRight, ArrowLeft, Plus, Trash2, Info, TriangleAlert } from 'lucide-react-native';
+import { CircleCheck, Target, FlaskConical, TrendingUp, Gauge, Zap, BarChart3, Ruler, BookCheck, ChevronRight, ArrowLeft, Plus, Trash2, Info, TriangleAlert, Crosshair } from 'lucide-react-native';
 import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
@@ -254,6 +254,22 @@ export default function ReloadingScreen() {
     });
   };
 
+  /**
+   * Go and shoot a variant, rather than type what it measured.
+   *
+   * The session records the project, the step and the row, which is what
+   * lib/variants keys on, so the row reads back from measured data instead of a
+   * number transcribed by hand. Association is recorded here and never inferred
+   * later from a matching charge weight.
+   */
+  const captureFor = (step, rowId) => {
+    if (!project) return;
+    router.push({
+      pathname: '/capture',
+      params: { projectId: project.id, step: String(step), rowId },
+    });
+  };
+
   const removeRung = (id) =>
     project && updateProject(project.id, { rungs: rawRungs.filter(r => r.id !== id) });
 
@@ -468,6 +484,13 @@ export default function ReloadingScreen() {
                           keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
                       </View>
                     )}
+                    {/* Shoot this rung. Typing a group size means transcribing
+                        a number from a target you already measured somewhere
+                        else; this records the target itself, and the row then
+                        reads from the session rather than from memory. */}
+                    <TouchableOpacity onPress={() => captureFor(6, r.id)} style={cs.rowAct}>
+                      <Crosshair size={15} color={r.source === 'measured' ? colors.okt : colors.fnt} />
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={() => setChronoRung(r.id)} style={cs.rowAct}>
                       <Gauge size={15} color={r.velocities?.length ? colors.act : colors.fnt} />
                     </TouchableOpacity>
@@ -572,11 +595,26 @@ export default function ReloadingScreen() {
                         placeholder="in" placeholderTextColor={colors.fnt}
                         keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
                     </View>
-                    <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
-                      <TextInput value={r.groupMoa} onChangeText={v => setDepth(r.id, 'groupMoa', v)}
-                        placeholder={gLabel} placeholderTextColor={colors.fnt}
-                        keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
-                    </View>
+                    {/* Same rule as the ladder: a measured row is read-only
+                        and says how many groups it came from. Leaving it
+                        editable showed the measured mean in a field that took
+                        typing and then silently reverted it on the next
+                        render. */}
+                    {r.source === 'measured' ? (
+                      <View style={[cs.cell, cs.cellImported, { backgroundColor: colors.oks, borderColor: colors.okt }]}>
+                        <Text style={[cs.cellText, { color: colors.okt, paddingVertical: 10 }]}>{r.groupMoa}</Text>
+                        <Text style={[cs.cellBadge, { color: colors.okt }]}>×{r.measuredCount}</Text>
+                      </View>
+                    ) : (
+                      <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                        <TextInput value={r.groupMoa} onChangeText={v => setDepth(r.id, 'groupMoa', v)}
+                          placeholder={gLabel} placeholderTextColor={colors.fnt}
+                          keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
+                      </View>
+                    )}
+                    <TouchableOpacity onPress={() => captureFor(7, r.id)} style={cs.rowAct}>
+                      <Crosshair size={15} color={r.source === 'measured' ? colors.okt : colors.fnt} />
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={() => removeDepth(r.id)} style={cs.rowAct}>
                       <Trash2 size={15} color={colors.fnt} />
                     </TouchableOpacity>
@@ -673,11 +711,21 @@ export default function ReloadingScreen() {
                           placeholder={namePlaceholder} placeholderTextColor={colors.fnt}
                           style={[cs.cellText, { color: colors.tx, textAlign: 'left' }]} />
                       </View>
-                      <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
-                        <TextInput value={r.groupMoa} onChangeText={v => ops.set(r.id, 'groupMoa', v)}
-                          placeholder={gLabel} placeholderTextColor={colors.fnt}
-                          keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
-                      </View>
+                      {r.source === 'measured' ? (
+                        <View style={[cs.cell, cs.cellImported, { backgroundColor: colors.oks, borderColor: colors.okt }]}>
+                          <Text style={[cs.cellText, { color: colors.okt, paddingVertical: 10 }]}>{r.groupMoa}</Text>
+                          <Text style={[cs.cellBadge, { color: colors.okt }]}>×{r.measuredCount}</Text>
+                        </View>
+                      ) : (
+                        <View style={[cs.cell, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                          <TextInput value={r.groupMoa} onChangeText={v => ops.set(r.id, 'groupMoa', v)}
+                            placeholder={gLabel} placeholderTextColor={colors.fnt}
+                            keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
+                        </View>
+                      )}
+                      <TouchableOpacity onPress={() => captureFor(isScreen ? 2 : 4, r.id)} style={cs.rowAct}>
+                        <Crosshair size={15} color={r.source === 'measured' ? colors.okt : colors.fnt} />
+                      </TouchableOpacity>
                       <TouchableOpacity onPress={() => ops.remove(r.id)} style={cs.rowAct}>
                         <Trash2 size={15} color={colors.fnt} />
                       </TouchableOpacity>

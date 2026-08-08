@@ -2,7 +2,7 @@ import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle, ZoomIn, ZoomOut, Maximize2, Plus } from 'lucide-react-native';
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Asset } from 'expo-asset';
 import Svg, { Circle, Polygon, Line } from 'react-native-svg';
@@ -56,6 +56,7 @@ const DEMO_PHOTO = {
 export default function CaptureScreen() {
   const { colors } = useTheme();
   const { addSession, rifles, loads, projects, units, trainingConsent } = useData();
+  const params = useLocalSearchParams();
   const router = useRouter();
 
   // Reactive, not Dimensions.get() at module scope: that captured the width
@@ -72,13 +73,28 @@ export default function CaptureScreen() {
   const [refW, setRefW] = useState('8.5');
   const [refH, setRefH] = useState('11');
   const [distanceStr, setDistanceStr] = useState('100');
-  const [rifleIdx, setRifleIdx] = useState(0);
+  // Starting from a load development rung, the rifle is not a guess: the test
+  // belongs to one. Selecting it here saves a cycle through the rifle control
+  // and stops a group being filed against the wrong barrel by inattention.
+  const [rifleIdx, setRifleIdx] = useState(() => {
+    const pr = (projects || []).find(p => p.id === params.projectId);
+    const i = pr ? (rifles || []).findIndex(r => r.id === pr.rifleId) : -1;
+    return i >= 0 ? i : 0;
+  });
   // Which load development variant this group is being fired for, if any.
   // Recorded here so the analysis reads measured sessions instead of numbers
   // typed from a notebook.
-  const [devProjectId, setDevProjectId] = useState(null);
-  const [devStep, setDevStep] = useState(null);
-  const [devRowId, setDevRowId] = useState(null);
+  // Arriving from a load development row, the test is already known.
+  //
+  // Seeded from the route rather than set by an effect, because an effect would
+  // run after the first render and briefly show "Not a test" for a capture the
+  // shooter started from a specific rung. Reading params in the initialiser also
+  // leaves them free to change it afterwards, which an effect keyed on params
+  // would fight.
+  const [devProjectId, setDevProjectId] = useState(params.projectId ?? null);
+  const [devStep, setDevStep] = useState(params.step ? Number(params.step) : null);
+  const [devRowId, setDevRowId] = useState(params.rowId ?? null);
+  const cameFromLoadDev = !!(params.projectId && params.rowId);
   const [loadIdx, setLoadIdx] = useState(0);
   const [suppressed, setSuppressed] = useState(true);
   const [sessionName, setSessionName] = useState('');
@@ -961,6 +977,24 @@ export default function CaptureScreen() {
               </View>
             </View>
 
+            {/* Arrived from a specific rung: say what this will be filed
+                against, before any of it is measured. The picker stays below
+                and unlocked, because a mis-tap on the way in should not commit
+                a group to the wrong variant. */}
+            {cameFromLoadDev && devVariant && (
+              <View style={[s.devCard, { backgroundColor: colors.acs, borderColor: colors.act }]}>
+                <Text style={[s.fieldLabel, { color: colors.act }]}>Recording against</Text>
+                <Text style={[s.devVariantText, { color: colors.tx }]}>
+                  {devProject?.name}{' · '}
+                  {variantLabel(devStep, devRows.find(r => r.id === devRowId) || {})}
+                </Text>
+                <Text style={[s.devVariantSub, { color: colors.mut }]}>
+                  {[devVariant.bullet, devVariant.powder, devVariant.primer, devVariant.brass]
+                    .filter(Boolean).join(' · ') || 'Components not set on this project'}
+                </Text>
+              </View>
+            )}
+
             {/* Load development: pin this group to the variant it tests. */}
             {!!devProjects.length && (
               <View style={[s.devCard, { backgroundColor: colors.card, borderColor: devRowId ? colors.act : colors.bd }]}>
@@ -1517,6 +1551,8 @@ const s = StyleSheet.create({
   presetChip: { paddingVertical: 6, paddingHorizontal: 11, borderRadius: 8, borderWidth: 1 },
   presetText: { fontSize: 12, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' },
   markModeRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
+  devVariantText: { fontSize: 15, fontWeight: '800', marginTop: 2 },
+  devVariantSub: { fontSize: 12, fontWeight: '600', marginTop: 2 },
   devCard: { marginTop: 14, padding: 14, borderRadius: 14, borderWidth: 1, gap: 9 },
   devChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   devChip: { paddingHorizontal: 11, paddingVertical: 7, borderRadius: 9, borderWidth: 1 },
