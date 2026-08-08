@@ -118,6 +118,7 @@ export default function CaptureScreen() {
   // photo to put it down — more reliable than dragging a 24px dot on a zoomed
   // photo, and it works the same whether or not the view is panned.
   const [editingCorner, setEditingCorner] = useState(null);
+  const [editingGroup, setEditingGroup] = useState(null);
   // 'quad' corrects perspective from four corners. 'span' takes two points a
   // known distance apart and assumes the photo is square-on. 'bull' fits a
   // circle to taps around a printed bull of known diameter, which is one number
@@ -639,40 +640,57 @@ export default function CaptureScreen() {
         // on the same target: ten taps across four bulls placed exactly one.
         // Deriving the pending slot from the array being updated removes the
         // race rather than narrowing it.
-        const idx = editingCorner != null ? activeGroup : prev.length - 1;
+        const idx = editingCorner != null ? (editingGroup ?? activeGroup) : prev.length - 1;
         const g = prev[idx];
         if (!g) return prev;
 
         // A point was picked up: put it down here.
+        //
+        // Which points are being edited matters. Once a bull is placed, its
+        // `corners` hold the four-point quad derived from the fit while the
+        // dots on screen are the two taps that produced it. Indexing the edit
+        // into `corners` therefore moved a quad corner that nobody could see,
+        // changed the scale reference, and left the fit and the drawn circle
+        // untouched - so the reference and the picture silently disagreed.
+        const isBull = refMode === 'bull';
+        const points = isBull && g.taps?.length ? g.taps : g.corners;
+
         let taps;
-        if (editingCorner != null && editingCorner < g.corners.length) {
-          taps = [...g.corners];
+        if (editingCorner != null && editingCorner < points.length) {
+          taps = [...points];
           taps[editingCorner] = pt;
-        } else if (g.corners.length >= maxRefPoints) {
+        } else if (points.length >= maxRefPoints) {
           // Extra taps are inert rather than restarting - a stray tap past the
           // last point must not silently destroy the calibration.
           return prev;
         } else {
-          taps = [...g.corners, pt];
+          taps = [...points, pt];
         }
 
         const next = [...prev];
-        next[idx] = { ...g, corners: taps };
+        next[idx] = isBull ? { ...g, corners: taps, taps } : { ...g, corners: taps };
 
-        // In bull mode the second tap completes a target: measure its rim, keep
-        // the fit, and open a fresh one so the next bull can be placed without
-        // reaching for a control. This is what makes a six-bull sheet a matter
-        // of tapping round the page rather than a round trip per target.
-        if (refMode === 'bull' && taps.length === 2 && editingCorner == null) {
+        // Two taps means a bull is ready to measure, whether they were just
+        // placed or one of them was moved. Re-measuring on a move is what lets
+        // a fit that grabbed the wrong ring of a concentric target be dragged
+        // onto the right one, instead of re-placing the target.
+        if (isBull && taps.length === 2) {
           const measured = measureBull(taps);
           if (measured) {
             next[idx] = { ...g, corners: measured.corners, taps, fit: measured.fit };
-            next.push({ id: 'g' + Date.now() + '-' + next.length, corners: [], shots: [], aim: null, fit: null });
+            // Only open a fresh target when this was a new placement, so that
+            // adjusting an existing one does not spawn an empty slot. This is
+            // what makes a six-bull sheet a matter of tapping round the page
+            // rather than a round trip per target.
+            if (editingCorner == null && idx === prev.length - 1) {
+              next.push({ id: 'g' + Date.now() + '-' + next.length, corners: [], shots: [], aim: null, fit: null });
+            }
           }
         }
         return next;
       });
       setEditingCorner(null);
+      setEditingGroup(null);
       mediumTap();
     } else if (mode === 'aim') {
       // One aim point per target; tapping again moves it.
@@ -687,7 +705,7 @@ export default function CaptureScreen() {
   // them here meant every tap wrote to whichever target was selected when the
   // handler was first created, so adding a second target silently kept filling
   // the first.
-  }, [IMG_W, editingCorner, maxRefPoints, setShots, setAim, refMode, activeGroup, groups, measureBull]);
+  }, [IMG_W, editingCorner, editingGroup, maxRefPoints, setShots, setAim, refMode, activeGroup, groups, measureBull]);
 
   /**
    * One responder handles both panning and pinching, and decides at release
@@ -1334,10 +1352,22 @@ export default function CaptureScreen() {
                   );
                 })}
               </Svg>
-              {(refMode === 'bull' ? (groups[activeGroup]?.taps ?? corners) : corners).map((p, i) => (
+              {/* The dots belong to whichever target is being reported on, which
+                  after a placement is the one just finished rather than the
+                  empty slot now selected. Without this they vanished the moment
+                  a target was placed, so there was nothing to grab. */}
+              {(refMode === 'bull' ? (placeGroup?.taps ?? []) : corners).map((p, i) => (
                 <TouchableOpacity
                   key={i}
-                  onPress={(e) => { e.stopPropagation(); setEditingCorner(editingCorner === i ? null : i); mediumTap(); }}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    setEditingCorner(editingCorner === i ? null : i);
+                    // Remember which target the dot came from: it is not always
+                    // the selected one, and editing the wrong group would move
+                    // a point on a target the shooter is not looking at.
+                    setEditingGroup(refMode === 'bull' ? groups.indexOf(placeGroup) : activeGroup);
+                    mediumTap();
+                  }}
                   style={[
                     s.cornerDot,
                     { left: p.x * IMG_W * zoom + pan.x - 12, top: p.y * IMG_W * zoom + pan.y - 12 },
