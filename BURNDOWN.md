@@ -1,5 +1,8 @@
 # Burn-down
 
+Items marked [x] are done and verified in the browser. Numbering is kept
+stable so commit messages that cite an item still point at it.
+
 Findings from a measured walkthrough of the capture flow and a read of the
 analytics screens, 8 Aug 2026. Nothing here is speculative: every item names the
 file and, where it matters, the number that was measured.
@@ -37,9 +40,13 @@ Cost model: `6T + S + 5` where T is targets and S is shots.
 
 Roughly half of that is rim tapping and target switching, not shot marking.
 
+**Re-measured after the two-screen rebuild.** Four targets placed in eight taps,
+whole session fifteen taps including three shots and a target switch. Cost model
+is now `3T + S + 5`, so the six-bull sheet is **53 taps**.
+
 ---
 
-## 1. The trend verdict is a coin flip presented as a finding
+## [x] 1. The trend verdict is a coin flip presented as a finding
 
 `app/(tabs)/analytics.js:129`, `lib/analytics.js:111`
 
@@ -68,7 +75,7 @@ interval, and say "no detectable change" when it spans zero. `lib/stats.js`
 already has everything needed. Being able to say "your groups have not changed"
 is itself a result the app currently cannot express.
 
-## 2. The dashboard headline is a selection-biased statistic
+## [x] 2. The dashboard headline is a selection-biased statistic
 
 `app/(tabs)/index.js:78`
 
@@ -96,7 +103,7 @@ Fix, in order of value:
   offering only Reset. The residual per point is already computed in
   `lib/circlefit.js`.
 
-## 4. Already-marked targets are invisible while marking the next one
+## [x] 4. Already-marked targets are invisible while marking the next one
 
 `app/capture/index.js:1096`
 
@@ -108,7 +115,7 @@ silent.
 The shots step already does this correctly at line 1277, drawing other targets'
 shots. The wrong one was omitted.
 
-## 5. The distance unit is rendered and invisible
+## [x] 5. The distance unit is rendered and invisible
 
 `app/capture/index.js` setup step
 
@@ -120,7 +127,7 @@ characters and a flex item will not shrink below intrinsic content width.
 
 Worth auditing every screen with this field pattern rather than fixing one.
 
-## 6. Four rim taps per target where one gesture would do
+## [x] 6. Four rim taps per target where one gesture would do
 
 A bull is a high-contrast disc, far easier to find than a bullet hole, and the
 detector machinery already exists. Tap the centre once and fit the rim from the
@@ -163,11 +170,28 @@ until confirmed. Long term is the colour work noted in `lib/detect.js`.
 
 ## 10. Smaller
 
-- Step chip reads "Corners" while in Bull mode tapping a rim.
-  `app/capture/index.js` `STEP_LABELS`.
-- The scale-reference selector now appears on both Setup and Corners. The first
+- [x] Step chip read "Corners" while in Bull mode. The steps are now Photo,
+  Setup, Place, Targets, Review.
+- The scale-reference selector still appears on both Setup and Place. The first
   was added without removing the second.
-- The target chip row scrolls above the fold once a second target is added, so
-  the control for switching targets is off screen while marking them.
+- The target chip row scrolls above the fold once several targets exist, so the
+  control for switching between them is off screen while marking them.
 - "2 points" mode is now redundant for round targets: bull does the same job and
   can report when it is being lied to, which span cannot.
+
+## 11. The detail screen cannot adjust a fit
+
+Placing a target measures its rim, and item 3's live preview is no longer the
+right fix because there is nothing to preview: the answer comes from the pixels,
+not the taps. What is missing is the other half - when the fit is rejected or
+lands wrong, the detail screen shows the verdict but offers no way to nudge the
+circle. Today the only recovery is Reset and re-place.
+
+## 12. Framing trades finger room against flyers
+
+`lib/rimfit.js` / `lib/viewport.js`
+
+The detail screen holds the bull at 62% of the viewport, which puts a .30 hole
+on a 3in bull near 21px, up from 11px at whole-sheet zoom. Apple's minimum touch
+target is 44pt, so this is better and still short. Raising `fill` is one number;
+it costs visible margin around the bull, which is where flyers land.
