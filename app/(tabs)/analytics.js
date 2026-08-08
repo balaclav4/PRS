@@ -6,6 +6,7 @@ import { useState, useMemo } from 'react';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { assessTrend } from '../../lib/trend';
+import { typicalGroup, REFERENCE_SHOTS } from '../../lib/groupsize';
 import { targetGroups } from '../../lib/analytics';
 import { deriveAnalytics, comparisonBuckets, compareBuckets, fmtP } from '../../lib/analytics';
 import { angularUnit, angularFallsBack, moaToAngular, formatAngular, MOA_PER_MRAD } from '../../lib/units';
@@ -87,6 +88,21 @@ export default function AnalyticsScreen() {
     () => assessTrend(scopedSessions, (sn) => targetGroups(sn).map(g => g.moa)),
     [scopedSessions]
   );
+
+  /**
+   * A typical group, with shot count taken into account.
+   *
+   * The tile used to be a plain mean over every group regardless of how many
+   * rounds each held. Extreme spread grows with shot count, so that average
+   * moves when the shooter changes habits and not when their shooting changes.
+   * Simulated on one unchanging rifle: switching from 3-shot to 10-shot groups
+   * made the plain average 59% worse. Normalised to five shots it moved 0.4%.
+   */
+  const typical = useMemo(() => {
+    const all = [];
+    for (const sn of scopedSessions) for (const g of targetGroups(sn)) all.push(g);
+    return typicalGroup(all.map(g => ({ inches: g.moa, shots: g.shots })));
+  }, [scopedSessions]);
 
   // Statistical comparison: pick the dimension, then the two things to compare.
   const [cmpDim, setCmpDim] = useState('loads');
@@ -202,11 +218,13 @@ export default function AnalyticsScreen() {
 
             <View style={s.tilesRow}>
               <View style={[s.tile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
-                <Text style={[s.tileLabel, { color: colors.mut }]}>Avg Group</Text>
+                <Text style={[s.tileLabel, { color: colors.mut }]}>Typical Group</Text>
                 <Text style={[s.tileVal, { color: colors.tx }]}>
-                  {data.avg != null ? moaToAngular(data.avg, units.group).toFixed(2) : '—'}
+                  {typical ? moaToAngular(typical.value, units.group).toFixed(2) : '—'}
                 </Text>
-                <Text style={[s.tileUnit, { color: colors.fnt }]}>{aUnit}</Text>
+                <Text style={[s.tileUnit, { color: colors.fnt }]}>
+                  {typical?.normalised ? `${aUnit} at ${REFERENCE_SHOTS} shots` : aUnit}
+                </Text>
               </View>
               <View style={[s.tile, { backgroundColor: colors.card, borderColor: colors.bd }]}>
                 <Text style={[s.tileLabel, { color: colors.mut }]}>Total Rounds</Text>
