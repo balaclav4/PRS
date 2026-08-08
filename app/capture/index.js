@@ -843,10 +843,19 @@ export default function CaptureScreen() {
       } else {
         setShots(found.map(f => imageToNormalized(f.x, f.y, width, height, IMG_W, boxH)));
         detectedRef.current = true;
+        // Worded as a suggestion because that is what it is.
+        //
+        // Measured against the committed photographs: on a Shoot-N-C, five of
+        // the six best-scoring detections are printed lettering - both o's of
+        // "Birchwood", a letter of "Casey", the 8 and the 9 - and none of the
+        // four obvious impacts survived. A printed mark is manufactured and a
+        // bullet hole is torn, so the printed mark is the cleaner blob of the
+        // two and outranks real holes. Calling that "Found 6 holes" invites the
+        // shooter to accept it.
         setDetectNote(
-          `Found ${found.length} hole${found.length === 1 ? '' : 's'}` +
-          (matched ? '' : ' · caliber not recognised, assumed 6.5mm') +
-          ' — tap any marker to remove, tap the photo to add.'
+          `${found.length} suggestion${found.length === 1 ? '' : 's'} — check every one before moving on. ` +
+          'Printed numbers and lettering read like bullet holes to this and are often picked up.' +
+          (matched ? '' : ' Caliber not recognised, so 6.5mm was assumed.')
         );
         await successTap();
       }
@@ -1403,7 +1412,7 @@ export default function CaptureScreen() {
                   ? <LoaderCircle size={17} color="#fff" />
                   : <Wand2 size={17} color="#fff" />}
                 <Text style={s.detectBtnText}>
-                  {detecting ? 'Scanning target…' : 'Auto-detect shots'}
+                  {detecting ? 'Scanning target…' : 'Suggest shots'}
                 </Text>
               </TouchableOpacity>
             )}

@@ -302,9 +302,11 @@ export default function AnalyticsScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[s.cardTitle, { color: colors.tx, marginBottom: 8 }]}>Shot{'\n'}Distribution</Text>
                 <Text style={[s.distSub, { color: colors.mut }]}>
+                  {/* Name the session when it is not the newest one, so a plot
+                      from three weeks ago is not read as today's shooting. */}
                   {data.latestShots
-                    ? `Latest group\n${data.latestShots} shots · ${data.latestGroup.toFixed(2)}"`
-                    : 'No group recorded'}
+                    ? `${data.plotIsLatest ? 'Latest group' : (data.plotSessionName || 'Most recent measured group')}\n${data.latestShots} shots · ${data.latestGroup.toFixed(2)}"`
+                    : 'No measured group in any session yet'}
                 </Text>
               </View>
               <TargetPlot moaShots={data.moaShots} size={140} showLabels unit={units.group} />

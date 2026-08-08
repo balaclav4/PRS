@@ -138,7 +138,7 @@ Cost model drops from `6T + S + 5` to `3T + S + 5`. On a six-bull sheet that is
 
 Keep manual rim taps as the fallback when the fit is rejected.
 
-## 7. Average group pools incomparable numbers
+## [x] 7. Average group pools incomparable numbers
 
 `lib/analytics.js`
 
@@ -147,7 +147,7 @@ spread grows with shot count, so a 3-shot group and a 10-shot group are not
 measurements of the same quantity. The app reasons carefully about this in load
 development and discards it here.
 
-## 8. Shot Distribution goes blank when the newest session has no group
+## [x] 8. Shot Distribution goes blank when the newest session has no group
 
 `lib/analytics.js:118`
 
@@ -156,7 +156,7 @@ can still read "No group recorded", and a full-size polar plot sits empty for a
 reason the user cannot deduce. Fall back to the most recent session that has a
 group, and say which one is being shown.
 
-## 9. Auto-detect presents suggestions as results
+## [x] 9. Auto-detect presents suggestions as results
 
 `app/capture/index.js`
 
