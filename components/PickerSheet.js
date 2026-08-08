@@ -108,7 +108,12 @@ const s = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   title: { fontSize: 18, fontWeight: '800' },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderRadius: 12, paddingHorizontal: 13 },
-  searchInput: { flex: 1, paddingVertical: 12, fontSize: 15 },
+  // minWidth 0 so the field can shrink inside its row. A web <input> carries
+  // a default size of 20 characters and a flex item will not shrink below its
+  // intrinsic content width, so without this the box overflows and whatever
+  // sits beside it is pushed out of view. That is how the distance unit went
+  // missing: 'yd' was rendered every time, in a 215px input inside a 163px box.
+  searchInput: { flex: 1, minWidth: 0, paddingVertical: 12, fontSize: 15 },
   list: { marginTop: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 13, padding: 14, marginBottom: 8 },
   rowLabel: { fontSize: 15, fontWeight: '700' },
