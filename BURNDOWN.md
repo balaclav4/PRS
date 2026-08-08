@@ -87,7 +87,12 @@ uses it.
 Fix: headline a median or mean with a spread. Keep the best as a labelled
 personal record.
 
-## 3. Rim tapping is blind, and recovery is all or nothing
+## [~] 3. Rim tapping is blind, and recovery is all or nothing
+
+Superseded in part. Two-tap placement measures the rim from the pixels, so
+there is no longer a set of taps to preview - the answer does not come from
+them. Recovery is addressed by item 11. What is still missing is a way to nudge
+a circle that landed on the wrong ring without re-placing it.
 
 `app/capture/index.js` step 2
 
@@ -179,7 +184,7 @@ until confirmed. Long term is the colour work noted in `lib/detect.js`.
 - "2 points" mode is now redundant for round targets: bull does the same job and
   can report when it is being lied to, which span cannot.
 
-## 11. The detail screen cannot adjust a fit
+## [x] 11. The detail screen cannot adjust a fit
 
 Placing a target measures its rim, and item 3's live preview is no longer the
 right fix because there is nothing to preview: the answer comes from the pixels,

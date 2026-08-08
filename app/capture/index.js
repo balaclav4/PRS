@@ -351,6 +351,29 @@ export default function CaptureScreen() {
   const activeFit = groups[activeGroup]?.fit ?? null;
   const activeQuality = useMemo(() => rimQuality(activeFit), [activeFit]);
 
+  /**
+   * On the Place step, report on the target just placed.
+   *
+   * Placing one opens the next, so the active group becomes the empty pending
+   * slot and its fit is null - which meant the verdict for the target that had
+   * just been measured vanished the instant it was measured. The detail screen
+   * uses the active target; this screen wants the last one that has an answer.
+   */
+  const lastPlaced = useMemo(() => {
+    for (let i = groups.length - 1; i >= 0; i--) if (groups[i].fit) return groups[i];
+    return null;
+  }, [groups]);
+  const placeGroup = groups[activeGroup]?.fit ? groups[activeGroup] : lastPlaced;
+  const placeFit = placeGroup?.fit ?? null;
+  const placeQuality = useMemo(() => rimQuality(placeFit), [placeFit]);
+  // The quad belonging to the target being reported on, not to whichever slot
+  // happens to be selected: after placing, the selection has already moved to
+  // the next empty one and its `ordered` is null, which printed "-px".
+  const placeQuad = useMemo(
+    () => (placeGroup ? solveFor(placeGroup.corners).ord : null),
+    [placeGroup, solveFor]
+  );
+
   // Shot positions on the target plane, in inches.
   const shotsIn = useMemo(
     () => (Hmat ? shots.map(p => project(Hmat, p)).filter(Boolean) : []),
@@ -1248,6 +1271,19 @@ export default function CaptureScreen() {
                       : `Tap the four corners of your ${refW}″ × ${refH}″ reference, in any order. Tap a placed corner to move it.`}
               </Text>
             </View>
+            {/* Placing measures the rim from the pixels, and decoding the photo
+                takes a moment on a phone. Tapping before it is ready is not an
+                error - the fit falls back to the two taps and says so - but the
+                shooter would have no idea why one target came out measured and
+                the next did not. */}
+            {refMode === 'bull' && !!photo && !grayReady && (
+              <View style={[s.detectNote, { backgroundColor: colors.inset, borderColor: colors.ibd, marginBottom: 10 }]}>
+                <Text style={[s.detectNoteText, { color: colors.mut }]}>
+                  Still reading the photo. You can place targets now, but the printed rim
+                  will not be measured until this clears.
+                </Text>
+              </View>
+            )}
             <TouchableOpacity
               activeOpacity={1}
               onPress={(e) => onTapImage(e, 'corner')}
@@ -1323,21 +1359,21 @@ export default function CaptureScreen() {
                 perspective information in it, so this verdict is the only thing
                 standing between an off-axis photo and a scale that is quietly
                 wrong along one axis. */}
-            {refMode === 'bull' && activeFit && (
+            {refMode === 'bull' && placeFit && (
               <View style={[s.detectNote, {
-                backgroundColor: activeQuality.ok
-                  ? (activeQuality.level === 'good' ? colors.oks : colors.warns)
+                backgroundColor: placeQuality.ok
+                  ? (placeQuality.level === 'good' ? colors.oks : colors.warns)
                   : colors.dngs,
                 borderColor: 'transparent', marginTop: 10, marginBottom: 0,
               }]}>
                 <Text style={[s.detectNoteText, {
-                  color: activeQuality.ok
-                    ? (activeQuality.level === 'good' ? colors.okt : colors.warnt)
+                  color: placeQuality.ok
+                    ? (placeQuality.level === 'good' ? colors.okt : colors.warnt)
                     : colors.dngt,
                 }]}>
-                  {activeQuality.text}
+                  {placeQuality.text}
                 </Text>
-                {activeFit && (
+                {placeFit && (
                   <Text style={[s.detectNoteText, { color: colors.mut, marginTop: 4 }]}>
                     {/* The fit works in normalized tap space, where both axes
                         are divided by the box width, so a radius has to be
@@ -1346,10 +1382,10 @@ export default function CaptureScreen() {
                     {/* The fit's axes are in image pixels; the quad is what
                         carries them into normalized space. Multiplying the
                         image-space radius by the box width read "58757px". */}
-                    {bullDiameter}″ across {ordered
-                      ? (Math.hypot(ordered[1].x - ordered[0].x, ordered[1].y - ordered[0].y) * Math.SQRT2 * IMG_W).toFixed(0)
+                    {bullDiameter}″ across {placeQuad
+                      ? (Math.hypot(placeQuad[1].x - placeQuad[0].x, placeQuad[1].y - placeQuad[0].y) * Math.SQRT2 * IMG_W).toFixed(0)
                       : '—'}px on screen
-                    {activeFit.measured ? `, rim found around ${activeFit.coverage}% of it` : ', from your taps alone'}.
+                    {placeFit.measured ? `, rim found around ${placeFit.coverage}% of it` : ', from your taps alone'}.
                   </Text>
                 )}
               </View>
@@ -1401,6 +1437,42 @@ export default function CaptureScreen() {
               <Crosshair size={17} color={colors.act} />
               <Text style={[s.instructionText, { color: colors.act }]}>Tap each bullet hole. Tap a marker again to remove it.</Text>
             </View>
+
+            {/* What this target's rim measurement decided, and a way out of it.
+                Placing happens on the previous screen at whole-sheet zoom; this
+                is the first view where the circle is big enough to judge. Until
+                now the verdict was only shown while placing and the sole
+                recovery was Reset, which threw away every target. */}
+            {refMode === 'bull' && activeFit && (
+              <View style={[s.detectNote, {
+                backgroundColor: activeQuality.ok
+                  ? (activeQuality.level === 'good' ? colors.oks : colors.warns)
+                  : colors.dngs,
+                borderColor: 'transparent',
+              }]}>
+                <Text style={[s.detectNoteText, {
+                  color: activeQuality.ok
+                    ? (activeQuality.level === 'good' ? colors.okt : colors.warnt)
+                    : colors.dngt,
+                }]}>{activeQuality.text}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    // Re-place this one target, keeping every other target and
+                    // every shot already marked on them.
+                    setGroups(prev => prev.map((g, i) =>
+                      i === activeGroup ? { ...g, corners: [], taps: [], fit: null } : g));
+                    setEditingCorner(null);
+                    setStep(2);
+                  }}
+                  style={[s.replaceBtn, { borderColor: colors.ibd }]}
+                >
+                  <RotateCcw size={13} color={colors.mut} />
+                  <Text style={[s.replaceBtnText, { color: colors.mut }]}>
+                    Re-place target {activeGroup + 1}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {photo && (
               <TouchableOpacity
@@ -1742,6 +1814,8 @@ const s = StyleSheet.create({
   markModeBtn: { flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
   markModeText: { fontSize: 13, fontWeight: '700' },
   markModeHint: { fontSize: 11.5, fontWeight: '600', marginBottom: 8, lineHeight: 16 },
+  replaceBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, paddingVertical: 8, borderRadius: 9, borderWidth: 1 },
+  replaceBtnText: { fontSize: 12, fontWeight: '700' },
   detectNote: { borderWidth: 1, borderRadius: 11, padding: 11, paddingHorizontal: 13, marginBottom: 10 },
   detectNoteText: { fontSize: 12.5, fontWeight: '600', lineHeight: 18 },
   zoomBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
