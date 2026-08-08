@@ -9,7 +9,7 @@
  * Run: node scripts/test-viewport.mjs
  */
 import {
-  toScreen, toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre,
+  toScreen, toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre, frameOn,
 } from '../lib/viewport.js';
 
 let fails = 0;
@@ -142,6 +142,40 @@ console.log('\npinch helpers');
   check('  one touch is not a pinch', pinchDistance([two[0]]) === null);
   check('  three touches are not a pinch', pinchDistance([...two, two[0]]) === null);
   check('  no touches is safe', pinchDistance(null) === null && pinchCentre(null) === null);
+}
+
+console.log('\nframing one target at a time');
+{
+  const W = 335, H = 419;
+  const f = frameOn({ x: 100, y: 300 }, 40, W, H);
+  check('  the target lands in the middle of the viewport', (() => {
+    const c = toScreen({ x: 100, y: 300 }, f.zoom, f.pan);
+    // Clamping can hold it off-centre near an edge; the point must at least be
+    // comfortably inside the box.
+    return c.x > 0 && c.x < W && c.y > 0 && c.y < H;
+  })(), `zoom ${f.zoom.toFixed(2)}`);
+
+  check('  and fills a useful part of it', (() => {
+    const a = toScreen({ x: 60, y: 300 }, f.zoom, f.pan);
+    const b = toScreen({ x: 140, y: 300 }, f.zoom, f.pan);
+    const span = Math.abs(b.x - a.x);
+    return span > W * 0.5 && span < W * 0.8;
+  })(), 'a bull 80px across becomes most of the screen');
+
+  check('  a smaller target is magnified more',
+    frameOn({ x: 100, y: 200 }, 12, W, H).zoom > frameOn({ x: 100, y: 200 }, 60, W, H).zoom);
+  check('  never zooms out past the whole photo', frameOn({ x: 10, y: 10 }, 900, W, H).zoom === 1,
+    'a target bigger than the frame still shows the frame');
+  check('  the photo always covers the viewport', (() => {
+    for (const c of [{ x: 0, y: 0 }, { x: 335, y: 419 }, { x: 5, y: 400 }]) {
+      const g = frameOn(c, 30, W, H);
+      if (g.pan.x > 0 || g.pan.y > 0) return false;
+      if (g.pan.x < W - W * g.zoom - 0.001 || g.pan.y < H - H * g.zoom - 0.001) return false;
+    }
+    return true;
+  })(), 'no blank space beside a target near the edge');
+  check('  a target with no size falls back to the whole photo',
+    frameOn({ x: 100, y: 100 }, 0, W, H).zoom === 1);
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));

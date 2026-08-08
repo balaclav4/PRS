@@ -1,11 +1,11 @@
 import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, useWindowDimensions, Alert, Platform, PanResponder } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle, ZoomIn, ZoomOut, Maximize2, Plus } from 'lucide-react-native';
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Asset } from 'expo-asset';
-import Svg, { Circle, Polygon, Line } from 'react-native-svg';
+import Svg, { Circle, Polygon, Line, Text as SvgText } from 'react-native-svg';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { computeGroupStats } from '../../lib/math';
@@ -14,15 +14,16 @@ import { lightTap, mediumTap, successTap } from '../../lib/haptics';
 import { loadGrayscale, imageToNormalized, normalizedToImage, coverScale } from '../../lib/pixels';
 import { detectShots, expandPolygon } from '../../lib/detect';
 import { fitCircle, circleQuality, circleQuad, BULL_PRESETS } from '../../lib/circlefit';
+import { rimFit, rimQuality, rimQuad, cropFor } from '../../lib/rimfit';
 import { bulletDiameterIn } from '../../lib/calibers';
 import { normalizePhoto } from '../../lib/photo';
-import { toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre } from '../../lib/viewport';
+import { toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre, frameOn } from '../../lib/viewport';
 import { quadCentre } from '../../lib/homography';
 import { formatGroup, groupUnitLabel, formatDistance } from '../../lib/units';
 import { consentIsCurrent } from '../../lib/consent';
 import { rowsForStep, stepDimension, variantLabel, variantComponents } from '../../lib/variants';
 
-const STEP_LABELS = ['Photo', 'Setup', 'Corners', 'Mark Shots', 'Review'];
+const STEP_LABELS = ['Photo', 'Setup', 'Place', 'Targets', 'Review'];
 const IMG_ASPECT = 1.25;
 
 /**
@@ -110,7 +111,7 @@ export default function CaptureScreen() {
    * write through. Everything downstream that already reads them keeps working
    * unchanged, which is what makes this tractable rather than a rewrite.
    */
-  const [groups, setGroups] = useState([{ id: 'g' + Date.now(), corners: [], shots: [], aim: null }]);
+  const [groups, setGroups] = useState([{ id: 'g' + Date.now(), corners: [], shots: [], aim: null, fit: null }]);
   const [activeGroup, setActiveGroup] = useState(0);
   const [markMode, setMarkMode] = useState('shot');
   // Which placed corner is being moved. Tap a corner to pick it up, tap the
@@ -125,7 +126,7 @@ export default function CaptureScreen() {
   // was actually aiming. It shares span's limitation - a circle carries no
   // perspective information, so an off-axis photo is caught and reported rather
   // than silently mis-scaled.
-  const [refMode, setRefMode] = useState('quad');
+  const [refMode, setRefMode] = useState('bull');
   const [bullDiameter, setBullDiameter] = useState('3');
   const shots = groups[activeGroup]?.shots ?? [];
   const aim = groups[activeGroup]?.aim ?? null;
@@ -150,7 +151,7 @@ export default function CaptureScreen() {
   }, [activeGroup]);
 
   const addGroup = useCallback(() => {
-    setGroups(prev => [...prev, { id: 'g' + Date.now(), corners: [], shots: [], aim: null }]);
+    setGroups(prev => [...prev, { id: 'g' + Date.now(), corners: [], shots: [], aim: null, fit: null }]);
     setActiveGroup(prev => prev + 1);
     detectedRef.current = false;
     mediumTap();
@@ -178,6 +179,27 @@ export default function CaptureScreen() {
   // the photo underneath, and that propagation behaves differently on native
   // than on web, which is why moving a point worked in one place and not the
   // other.
+  /**
+   * The photo's pixels, decoded once.
+   *
+   * Placing a target measures its printed rim, which needs the image rather
+   * than only the taps. Decoding per tap would be wasteful and would make
+   * placement feel laggy on a phone, so it is done once when the photo arrives
+   * and held for the life of the screen.
+   */
+  const grayRef = useRef(null);
+  const [grayReady, setGrayReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    grayRef.current = null;
+    setGrayReady(false);
+    if (!photo?.uri) return undefined;
+    loadGrayscale(photo.uri)
+      .then(g => { if (!cancelled) { grayRef.current = g; setGrayReady(true); } })
+      .catch(() => { /* placement falls back to the taps alone */ });
+    return () => { cancelled = true; };
+  }, [photo?.uri]);
+
   const dragMarkerRef = useRef(null);
   const gestureRef = useRef({ startPan: null, startDist: null, startZoom: 1 });
 
@@ -257,8 +279,9 @@ export default function CaptureScreen() {
   // exactly and therefore cannot reveal that the bull was photographed as an
   // ellipse. Extra taps are what make that check possible, so the mode invites
   // them and reports the fit as soon as three exist.
-  const maxRefPoints = refMode === 'span' ? 2 : refMode === 'bull' ? 6 : 4;
-  const minRefPoints = refMode === 'span' ? 2 : refMode === 'bull' ? 3 : 4;
+  // Two taps for a bull: the centre and any point on its edge. The rim itself
+  // is measured from the photograph, so more taps would buy nothing.
+  const maxRefPoints = refMode === 'quad' ? 4 : 2;
 
   /**
    * Four corners, however they were obtained.
@@ -322,14 +345,11 @@ export default function CaptureScreen() {
   // The raw fit, for the setup screen to report on. Kept separate from the quad
   // because the quad is null once quality fails, and that is exactly when there
   // is most to say.
-  const bullFit = useMemo(
-    () => (refMode === 'bull' ? fitCircle(corners) : null),
-    [refMode, corners]
-  );
-  const bullQuality = useMemo(
-    () => (refMode === 'bull' && corners.length >= 3 ? circleQuality(bullFit) : null),
-    [refMode, corners.length, bullFit]
-  );
+  // The active target's measured rim, and what it says about itself. Held on
+  // the group rather than recomputed, because it is a measurement taken once
+  // when the target was placed, not a function of the current taps.
+  const activeFit = groups[activeGroup]?.fit ?? null;
+  const activeQuality = useMemo(() => rimQuality(activeFit), [activeFit]);
 
   // Shot positions on the target plane, in inches.
   const shotsIn = useMemo(
@@ -480,6 +500,92 @@ export default function CaptureScreen() {
     </>
   );
 
+  /**
+   * Two taps into a measured target.
+   *
+   * The taps say which circle was meant; the pixels say exactly where its edge
+   * runs. Measured on the committed photographs the fit lands within about a
+   * pixel of the printed rim from taps several pixels out, so the answer is
+   * better than the fingers that produced it.
+   *
+   * Returns the quad rather than the ellipse, because everything downstream -
+   * the homography, rectifyToInches, every group statistic - already speaks in
+   * four corners of a rectangle of known size. A bull of diameter D is a D by D
+   * square, so this is where the circle path rejoins the existing pipeline and
+   * nothing after it needs to know which mode was used.
+   */
+  const measureBull = useCallback((taps) => {
+    if (taps.length < 2) return null;
+    const gs = grayRef.current;
+
+    // No pixels yet: honour exactly what was tapped. rimFit reports this as
+    // unmeasured, and the detail screen says so rather than implying the edge
+    // was found.
+    if (!gs) {
+      const r = Math.hypot(taps[1].x - taps[0].x, taps[1].y - taps[0].y);
+      if (!(r > 0)) return null;
+      const fit = { cx: taps[0].x, cy: taps[0].y, a: r, b: r, phi: 0,
+                    axisRatio: 1, rms: 0, coverage: 0, measured: false };
+      return { fit, corners: rimQuad(fit) };
+    }
+
+    const toImg = (p) => normalizedToImage(p.x, p.y, gs.width, gs.height, IMG_W, IMG_H);
+    const fit = rimFit(gs.gray, gs.width, gs.height, {
+      centre: toImg(taps[0]), edge: toImg(taps[1]),
+    });
+    if (!fit) return null;
+
+    const quad = rimQuad(fit)
+      .map(p => imageToNormalized(p.x, p.y, gs.width, gs.height, IMG_W, IMG_H));
+    return { fit, corners: quad };
+  }, [IMG_W, IMG_H]);
+
+  /**
+   * On the detail screen, frame whichever target is selected.
+   *
+   * At whole-sheet zoom a .30 hole is 8px across against a 44pt minimum touch
+   * target, which is not a size anyone can mark accurately. Framed on its own
+   * bull it is 34px. This is the whole reason the flow has two screens rather
+   * than one, so the framing is applied rather than offered.
+   *
+   * Only on entering the step or changing target: re-framing on every render
+   * would fight the shooter the moment they pinched in to place a shot
+   * precisely.
+   */
+  const placedCount = useMemo(
+    () => groups.filter(g => solveFor(g.corners).H).length,
+    [groups, solveFor]
+  );
+
+  useEffect(() => {
+    if (step === 2) setActiveGroup(groups.length - 1);
+  }, [step, groups.length]);
+
+  const framedRef = useRef(null);
+  useEffect(() => {
+    if (step !== 3) { framedRef.current = null; return; }
+    // Entering the detail screen, start on the first target that was placed.
+    if (framedRef.current === null && !solveFor(groups[activeGroup]?.corners).H) {
+      const first = groups.findIndex(g => solveFor(g.corners).H);
+      if (first >= 0 && first !== activeGroup) { setActiveGroup(first); return; }
+    }
+    const key = `${activeGroup}:${groups[activeGroup]?.id}`;
+    if (framedRef.current === key) return;
+    framedRef.current = key;
+
+    const g = groups[activeGroup];
+    const q = g && solveFor(g.corners).ord;
+    if (!q) { setZoom(1); setPan({ x: 0, y: 0 }); return; }
+
+    // Corners are normalized by box width; the viewport works in box pixels.
+    const cx = (q.reduce((a, p) => a + p.x, 0) / 4) * IMG_W;
+    const cy = (q.reduce((a, p) => a + p.y, 0) / 4) * IMG_W;
+    const r = Math.max(...q.map(p => Math.hypot(p.x * IMG_W - cx, p.y * IMG_W - cy)));
+    const v = frameOn({ x: cx, y: cy }, r, IMG_W, IMG_H);
+    setZoom(v.zoom);
+    setPan(v.pan);
+  }, [step, activeGroup, groups, solveFor, IMG_W, IMG_H]);
+
   const onTapImage = useCallback((e, mode) => {
     // A pan gesture ends with a release over the photo, which would otherwise
     // drop a shot wherever the drag finished.
@@ -502,16 +608,46 @@ export default function CaptureScreen() {
     const pt = { x, y };
 
     if (mode === 'corner') {
-      setCorners(prev => {
-        // A corner was picked up: put it down here.
-        if (editingCorner != null && editingCorner < prev.length) {
-          const next = [...prev];
-          next[editingCorner] = pt;
-          return next;
+      setGroups(prev => {
+        // While placing, the pending target is always the last one.
+        //
+        // Advancing an activeGroup index after the update read `groups` from a
+        // stale closure, so taps arriving faster than React commits all landed
+        // on the same target: ten taps across four bulls placed exactly one.
+        // Deriving the pending slot from the array being updated removes the
+        // race rather than narrowing it.
+        const idx = editingCorner != null ? activeGroup : prev.length - 1;
+        const g = prev[idx];
+        if (!g) return prev;
+
+        // A point was picked up: put it down here.
+        let taps;
+        if (editingCorner != null && editingCorner < g.corners.length) {
+          taps = [...g.corners];
+          taps[editingCorner] = pt;
+        } else if (g.corners.length >= maxRefPoints) {
+          // Extra taps are inert rather than restarting - a stray tap past the
+          // last point must not silently destroy the calibration.
+          return prev;
+        } else {
+          taps = [...g.corners, pt];
         }
-        // Extra taps are inert rather than restarting — a stray tap past the
-        // last point must not silently destroy the calibration.
-        return prev.length >= maxRefPoints ? prev : [...prev, pt];
+
+        const next = [...prev];
+        next[idx] = { ...g, corners: taps };
+
+        // In bull mode the second tap completes a target: measure its rim, keep
+        // the fit, and open a fresh one so the next bull can be placed without
+        // reaching for a control. This is what makes a six-bull sheet a matter
+        // of tapping round the page rather than a round trip per target.
+        if (refMode === 'bull' && taps.length === 2 && editingCorner == null) {
+          const measured = measureBull(taps);
+          if (measured) {
+            next[idx] = { ...g, corners: measured.corners, taps, fit: measured.fit };
+            next.push({ id: 'g' + Date.now() + '-' + next.length, corners: [], shots: [], aim: null, fit: null });
+          }
+        }
+        return next;
       });
       setEditingCorner(null);
       mediumTap();
@@ -528,7 +664,7 @@ export default function CaptureScreen() {
   // them here meant every tap wrote to whichever target was selected when the
   // handler was first created, so adding a second target silently kept filling
   // the first.
-  }, [IMG_W, editingCorner, maxRefPoints, setShots, setAim]);
+  }, [IMG_W, editingCorner, maxRefPoints, setShots, setAim, refMode, activeGroup, groups, measureBull]);
 
   /**
    * One responder handles both panning and pinching, and decides at release
@@ -722,7 +858,7 @@ export default function CaptureScreen() {
 
   const canNext =
     (step === 1 && refWIn > 0 && refHIn > 0 && distance > 0) ||
-    (step === 2 && !!Hmat) ||
+    (step === 2 && placedCount > 0) ||
     (step === 3 && groups.some(g => g.shots.length >= 2 && solveFor(g.corners).H));
 
   const saveAndFinish = async () => {
@@ -1095,9 +1231,9 @@ export default function CaptureScreen() {
                 {editingCorner != null
                   ? `Moving point ${editingCorner + 1} — tap where it should go.`
                   : refMode === 'bull'
-                    ? (corners.length < 3
-                        ? `Tap around the edge of the ${bullDiameter}″ bull — at least three, spread right around it rather than bunched on one side.`
-                        : `${corners.length} on the rim. A fourth and beyond let the fit check whether the bull was round in the photo; three cannot. Tap a point to move it.`)
+                    ? (corners.length === 0
+                        ? `Tap the middle of a ${bullDiameter}″ bull, then its edge. ${placedCount ? `${placedCount} placed — keep going for the rest.` : 'Do that for every target on the sheet.'}`
+                        : 'Now tap its edge. The printed rim is found from the photo, so this only has to be close.')
                     : refMode === 'span'
                       ? `Tap the two ends of the ${refW}″ edge. Faster, but it assumes the photo is square-on — it cannot correct for angle.`
                       : `Tap the four corners of your ${refW}″ × ${refH}″ reference, in any order. Tap a placed corner to move it.`}
@@ -1118,23 +1254,42 @@ export default function CaptureScreen() {
                   <Image source={{ uri: photo.uri }} style={s.targetImg} resizeMode="cover" />
                 ) : null}
               </View>
-              {ordered && (
-                // Corners are normalized by the box *width*, so y spans 0..1.25
-                // in a 1.25-aspect box: the viewBox must be 100x125 for a
-                // uniform x100 mapping on both axes.
-                <Svg viewBox="0 0 100 125" preserveAspectRatio="none" style={{
-                  position: 'absolute',
-                  left: pan.x, top: pan.y,
-                  width: IMG_W * zoom, height: IMG_H * zoom,
-                }}>
-                  <Polygon
-                    points={ordered.map(p => `${p.x * 100},${p.y * 100}`).join(' ')}
-                    fill="rgba(240,135,43,0.10)"
-                    stroke="#F0872B" strokeWidth="1.5" strokeDasharray="3 2" vectorEffect="non-scaling-stroke"
-                  />
-                </Svg>
-              )}
-              {corners.map((p, i) => (
+              {/* Every target placed so far, not only the active one.
+                  Drawing just the active target meant adding a second one made
+                  the first disappear, so on a six-bull sheet nothing showed
+                  which bulls were done and marking one twice was silent.
+                  Corners are normalized by the box *width*, so y spans 0..1.25
+                  in a 1.25-aspect box: the viewBox must be 100x125 for a
+                  uniform x100 mapping on both axes. */}
+              <Svg viewBox="0 0 100 125" preserveAspectRatio="none" style={{
+                position: 'absolute',
+                left: pan.x, top: pan.y,
+                width: IMG_W * zoom, height: IMG_H * zoom,
+              }}>
+                {groups.map((g, gi) => {
+                  const q = solveFor(g.corners).ord;
+                  if (!q) return null;
+                  const live = gi === activeGroup;
+                  const cx = q.reduce((a, p) => a + p.x, 0) / 4;
+                  const cy = q.reduce((a, p) => a + p.y, 0) / 4;
+                  return (
+                    <React.Fragment key={g.id}>
+                      <Polygon
+                        points={q.map(p => `${p.x * 100},${p.y * 100}`).join(' ')}
+                        fill={live ? 'rgba(240,135,43,0.10)' : 'rgba(18,183,106,0.10)'}
+                        stroke={live ? '#F0872B' : '#12B76A'}
+                        strokeWidth="1.5" strokeDasharray="3 2" vectorEffect="non-scaling-stroke"
+                      />
+                      <SvgText
+                        x={cx * 100} y={cy * 100 + 2}
+                        fontSize="5" fontWeight="700" textAnchor="middle"
+                        fill={live ? '#F0872B' : '#12B76A'}
+                      >{gi + 1}</SvgText>
+                    </React.Fragment>
+                  );
+                })}
+              </Svg>
+              {(refMode === 'bull' ? (groups[activeGroup]?.taps ?? corners) : corners).map((p, i) => (
                 <TouchableOpacity
                   key={i}
                   onPress={(e) => { e.stopPropagation(); setEditingCorner(editingCorner === i ? null : i); mediumTap(); }}
@@ -1159,28 +1314,33 @@ export default function CaptureScreen() {
                 perspective information in it, so this verdict is the only thing
                 standing between an off-axis photo and a scale that is quietly
                 wrong along one axis. */}
-            {bullQuality && (
+            {refMode === 'bull' && activeFit && (
               <View style={[s.detectNote, {
-                backgroundColor: bullQuality.ok
-                  ? (bullQuality.level === 'good' ? colors.oks : colors.warns)
+                backgroundColor: activeQuality.ok
+                  ? (activeQuality.level === 'good' ? colors.oks : colors.warns)
                   : colors.dngs,
                 borderColor: 'transparent', marginTop: 10, marginBottom: 0,
               }]}>
                 <Text style={[s.detectNoteText, {
-                  color: bullQuality.ok
-                    ? (bullQuality.level === 'good' ? colors.okt : colors.warnt)
+                  color: activeQuality.ok
+                    ? (activeQuality.level === 'good' ? colors.okt : colors.warnt)
                     : colors.dngt,
                 }]}>
-                  {bullQuality.text}
+                  {activeQuality.text}
                 </Text>
-                {bullFit && bullQuality.level !== 'arc' && (
+                {activeFit && (
                   <Text style={[s.detectNoteText, { color: colors.mut, marginTop: 4 }]}>
                     {/* The fit works in normalized tap space, where both axes
                         are divided by the box width, so a radius has to be
                         multiplied back up to mean anything on screen. Printed
                         raw it read "1px". */}
-                    {bullDiameter}″ across {(2 * bullFit.radius * IMG_W).toFixed(0)}px,
-                    from {bullFit.count} taps, widest gap {bullFit.maxGapDeg}°.
+                    {/* The fit's axes are in image pixels; the quad is what
+                        carries them into normalized space. Multiplying the
+                        image-space radius by the box width read "58757px". */}
+                    {bullDiameter}″ across {ordered
+                      ? (Math.hypot(ordered[1].x - ordered[0].x, ordered[1].y - ordered[0].y) * Math.SQRT2 * IMG_W).toFixed(0)
+                      : '—'}px on screen
+                    {activeFit.measured ? `, rim found around ${activeFit.coverage}% of it` : ', from your taps alone'}.
                   </Text>
                 )}
               </View>
@@ -1212,8 +1372,10 @@ export default function CaptureScreen() {
             </View>
             <View style={s.scaleFooter}>
               <Text style={[s.scaleCount, { color: colors.mut }]}>
-                <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{corners.length}</Text>
-                {refMode === 'bull' ? ` rim taps, ${minRefPoints} minimum` : `/${maxRefPoints} ${refMode === 'span' ? 'points' : 'corners'} set`}
+                <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{refMode === 'bull' ? placedCount : corners.length}</Text>
+                {refMode === 'bull'
+                  ? ` target${placedCount === 1 ? '' : 's'} placed`
+                  : `/${maxRefPoints} ${refMode === 'span' ? 'points' : 'corners'} set`}
               </Text>
               <TouchableOpacity onPress={() => { setCorners([]); setEditingCorner(null); }} style={s.resetBtn}>
                 <RotateCcw size={14} color={colors.act} />
@@ -1485,7 +1647,7 @@ export default function CaptureScreen() {
             disabled={!canNext}
           >
             <Text style={s.nextBtnText}>
-              {step === 3 ? 'Review Group' : step === 2 ? 'Mark Shots' : 'Continue'}
+              {step === 3 ? 'Review Group' : step === 2 ? (placedCount > 1 ? `Size & mark ${placedCount} targets` : 'Size & mark shots') : 'Continue'}
             </Text>
             <ArrowRight size={18} color="#fff" />
           </TouchableOpacity>
