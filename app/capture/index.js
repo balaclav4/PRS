@@ -23,6 +23,31 @@ import { formatGroup, groupUnitLabel, formatDistance } from '../../lib/units';
 import { consentIsCurrent } from '../../lib/consent';
 import { rowsForStep, stepDimension, variantLabel, variantComponents } from '../../lib/variants';
 
+/**
+ * How far a finger may travel and still count as a tap.
+ *
+ * Three pixels was the old figure and it is not a tap threshold, it is a mouse
+ * threshold. A pointing device moves zero pixels between press and release; a
+ * finger on glass routinely moves five to ten, and moves further the harder
+ * someone is concentrating on placing a shot exactly. Every one of those became
+ * a drag, `draggedRef` was set, and onTapImage returned without marking
+ * anything - so on the zoomed screen, where people are being most careful,
+ * shots simply did not appear.
+ *
+ * This is invisible in a browser, which is why it survived every pass: a click
+ * has no travel at all. Ten points is in line with the slop the platforms
+ * themselves allow before a press becomes a scroll.
+ */
+const TAP_SLOP_PX = 10;
+
+/**
+ * And how far before a marker being held is considered moved.
+ *
+ * Smaller, because picking a marker up is deliberate and the whole point is to
+ * move it a little. Two pixels meant a tap on a marker nudged it.
+ */
+const DRAG_SLOP_PX = 5;
+
 const STEP_LABELS = ['Photo', 'Setup', 'Place', 'Targets', 'Review'];
 const IMG_ASPECT = 1.25;
 
@@ -171,7 +196,13 @@ export default function CaptureScreen() {
   const detectedRef = useRef(false);
 
   // Photo viewport. Zooming is what makes marking a tight group possible at
-  // all — at 6x a shaky 3px touch resolves to half an image pixel.
+  // all: at 6x, a touch that wanders three screen pixels still resolves to half
+  // an image pixel.
+  //
+  // That is a statement about precision, not about intent, and conflating the
+  // two is what broke tapping on the zoomed screen. Three pixels of travel
+  // buying image accuracy does not mean three pixels of travel is a drag - see
+  // TAP_SLOP_PX.
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const draggedRef = useRef(false);
@@ -725,7 +756,8 @@ export default function CaptureScreen() {
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (_e, g) =>
-      Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3 || _e.nativeEvent.touches?.length === 2,
+      Math.abs(g.dx) > TAP_SLOP_PX || Math.abs(g.dy) > TAP_SLOP_PX ||
+      _e.nativeEvent.touches?.length === 2,
 
     onPanResponderGrant: (e) => {
       draggedRef.current = false;
@@ -758,7 +790,7 @@ export default function CaptureScreen() {
       // A marker is being dragged: move it and do not pan the view.
       const held = dragMarkerRef.current;
       if (held && dist == null) {
-        if (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2) draggedRef.current = true;
+        if (Math.abs(g.dx) > DRAG_SLOP_PX || Math.abs(g.dy) > DRAG_SLOP_PX) draggedRef.current = true;
         const { locationX, locationY } = e.nativeEvent;
         if (locationX == null || locationY == null) return;
         const img = toImage({ x: locationX, y: locationY }, zoom, pan);
@@ -784,7 +816,7 @@ export default function CaptureScreen() {
         return;
       }
 
-      if (Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3) draggedRef.current = true;
+      if (Math.abs(g.dx) > TAP_SLOP_PX || Math.abs(g.dy) > TAP_SLOP_PX) draggedRef.current = true;
       if (zoom > 1 && gestureRef.current.startPan) {
         const base = gestureRef.current.startPan;
         setPan(clampPan({ x: base.x + g.dx, y: base.y + g.dy }, zoom, IMG_W, IMG_H));
