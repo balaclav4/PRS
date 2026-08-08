@@ -604,7 +604,16 @@ export default function CaptureScreen() {
     // Corners are normalized by box width; the viewport works in box pixels.
     const cx = (q.reduce((a, p) => a + p.x, 0) / 4) * IMG_W;
     const cy = (q.reduce((a, p) => a + p.y, 0) / 4) * IMG_W;
-    const r = Math.max(...q.map(p => Math.hypot(p.x * IMG_W - cx, p.y * IMG_W - cy)));
+    let r = Math.max(...q.map(p => Math.hypot(p.x * IMG_W - cx, p.y * IMG_W - cy)));
+
+    // Include shots already marked, so returning to a target never frames one
+    // of them off screen. A flyer that cannot be seen is a flyer that does not
+    // get marked, and dropping it makes the group look tighter than it was -
+    // an error in the direction nobody would question.
+    for (const sh of g.shots || []) {
+      r = Math.max(r, Math.hypot(sh.x * IMG_W - cx, sh.y * IMG_W - cy) * 1.12);
+    }
+
     const v = frameOn({ x: cx, y: cy }, r, IMG_W, IMG_H);
     setZoom(v.zoom);
     setPan(v.pan);
@@ -1261,20 +1270,11 @@ export default function CaptureScreen() {
         {step === 2 && (
           <View>
             <TargetChips />
-            <View style={s.markModeRow}>
-              {[['bull', 'Bull'], ['quad', '4 corners'], ['span', '2 points']].map(([k, label]) => (
-                <TouchableOpacity
-                  key={k}
-                  onPress={() => { setRefMode(k); setCorners([]); setEditingCorner(null); }}
-                  style={[s.markModeBtn, {
-                    backgroundColor: refMode === k ? colors.act : colors.card,
-                    borderColor: refMode === k ? colors.act : colors.bd,
-                  }]}
-                >
-                  <Text style={[s.markModeText, { color: refMode === k ? '#fff' : colors.mut }]}>{label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {/* The reference type is chosen on Setup, one step back. It was
+                also sitting here, where switching clears the active target's
+                points - so a mis-tap in the middle of placing a sheet threw
+                away work with no warning, to change a setting the shooter had
+                already made. */}
             <View style={[s.instruction, { backgroundColor: colors.acs }]}>
               <Ruler size={17} color={colors.act} />
               <Text style={[s.instructionText, { color: colors.act }]}>

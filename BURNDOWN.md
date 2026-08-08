@@ -87,12 +87,13 @@ uses it.
 Fix: headline a median or mean with a spread. Keep the best as a labelled
 personal record.
 
-## [~] 3. Rim tapping is blind, and recovery is all or nothing
+## [x] 3. Rim tapping is blind, and recovery is all or nothing
 
-Superseded in part. Two-tap placement measures the rim from the pixels, so
-there is no longer a set of taps to preview - the answer does not come from
-them. Recovery is addressed by item 11. What is still missing is a way to nudge
-a circle that landed on the wrong ring without re-placing it.
+Superseded and then closed. Two-tap placement measures the rim from the pixels,
+so there is no set of taps to preview - the answer does not come from them.
+Recovery is item 11. Nudging onto a different ring works by moving either dot,
+which re-runs the measurement: on the NRA bull, dragging the edge dot outward
+took the fit from 58px on the black disc to 105px on the printed ring.
 
 `app/capture/index.js` step 2
 
@@ -177,8 +178,9 @@ until confirmed. Long term is the colour work noted in `lib/detect.js`.
 
 - [x] Step chip read "Corners" while in Bull mode. The steps are now Photo,
   Setup, Place, Targets, Review.
-- The scale-reference selector still appears on both Setup and Place. The first
-  was added without removing the second.
+- [x] The scale-reference selector appeared on both Setup and Place. Removed
+  from Place, where switching cleared the active target's points, so a mis-tap
+  mid-sheet threw away work to change a setting already made one step back.
 - The target chip row scrolls above the fold once several targets exist, so the
   control for switching between them is off screen while marking them.
 - "2 points" mode is now redundant for round targets: bull does the same job and
@@ -192,11 +194,21 @@ not the taps. What is missing is the other half - when the fit is rejected or
 lands wrong, the detail screen shows the verdict but offers no way to nudge the
 circle. Today the only recovery is Reset and re-place.
 
-## 12. Framing trades finger room against flyers
+## [x] 12. Framing trades finger room against flyers
 
-`lib/rimfit.js` / `lib/viewport.js`
+`lib/viewport.js`
 
 The detail screen holds the bull at 62% of the viewport, which puts a .30 hole
 on a 3in bull near 21px, up from 11px at whole-sheet zoom. Apple's minimum touch
-target is 44pt, so this is better and still short. Raising `fill` is one number;
-it costs visible margin around the bull, which is where flyers land.
+target is 44pt, so this is better and still short of it.
+
+Left at 62% deliberately, after working out which way the error runs. Raising
+`fill` buys finger room and costs margin around the bull, and the margin is
+where flyers land. A shot framed off screen is a shot that does not get marked,
+which makes the group look tighter than it was - an error in the direction
+nobody would question. Bigger fingers is a comfort problem; a dropped flyer is a
+wrong number.
+
+What did change: the frame now also takes in any shots already marked on the
+target, so returning to one can never put a previously marked shot off screen.
+Pinch and zoom remain for anything tighter.
