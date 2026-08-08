@@ -12,7 +12,7 @@ import { parseStrings, comparePrimers } from '../../lib/primers';
 import { parseWorkup, analyseWorkup } from '../../lib/pressure';
 import { parseCandidates, analyseScreen } from '../../lib/screening';
 import { groupUnitLabel, inchesToUnit, formatDistance } from '../../lib/units';
-import { reconcileRows, variantLabel } from '../../lib/variants';
+import { reconcileRows, reconcileVelocityRows, variantLabel } from '../../lib/variants';
 import { targetGroups } from '../../lib/analytics';
 import ChronoImport from '../../components/ChronoImport';
 
@@ -122,13 +122,15 @@ export default function ReloadingScreen() {
 
   // Steps 2 and 4 are the same shape — several candidates, one group each, and
   // the same refusal to rank them. Only the label on the first column differs.
-  const screenRows = project?.screenRows || [];
+  const rawScreenRows = project?.screenRows || [];
+  const screenRows = useMemo(() => measuredRows(rawScreenRows, 2), [measuredRows, rawScreenRows]);
   const screenShots = project?.screenShots || 5;
   const screen = useMemo(
     () => analyseScreen(parseCandidates(screenRows), screenShots, 'combinations', gLabel),
     [screenRows, screenShots, gLabel]
   );
-  const coarseRows = project?.coarseRows || [];
+  const rawCoarseRows = project?.coarseRows || [];
+  const coarseRows = useMemo(() => measuredRows(rawCoarseRows, 4), [measuredRows, rawCoarseRows]);
   const coarseShots = project?.coarseShots || 5;
   const coarse = useMemo(
     () => analyseScreen(parseCandidates(coarseRows), coarseShots, 'charges', gLabel),
@@ -147,7 +149,11 @@ export default function ReloadingScreen() {
     }),
   });
 
-  const workupRows = project?.workupRows || [];
+  const rawWorkupRows = project?.workupRows || [];
+  const workupRows = useMemo(
+    () => reconcileVelocityRows(rawWorkupRows, sessions, project?.id, 3),
+    [rawWorkupRows, sessions, project?.id]
+  );
   const workupPoints = useMemo(() => parseWorkup(workupRows), [workupRows]);
   const workup = useMemo(
     () => analyseWorkup(workupPoints, project?.bookMaxGr ? Number(project.bookMaxGr) : null,
@@ -158,13 +164,13 @@ export default function ReloadingScreen() {
   const setWorkup = (id, field, value) => {
     if (!project) return;
     updateProject(project.id, {
-      workupRows: workupRows.map(r => r.id === id ? { ...r, [field]: value } : r),
+      workupRows: rawWorkupRows.map(r => r.id === id ? { ...r, [field]: value } : r),
     });
   };
   const addWorkup = () => {
     if (!project) return;
-    const last = workupRows[workupRows.length - 1];
-    const prev = workupRows[workupRows.length - 2];
+    const last = rawWorkupRows[rawWorkupRows.length - 1];
+    const prev = rawWorkupRows[rawWorkupRows.length - 2];
     let next = '';
     if (last) {
       const lc = parseFloat(last.charge), pc = prev ? parseFloat(prev.charge) : NaN;
@@ -172,28 +178,33 @@ export default function ReloadingScreen() {
       if (isFinite(lc)) next = String(+(lc + (inc || 0.3)).toFixed(2));
     }
     updateProject(project.id, {
-      workupRows: [...workupRows, { id: 'w' + Date.now(), charge: next, velocity: '', sign: null }],
+      workupRows: [...rawWorkupRows, { id: 'w' + Date.now(), charge: next, velocity: '', sign: null }],
     });
   };
   const removeWorkup = (id) => project && updateProject(project.id, {
-    workupRows: workupRows.filter(r => r.id !== id),
+    workupRows: rawWorkupRows.filter(r => r.id !== id),
   });
 
-  const primerRows = project?.primerRows || [];
+  const rawPrimerRows = project?.primerRows || [];
+  const primerRows = useMemo(
+    () => reconcileVelocityRows(rawPrimerRows, sessions, project?.id, 5,
+      { meanField: null, listField: 'velocities' }),
+    [rawPrimerRows, sessions, project?.id]
+  );
   const primerStrings = useMemo(() => parseStrings(primerRows), [primerRows]);
   const primers = useMemo(() => comparePrimers(primerStrings, vLabel), [primerStrings, vLabel]);
 
   const setPrimer = (id, field, value) => {
     if (!project) return;
     updateProject(project.id, {
-      primerRows: primerRows.map(r => r.id === id ? { ...r, [field]: value } : r),
+      primerRows: rawPrimerRows.map(r => r.id === id ? { ...r, [field]: value } : r),
     });
   };
   const addPrimer = () => project && updateProject(project.id, {
-    primerRows: [...primerRows, { id: 'p' + Date.now(), brand: '', velocities: '' }],
+    primerRows: [...rawPrimerRows, { id: 'p' + Date.now(), brand: '', velocities: '' }],
   });
   const removePrimer = (id) => project && updateProject(project.id, {
-    primerRows: primerRows.filter(r => r.id !== id),
+    primerRows: rawPrimerRows.filter(r => r.id !== id),
   });
 
   // Step 8 works in target inches at the test distance, because that is what a
@@ -627,7 +638,13 @@ export default function ReloadingScreen() {
             const result = isScreen ? screen : coarse;
             const shotsVal = isScreen ? screenShots : coarseShots;
             const shotsKey = isScreen ? 'screenShots' : 'coarseShots';
-            const ops = candidateOps(isScreen ? 'screenRows' : 'coarseRows', list);
+            // Mutations act on the stored rows; `list` above is the reconciled
+            // view and writing it back would persist derived fields and bury the
+            // shooter's typed value under a measured one.
+            const ops = candidateOps(
+              isScreen ? 'screenRows' : 'coarseRows',
+              isScreen ? rawScreenRows : rawCoarseRows
+            );
             const nameLabel = isScreen ? 'POWDER / BULLET' : 'CHARGE';
             const namePlaceholder = isScreen ? 'H4350 / 140 Hybrid' : '42.0 gr';
             return (

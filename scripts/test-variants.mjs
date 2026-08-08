@@ -12,6 +12,7 @@
 import {
   rowsForStep, stepDimension, variantLabel, variantComponents,
   sessionsForVariant, measuredGroups, reconcileRows,
+  measuredVelocities, reconcileVelocityRows,
 } from '../lib/variants.js';
 
 let fails = 0;
@@ -135,6 +136,42 @@ console.log('\nreconciling typed and measured');
     out.every(r => ['measured', 'typed', 'empty'].includes(r.source)),
     'a number whose origin is invisible cannot be checked');
   check('  empty input is safe', reconcileRows(null, [], 'p1', 6, toMoa).length === 0);
+}
+
+console.log('\nmeasured velocities');
+{
+  const vs = (id, rowId, velocities) =>
+    ({ id, projectId: 'p1', projectStep: 3, projectRowId: rowId, velocities });
+  const sessions = [vs('s1', 'w1', [2810, 2822]), vs('s2', 'w1', [2815]), vs('s3', 'w2', [2900])];
+
+  check('  pools every reading for the variant',
+    measuredVelocities(sessions, 'p1', 3, 'w1').join() === '2810,2822,2815');
+  check('  keeps them individual, not averaged',
+    measuredVelocities(sessions, 'p1', 3, 'w1').length === 3,
+    'an SD comparison needs the readings, not their mean');
+  check('  another row is not swept in',
+    measuredVelocities(sessions, 'p1', 3, 'w2').join() === '2900');
+  check('  junk is dropped',
+    measuredVelocities([vs('s', 'w1', [2800, 0, -5, NaN, 'x'])], 'p1', 3, 'w1').length === 1);
+
+  const rows = [
+    { id: 'w1', charge: '41.2', velocity: '2700' },   // has sessions
+    { id: 'w3', charge: '41.6', velocity: '2750' },   // typed only, no sessions
+  ];
+  const out = reconcileVelocityRows(rows, sessions, 'p1', 3);
+  check('  a measured row reports the mean', out[0].velocity === '2816' && out[0].source === 'measured',
+    `${out[0].velocity} from ${out[0].measuredCount} readings, was 2700`);
+  check('  and keeps the readings', out[0].measuredVelocities.length === 3);
+  check('  a row with no sessions keeps its typed value',
+    out[1].velocity === '2750' && out[1].source === 'typed', out[1].source);
+
+  // Primer rows carry a whole string rather than a single number.
+  const pr = reconcileVelocityRows(
+    [{ id: 'w1', brand: 'CCI 450', velocities: '' }],
+    sessions, 'p1', 3, { meanField: null, listField: 'velocities' }
+  );
+  check('  a primer row receives the full string',
+    pr[0].velocities === '2810 2822 2815', pr[0].velocities);
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));
