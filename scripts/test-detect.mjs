@@ -5,7 +5,7 @@
  * nastier conditions, then scores the detector on precision, recall and
  * localisation error. Run: node scripts/test-detect.mjs
  */
-import { detectShots } from '../lib/detect.js';
+import { detectShots, pointInPolygon, expandPolygon } from '../lib/detect.js';
 
 // Deterministic RNG so a regression is a real regression, not a reroll.
 let seed = 12345;
@@ -178,6 +178,22 @@ const scenarios = [
 
 let failures = 0;
 const knownGaps = [];
+
+const check = (name, ok, detail = '') => {
+  if (!ok) failures++;
+  console.log((ok ? '✓ ' : '✗ ') + name.padEnd(56) + detail);
+};
+
+/**
+ * A finding that is real but not yet fixed.
+ *
+ * Recorded rather than asserted, and it fails loudly if it starts passing so a
+ * stale note cannot sit in the file claiming a problem that is gone.
+ */
+const reportGap = (name, passing, detail) => {
+  if (passing) { failures++; console.log('✗ ' + `  ${name}`.padEnd(56) + 'now passes — remove the gap note'); }
+  else { knownGaps.push(`${name}: ${detail}`); console.log('- ' + `  ${name}`.padEnd(56) + detail); }
+};
 console.log('scenario                              recall  precision  err(px)  FP  miss');
 console.log('─'.repeat(78));
 
@@ -202,6 +218,57 @@ for (const sc of scenarios) {
   );
 }
 
+
+// --- search region ------------------------------------------------------------
+// Added after running the detector over twenty of the user's own photographs.
+// It was searching the entire image while the marked quad was used only to
+// compute scale, so an NRA sheet laid on a cutting mat returned 104 detections
+// for about a dozen holes: the mat's grid, the wall behind it, staples, and a
+// second target in the background. Scoped to one bull it returned 14.
+console.log('\nsearch region');
+{
+  // Holes on the target, junk outside it - the shape of every real photo.
+  const holes = [{ x: 150, y: 150 }, { x: 175, y: 160 }, { x: 160, y: 185 }];
+  const junk = [{ x: 40, y: 40 }, { x: 300, y: 45 }, { x: 45, y: 300 }, { x: 310, y: 310 },
+                { x: 40, y: 170 }, { x: 320, y: 170 }];
+  const img = makeTarget({ w: W, h: H, holes: [...holes, ...junk], r: R });
+  const quad = [{ x: 100, y: 100 }, { x: 230, y: 100 }, { x: 230, y: 230 }, { x: 100, y: 230 }];
+
+  const wide = detectShots(img, W, H, { radiusPx: R }).shots;
+  const scoped = detectShots(img, W, H, { radiusPx: R, region: quad }).shots;
+
+  check('  unscoped, the surrounding junk is reported', wide.length >= holes.length + junk.length - 1,
+    `${wide.length} detections for ${holes.length} real holes`);
+  check('  scoped to the quad, only the target is searched', scoped.length === holes.length,
+    `${scoped.length} detections`);
+  check('  and they are the real holes',
+    holes.every(t => scoped.some(s => Math.hypot(s.x - t.x, s.y - t.y) < R * 1.5)));
+  check('  nothing outside the quad survives',
+    scoped.every(s => pointInPolygon(s.x, s.y, quad)));
+
+  // A quad is where the shooter marked the reference, not a promise about
+  // where every shot went. Growing it keeps an edge flyer.
+  //
+  // The quad spans x 100..230 about a centre of 165, so 15% moves its edge to
+  // 239.75. A flyer must sit between those two to exercise the margin at all -
+  // the first version of this test put it at 246, outside both, and failed
+  // because it was asking for something a 15% margin was never going to do.
+  const flyer = { x: 236, y: 165 };
+  const img2 = makeTarget({ w: W, h: H, holes: [...holes, flyer], r: R });
+  const tight = detectShots(img2, W, H, { radiusPx: R, region: quad }).shots;
+  const grown = detectShots(img2, W, H, { radiusPx: R, region: expandPolygon(quad, 1.15) }).shots;
+  check('  a flyer just outside the quad is missed when clipped tight',
+    !tight.some(s => Math.hypot(s.x - flyer.x, s.y - flyer.y) < R * 1.5));
+  check('  and recovered by the 15% margin',
+    grown.some(s => Math.hypot(s.x - flyer.x, s.y - flyer.y) < R * 1.5),
+    'the shot most worth recording is the one off the edge');
+
+  check('  no region behaves exactly as before',
+    detectShots(img, W, H, { radiusPx: R, region: null }).shots.length === wide.length);
+  check('  a degenerate region is ignored rather than empty',
+    detectShots(img, W, H, { radiusPx: R, region: [{ x: 1, y: 1 }, { x: 2, y: 2 }] }).shots.length === wide.length,
+    'two points are not a polygon');
+}
 
 // --- merged holes -------------------------------------------------------------
 // The case every published target-scoring approach names as unsolved: bullets

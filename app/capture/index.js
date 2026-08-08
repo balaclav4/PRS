@@ -10,8 +10,8 @@ import { useData } from '../../store/data';
 import { computeGroupStats } from '../../lib/math';
 import { rectifyToInches, project, orderCorners, perspectiveSeverity } from '../../lib/homography';
 import { lightTap, mediumTap, successTap } from '../../lib/haptics';
-import { loadGrayscale, imageToNormalized, coverScale } from '../../lib/pixels';
-import { detectShots } from '../../lib/detect';
+import { loadGrayscale, imageToNormalized, normalizedToImage, coverScale } from '../../lib/pixels';
+import { detectShots, expandPolygon } from '../../lib/detect';
 import { bulletDiameterIn } from '../../lib/calibers';
 import { normalizePhoto } from '../../lib/photo';
 import { toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre } from '../../lib/viewport';
@@ -588,12 +588,31 @@ export default function CaptureScreen() {
       const pxPerIn = (quadWDisp * IMG_W / k) / refWIn;
       const radiusPx = (diameterIn * pxPerIn) / 2;
 
+      // Search only the target the shooter marked.
+      //
+      // Measured on real photographs this is the largest single source of false
+      // positives: an NRA sheet on a cutting mat returned 104 detections for
+      // about a dozen holes, and the surplus was the mat's grid, the wall, the
+      // staples and a second target in the background. The quad was already
+      // being collected here and was being used only for scale.
+      //
+      // Grown by 15%, because the quad marks the reference rectangle rather
+      // than a promise about where every shot landed, and a flyer off the edge
+      // is the shot most worth recording. On the measured photo the count is
+      // unchanged from 0% to 20% and climbs past 30% as neighbouring bulls come
+      // into range.
+      const region = expandPolygon(
+        ordered.map(p => normalizedToImage(p.x, p.y, width, height, IMG_W, boxH)),
+        1.15
+      );
+
       // Corner-derived scale is exact, and a hole cannot be smaller than the
       // bullet, so skip the sub-caliber sweep scale — on the real-photo
       // harness it produced every junction false positive.
       const { shots: found, reason } = detectShots(gray, width, height, {
         radiusPx,
         scales: [1.0, 1.35],
+        region,
       });
 
       if (!found.length) {
