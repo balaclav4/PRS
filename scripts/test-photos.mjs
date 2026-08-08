@@ -17,6 +17,7 @@
 import fs from 'fs';
 import { PNG } from 'pngjs';
 import { toGrayscale, detectShots, expandPolygon, pointInPolygon } from '../lib/detect.js';
+import { rimFit, rimQuality } from '../lib/rimfit.js';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -159,6 +160,64 @@ console.log('\nprinted furniture outranks real holes (reported, not asserted)');
   } else {
     console.log(`  ${hits} of ${total} printed marks are being reported as shots`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Two taps onto the printed bull
+// ---------------------------------------------------------------------------
+// Truth radii are measured, not eyeballed: a horizontal scan through each bull,
+// reading where the intensity crosses mid-grey. The first version of this block
+// used radii read off a resized grid by eye and they were wrong by 20px, which
+// made a correct fit look like a 9.5px error.
+//
+// That mistake taught something worth keeping. An NRA 50ft face is concentric:
+// the black disc is r=43, and there are printed rings at r=74 and beyond. A tap
+// at r=68 is genuinely pointing at the r=74 ring, and the fit returning 72 was
+// right. Which circle gets measured is the shooter's choice, expressed by where
+// they put the edge tap, and the mode has to honour that rather than assume the
+// black disc is always what was meant.
+//
+// What is asserted is the property that makes the feature worth having: the
+// answer is closer to the rim than the taps that seeded it, or it declines.
+console.log('\ntwo taps onto a printed bull');
+{
+  const RIM = [
+    { file: 'test-images/07-splatter-pair.png', centre: { x: 203, y: 210 }, tapR: 114, truth: 122, what: 'Shoot-N-C, left bull' },
+    { file: 'test-images/07-splatter-pair.png', centre: { x: 759, y: 218 }, tapR: 117, truth: 122, what: 'Shoot-N-C, right bull' },
+    { file: 'test-images/04-nra-six-bull.png', centre: { x: 502, y: 516 }, tapR: 37, truth: 41, what: 'NRA bottom-mid, black disc' },
+    { file: 'test-images/04-nra-six-bull.png', centre: { x: 502, y: 212 }, tapR: 47, truth: 43, what: 'NRA top-mid, black disc' },
+    { file: 'test-images/04-nra-six-bull.png', centre: { x: 502, y: 212 }, tapR: 70, truth: 74, what: 'NRA top-mid, outer ring' },
+  ];
+
+  for (const c of RIM) {
+    if (!fs.existsSync(c.file)) continue;
+    const { gray, w, h } = load(c.file);
+    const fit = rimFit(gray, w, h, {
+      centre: c.centre, edge: { x: c.centre.x + c.tapR, y: c.centre.y },
+    });
+    const tag = '  ' + c.what.slice(0, 24);
+    check(`${tag}: returns something usable`, !!fit && rimQuality(fit).ok !== undefined,
+      fit ? (fit.measured ? `measured a=${fit.a.toFixed(1)}` : `fell back (${fit.rejected || 'no rim'})`) : 'null');
+    if (!fit) continue;
+
+    if (fit.measured) {
+      check(`${tag}: measured rim beats the tap`,
+        Math.abs(fit.a - c.truth) <= Math.abs(c.tapR - c.truth) + 4,
+        `tap was ${Math.abs(c.tapR - c.truth)}px out, fit is ${Math.abs(fit.a - c.truth).toFixed(1)}px out`);
+    } else {
+      check(`${tag}: a refused fit returns the taps unchanged`,
+        Math.abs(fit.a - c.tapR) < 0.01 && fit.axisRatio === 1,
+        'never a half-measured answer');
+    }
+  }
+
+  // The Shoot-N-C is the case this was built for: one dominant high-contrast
+  // rim. It should be measured, not fallen back on.
+  const { gray, w, h } = load('test-images/07-splatter-pair.png');
+  const f = rimFit(gray, w, h, { centre: { x: 203, y: 210 }, edge: { x: 317, y: 210 } });
+  check('  a clean bull is found to within 2px of a 122px truth',
+    f.measured && Math.abs(f.a - 122) < 2, `a=${f.a.toFixed(1)}`);
+  check('  and the whole rim is found', f.coverage >= 95, `${f.coverage}%`);
 }
 
 console.log('\nthe count is a truncation, never a fabrication');
