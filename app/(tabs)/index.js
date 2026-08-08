@@ -22,6 +22,30 @@ export default function HomeScreen() {
   }, null);
   const bestGroup = bestSession ? parseFloat(bestSession.best) : Infinity;
 
+  /**
+   * The typical group, not the luckiest one.
+   *
+   * "Best group" was the headline here, and it is the minimum over every
+   * session on file. A minimum only ever falls, never reverts, and drifts down
+   * with nothing but the number of groups shot - so it describes the best day
+   * anyone has had rather than what the rifle does. It is the exact statistic
+   * lib/seating corrects for with a best-of-k expectation, headlined
+   * uncorrected on the first screen of the app.
+   *
+   * The median is used rather than the mean because group size is right-skewed:
+   * one called flyer drags a mean up and leaves the median where it belongs.
+   * The best is kept, demoted to a personal record on the tile it belongs to.
+   */
+  const typicalGroup = (() => {
+    const vals = sessions
+      .map(sn => parseFloat(sn.best))
+      .filter(v => isFinite(v) && v > 0)
+      .sort((a, b) => a - b);
+    if (!vals.length) return null;
+    const mid = vals.length >> 1;
+    return vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+  })();
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
@@ -75,9 +99,16 @@ export default function HomeScreen() {
           >
             <TrendingUp size={20} color="#15A34A" />
             <Text style={[s.statVal, { color: colors.tx }]}>
-              {bestSession ? formatGroup(bestGroup, bestSession.distanceYd, units.group, { withUnit: false }) : '—'}
+              {typicalGroup != null && bestSession
+                ? formatGroup(typicalGroup, bestSession.distanceYd, units.group, { withUnit: false })
+                : '—'}
             </Text>
-            <Text style={[s.statLabel, { color: colors.mut }]}>Best Group ({groupUnitLabel(units.group)})</Text>
+            <Text style={[s.statLabel, { color: colors.mut }]}>Typical Group ({groupUnitLabel(units.group)})</Text>
+            {typicalGroup != null && bestSession && (
+              <Text style={[s.statSub, { color: colors.fnt }]}>
+                best {formatGroup(bestGroup, bestSession.distanceYd, units.group, { withUnit: false })}
+              </Text>
+            )}
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => router.push('/equipment')}
@@ -177,6 +208,7 @@ const s = StyleSheet.create({
   statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 },
   statTile: { flexGrow: 1, flexBasis: '46%', borderWidth: 1, borderRadius: 16, padding: 14, paddingHorizontal: 12 },
   statVal: { fontSize: 22, fontWeight: '700', marginTop: 10, fontFamily: 'JetBrainsMono_700Bold' },
+  statSub: { fontSize: 10, fontWeight: '600', marginTop: 1 },
   statLabel: { fontSize: 11, fontWeight: '600', marginTop: 2 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '800' },
