@@ -11,10 +11,14 @@ import { dopeCard, trueBC } from '../../lib/ballistics';
 import { sightTape, tapeToRows } from '../../lib/sighttape';
 import { saveCSV, slugify } from '../../lib/export';
 import { bulletDiameterIn } from '../../lib/calibers';
+import {
+  gyroscopicStability, stabilityVerdict, secondaryEffects,
+  parseTwist, parseGrains, densityRatioFromDa,
+} from '../../lib/effects';
 import PickerSheet from '../../components/PickerSheet';
 
 /** Labelled numeric field. */
-function Field({ label, value, onChange, unit, colors, flex = 1 }) {
+function Field({ label, value, onChange, unit, colors, flex = 1, placeholder }) {
   return (
     <View style={{ flex }}>
       <Text style={[s.fieldLabel, { color: colors.mut }]}>{label}</Text>
@@ -23,6 +27,8 @@ function Field({ label, value, onChange, unit, colors, flex = 1 }) {
           value={value}
           onChangeText={onChange}
           keyboardType="decimal-pad"
+          placeholder={placeholder}
+          placeholderTextColor={colors.fnt}
           style={[s.fieldInput, { color: colors.tx }]}
           selectTextOnFocus
         />
@@ -133,6 +139,67 @@ export default function BallisticsScreen() {
   const card = useMemo(() => dopeCard(opts), [opts]);
   const unitLabel = unit === 'mil' ? 'MIL' : 'MOA';
   const firstTransonic = card.rows.find(r => r.transonic);
+
+  // Long-range effects. Bullet length has no home in the load record and has to
+  // be measured or looked up, so it is asked for. Weight, diameter and twist do
+  // have homes, so they are read from there and only asked for when unreadable.
+  const [showLR, setShowLR] = useState(false);
+  const [bulletLen, setBulletLen] = useState('');
+  const [twistIn, setTwistIn] = useState('');
+  const [grainsIn, setGrainsIn] = useState('');
+  const [rightTwist, setRightTwist] = useState(true);
+  const [latitude, setLatitude] = useState('');
+  const [azimuth, setAzimuth] = useState('');
+
+  const lr = useMemo(() => {
+    const grains = num(grainsIn, 0) || parseGrains(load?.bullet);
+    const twist = num(twistIn, 0) || parseTwist(rifle?.twist);
+    // bulletDiameterIn falls back to 6.5mm when it recognises nothing, which is
+    // fine for sizing a bullet hole and wrong here: diameter is cubed in Sg, so
+    // an unmatched caliber has to stop the calculation rather than lean on a
+    // default. Only a matched diameter is accepted.
+    const cal = bulletDiameterIn(load?.caliber || rifle?.cartridge || '');
+    const dia = cal.matched ? cal.diameterIn : 0;
+    const lengthIn = toIn(bulletLen, 0);
+
+    const da = densityAltitude({
+      tempF: opts.tempF, pressureInHg: opts.pressureInHg, elevationFt: opts.altitudeFt || 0,
+    });
+    const sg = gyroscopicStability({
+      bulletGrains: grains, diameterIn: dia, lengthIn, twistIn: twist,
+      mvFps: opts.mvFps, densityRatio: densityRatioFromDa(da),
+    });
+
+    // Only the crosswind component causes aerodynamic jump, same as drift.
+    const crosswindMph = opts.windMph * Math.sin(opts.windAngleDeg * Math.PI / 180);
+    const lat = latitude.trim() === '' ? null : num(latitude, 0);
+
+    const rows = sg == null ? [] : card.rows.map(r => ({
+      rangeYd: r.rangeYd,
+      ...secondaryEffects({
+        sg, lengthCalibers: dia > 0 ? lengthIn / dia : 0,
+        timeOfFlightSec: r.tofSec, rangeFt: r.rangeYd * 3,
+        crosswindMph, rightHandTwist: rightTwist,
+        latitudeDeg: lat, azimuthDeg: num(azimuth, 0),
+      }),
+    }));
+
+    return { grains, twist, dia, lengthIn, sg, rows, needsLength: !(lengthIn > 0),
+             needsGrains: !(grains > 0), needsTwist: !(twist > 0), needsDia: !(dia > 0) };
+  }, [grainsIn, twistIn, bulletLen, latitude, azimuth, rightTwist, load, rifle,
+      opts, card.rows, metricLen]);
+
+  // A bare linear distance, in whichever system the shooter reads lengths in.
+  const fmtLen = (inches) =>
+    metricLen ? `${Math.round(inches * 25.4)} mm` : `${inches.toFixed(1)}"`;
+
+  // Inches to the output unit at that range, so the correction reads in the
+  // same currency as the elevation and wind columns beside it.
+  const toUnit = (inches, rangeYd) => {
+    if (!rangeYd) return 0;
+    const moa = inches / (1.047 * rangeYd / 100);
+    return +(unit === 'mil' ? moa / 3.438 : moa).toFixed(2);
+  };
 
   const applyTruing = () => {
     const r = trueBC(opts, observations);
@@ -379,6 +446,153 @@ export default function BallisticsScreen() {
           )}
         </View>
 
+        {/* Long-range effects */}
+        <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+          <View style={s.cardHead}>
+            <Text style={[s.cardTitle, { color: colors.tx }]}>Long Range Effects</Text>
+            <TouchableOpacity onPress={() => setShowLR(v => !v)}
+              style={[s.saveCardBtn, { backgroundColor: colors.acs }]}>
+              <Text style={[s.saveCardText, { color: colors.act }]}>{showLR ? 'Hide' : 'Show'}</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={[s.cardBody, { color: colors.mut }]}>
+            Spin drift, Coriolis and aerodynamic jump. Each is small on its own and they
+            add up to roughly a minute at 1000. The dope card above does not include them,
+            so truing a BC without them folds them into a number that is supposed to
+            describe the bullet.
+          </Text>
+
+          {showLR && (
+            <>
+              <View style={[s.row, { marginTop: 12 }]}>
+                <Field label="Bullet length" value={bulletLen} onChange={setBulletLen} unit={lenU} colors={colors} />
+                {/* The rifle's twist shows as a placeholder rather than a
+                    pre-filled value: it is used when the field is blank, and a
+                    filled-in box would look like something the shooter typed. */}
+                <Field label="Twist" value={twistIn} onChange={setTwistIn} unit="in"
+                  placeholder={parseTwist(rifle?.twist) ? String(parseTwist(rifle.twist)) : ''}
+                  colors={colors} />
+              </View>
+              {lr.needsGrains && (
+                <View style={s.row}>
+                  <Field label="Bullet weight" value={grainsIn} onChange={setGrainsIn} unit="gr" colors={colors} />
+                  <View style={{ flex: 1 }} />
+                </View>
+              )}
+              <View style={s.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.fieldLabel, { color: colors.mut }]}>Twist direction</Text>
+                  <Segmented
+                    options={[[true, 'Right'], [false, 'Left']]}
+                    value={rightTwist} onChange={setRightTwist} colors={colors}
+                  />
+                </View>
+              </View>
+
+              {lr.sg == null ? (
+                <Text style={[s.note, { color: colors.fnt }]}>
+                  {lr.needsLength ? `Measure the bullet from tip to base and enter it in ${metricLen ? 'millimetres' : 'inches'}. ` : ''}
+                  {lr.needsTwist ? 'Enter the barrel twist, or record it on the rifle. ' : ''}
+                  {lr.needsGrains ? 'Enter the bullet weight in grains. ' : ''}
+                  {lr.needsDia ? `Set a caliber on this load that names the cartridge, such as 6.5 Creedmoor or .308 Win. "${load?.caliber || rifle?.cartridge || ''}" does not identify a bullet diameter, and stability is far too sensitive to it to guess. ` : ''}
+                  Nothing here is guessed, so all of these are needed before any of it means anything.
+                </Text>
+              ) : (
+                <>
+                  {(() => {
+                    const v = stabilityVerdict(lr.sg);
+                    const tone = v.level === 'unstable' || v.level === 'marginal'
+                      ? { bg: colors.warns, fg: colors.warnt } : { bg: colors.oks, fg: colors.okt };
+                    return (
+                      <View style={[s.zeroResult, { backgroundColor: tone.bg, marginTop: 12 }]}>
+                        <Text style={[s.zeroResultText, { color: tone.fg }]}>{v.text}</Text>
+                      </View>
+                    );
+                  })()}
+
+                  {/* Aerodynamic jump is a fixed angle, not something that
+                      accumulates with range, so it belongs above the table
+                      rather than repeated identically down a column. It is also
+                      the only vertical effect here, and putting it beside three
+                      horizontal ones invites adding it to them. */}
+                  {(() => {
+                    const j = lr.rows[0]?.aeroJump;
+                    if (!j) return null;
+                    const moa = unit === 'mil' ? +(j.moa / 3.438).toFixed(2) : j.moa;
+                    const dir = moa > 0 ? 'higher' : moa < 0 ? 'lower' : null;
+                    return (
+                      <View style={[s.lrCallout, { borderColor: colors.ibd }]}>
+                        <Text style={[s.lrCalloutTitle, { color: colors.tx }]}>
+                          Aerodynamic jump {moa > 0 ? '+' : ''}{moa} {unitLabel} vertical
+                        </Text>
+                        <Text style={[s.note, { color: colors.fnt, marginTop: 2 }]}>
+                          {dir
+                            ? `This crosswind puts the shot ${dir}, by the same angle at every distance. It is set in the first few feet of flight, so unlike drop and drift it does not grow with range. Reverse the wind and it reverses.`
+                            : 'No crosswind, so no jump. Set a wind speed and angle above to see it.'}
+                        </Text>
+                        {!j.reliable && (
+                          <Text style={[s.note, { color: colors.warnt, marginTop: 4 }]}>{j.note}</Text>
+                        )}
+                      </View>
+                    );
+                  })()}
+
+                  {lr.rows[0]?.coriolis && (
+                    <View style={[s.lrCallout, { borderColor: colors.ibd }]}>
+                      <Text style={[s.lrCalloutTitle, { color: colors.tx }]}>
+                        Coriolis vertical {lr.rows[lr.rows.length - 1].coriolis.verticalWord || 'none'}
+                      </Text>
+                      <Text style={[s.note, { color: colors.fnt, marginTop: 2 }]}>
+                        {lr.rows[lr.rows.length - 1].coriolis.verticalIn === 0
+                          ? 'Firing due north or south, so there is no vertical component. Turn east or west and it appears.'
+                          : `${fmtLen(Math.abs(lr.rows[lr.rows.length - 1].coriolis.verticalIn))} at the far end of this card. Shooting east adds to the bullet's eastward speed and it strikes high; west, low.`}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={[s.tableHead, { marginTop: 12 }]}>
+                    <Text style={[s.th, { color: colors.fnt, flex: 1.1 }]}>RANGE</Text>
+                    <Text style={[s.th, { color: colors.fnt }]}>SPIN</Text>
+                    <Text style={[s.th, { color: colors.fnt }]}>CORIOLIS</Text>
+                    <Text style={[s.th, { color: colors.fnt, textAlign: 'right' }]}>HOLD</Text>
+                  </View>
+                  {lr.rows.map((r, i) => (
+                    <View key={r.rangeYd} style={[s.tr, i % 2 === 0 && { backgroundColor: colors.inset }]}>
+                      <Text style={[s.td, { color: colors.tx, flex: 1.1 }]}>
+                        {dU === 'm' ? Math.round(ydToM(r.rangeYd)) : r.rangeYd}
+                        <Text style={{ fontSize: 10, color: colors.fnt }}> {dU}</Text>
+                      </Text>
+                      <Text style={[s.td, { color: colors.tx }]}>{toUnit(r.spinDriftIn, r.rangeYd)}</Text>
+                      <Text style={[s.td, { color: colors.mut }]}>
+                        {r.coriolis ? toUnit(r.coriolis.horizontalIn, r.rangeYd) : '—'}
+                      </Text>
+                      <Text style={[s.td, { color: colors.act, fontWeight: '800', textAlign: 'right' }]}>
+                        {toUnit(r.totalHorizontalIn, r.rangeYd)}
+                      </Text>
+                    </View>
+                  ))}
+                  <Text style={[s.note, { color: colors.fnt }]}>
+                    Horizontal only, in {unitLabel}, positive to the right. Hold this in addition to
+                    the wind on the dope card above. Spin drift never changes direction, so it is a
+                    standing correction rather than a condition to read.
+                  </Text>
+
+                  <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 14 }]}>CORIOLIS</Text>
+                  <View style={s.row}>
+                    <Field label="Latitude" value={latitude} onChange={setLatitude} unit="° N" colors={colors} />
+                    <Field label="Azimuth" value={azimuth} onChange={setAzimuth} unit="° from N" colors={colors} />
+                  </View>
+                  <Text style={[s.note, { color: colors.fnt }]}>
+                    {latitude.trim() === ''
+                      ? 'Left blank, Coriolis is left out rather than assumed. Enter your latitude to include it, negative in the southern hemisphere.'
+                      : 'Horizontal deflection depends on latitude alone and does not cancel when you turn around. The vertical component depends on which way you face: east shoots high, west low.'}
+                  </Text>
+                </>
+              )}
+            </>
+          )}
+        </View>
+
         {/* Sight tape */}
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
           <View style={s.cardHead}>
@@ -574,9 +788,17 @@ const s = StyleSheet.create({
   row: { flexDirection: 'row', gap: 10, marginBottom: 8 },
   fieldLabel: { fontSize: 11.5, fontWeight: '700', marginBottom: 6 },
   fieldBox: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 11, paddingHorizontal: 12 },
-  fieldInput: { flex: 1, paddingVertical: 11, fontSize: 14.5, fontFamily: 'JetBrainsMono_700Bold' },
+  // minWidth 0 because a flex item will not shrink below its intrinsic content
+  // width by default. On web the underlying <input> carries a default size of
+  // 20 characters, which made every box overflow its container and push the
+  // unit suffix out of sight - "in", "yd", "°F" and the rest were all being
+  // rendered and all invisible. Inert on native, where TextInput has no such
+  // intrinsic width.
+  fieldInput: { flex: 1, minWidth: 0, paddingVertical: 11, fontSize: 14.5, fontFamily: 'JetBrainsMono_700Bold' },
   fieldUnit: { fontSize: 11, fontWeight: '700' },
   note: { fontSize: 11, fontWeight: '600', lineHeight: 16, marginTop: 2, marginHorizontal: 2 },
+  lrCallout: { borderWidth: 1, borderRadius: 10, padding: 10, marginTop: 10 },
+  lrCalloutTitle: { fontSize: 13, fontWeight: '800' },
 
   card: { borderWidth: 1, borderRadius: 18, padding: 16, marginTop: 18, gap: 10 },
   cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
