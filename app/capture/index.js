@@ -4,6 +4,7 @@ import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { Asset } from 'expo-asset';
 import Svg, { Circle, Polygon, Line } from 'react-native-svg';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
@@ -24,6 +25,34 @@ import { rowsForStep, stepDimension, variantLabel, variantComponents } from '../
 const STEP_LABELS = ['Photo', 'Setup', 'Corners', 'Mark Shots', 'Review'];
 const IMG_ASPECT = 1.25;
 
+/**
+ * The demo target is a photograph, not a drawing.
+ *
+ * It used to be two SVG circles, which meant the demo exercised none of what
+ * the app is actually for: a drawn circle has a perfect rim, no perspective, no
+ * lighting, no paper texture and no bullet holes, so tapping through it proved
+ * only that the taps registered. Anyone trying the app without a target to hand
+ * saw a cartoon, and so did I every time I verified a change.
+ *
+ * This is a real NRA 50ft sheet, held in the hand, with real holes in it, so
+ * the demo runs the same path as a real capture - scale, homography, detection
+ * and all - and fails in the same places.
+ *
+ * expo-asset rather than Image.resolveAssetSource: react-native-web's Image
+ * does not carry resolveAssetSource, so that route threw at module scope, which
+ * takes down the whole screen rather than one component - the capture route
+ * rendered as a blank page with nothing in the browser console, and the reason
+ * was only visible in the dev server log. Asset.fromModule is supported on both
+ * platforms and yields the uri loadGrayscale needs.
+ */
+const DEMO_ASSET = Asset.fromModule(require('../../assets/demo-target.jpg'));
+const DEMO_PHOTO = {
+  uri: DEMO_ASSET.uri ?? DEMO_ASSET.localUri,
+  width: DEMO_ASSET.width,
+  height: DEMO_ASSET.height,
+  demo: true,
+};
+
 export default function CaptureScreen() {
   const { colors } = useTheme();
   const { addSession, rifles, loads, projects, units, trainingConsent } = useData();
@@ -40,7 +69,6 @@ export default function CaptureScreen() {
   const [step, setStep] = useState(0);
   const [photo, setPhoto] = useState(null); // { uri, width, height } — normalized, upright
   const [processing, setProcessing] = useState(false);
-  const [useDemo, setUseDemo] = useState(false);
   const [refW, setRefW] = useState('8.5');
   const [refH, setRefH] = useState('11');
   const [distanceStr, setDistanceStr] = useState('100');
@@ -331,7 +359,6 @@ export default function CaptureScreen() {
     try {
       const norm = await normalizePhoto(asset.uri);
       setPhoto(norm);
-      setUseDemo(false);
       setStep(1);
     } catch (e) {
       const msg = 'Could not process that photo: ' + e.message;
@@ -777,7 +804,7 @@ export default function CaptureScreen() {
                 <Text style={[s.secondaryBtnText, { color: colors.act }]}>Upload Photo</Text>
               </TouchableOpacity>
             </View>
-            <TouchableOpacity onPress={() => { setUseDemo(true); setPhoto(null); setStep(1); }}>
+            <TouchableOpacity onPress={() => { setPhoto(DEMO_PHOTO); setStep(1); }}>
               <Text style={[s.demoLink, { color: colors.act }]}>Use a demo target instead</Text>
             </TouchableOpacity>
           </View>
@@ -1055,11 +1082,6 @@ export default function CaptureScreen() {
               }}>
                 {photo ? (
                   <Image source={{ uri: photo.uri }} style={s.targetImg} resizeMode="cover" />
-                ) : useDemo ? (
-                  <Svg viewBox="0 0 320 400" style={s.demoSvg}>
-                    <Circle cx="160" cy="185" r="92" fill="rgba(255,138,42,0.28)" stroke="#F0872B" strokeWidth="3" />
-                    <Circle cx="160" cy="185" r="3.5" fill="#F0872B" />
-                  </Svg>
                 ) : null}
               </View>
               {ordered && (
@@ -1250,11 +1272,6 @@ export default function CaptureScreen() {
               }}>
                 {photo ? (
                   <Image source={{ uri: photo.uri }} style={s.targetImg} resizeMode="cover" />
-                ) : useDemo ? (
-                  <Svg viewBox="0 0 320 400" style={s.demoSvg}>
-                    <Circle cx="160" cy="185" r="92" fill="rgba(255,138,42,0.28)" stroke="#F0872B" strokeWidth="3" />
-                    <Circle cx="160" cy="185" r="3.5" fill="#F0872B" />
-                  </Svg>
                 ) : null}
               </View>
               {groups.map((g, gi) => (gi === activeGroup ? null : g.shots.map((p, i) => (
@@ -1339,11 +1356,6 @@ export default function CaptureScreen() {
           <View>
             <View style={[s.reviewCard, { backgroundColor: colors.card, borderColor: colors.bd }]}>
               <View style={[s.reviewThumb, { borderColor: colors.bd }]}>
-                {useDemo && (
-                  <Svg viewBox="0 0 320 400" style={{ position: 'absolute', width: '100%', height: '100%' }}>
-                    <Circle cx="160" cy="185" r="92" fill="rgba(255,138,42,0.28)" stroke="#F0872B" strokeWidth="4" />
-                  </Svg>
-                )}
                 {photo && <Image source={{ uri: photo.uri }} style={{ position: 'absolute', width: '100%', height: '100%' }} resizeMode="cover" />}
               </View>
               <View>
@@ -1357,6 +1369,22 @@ export default function CaptureScreen() {
                 </Text>
               </View>
             </View>
+
+            {/* The demo used to be an obvious drawing, so nobody could mistake
+                its output for a measurement. Now that it is a photograph the
+                numbers look real, and they are only as real as the reference
+                size that was typed in - which for this sheet nobody has
+                measured. Say so here rather than let a sample walkthrough be
+                filed as data. */}
+            {photo?.demo && (
+              <View style={[s.detectNote, { backgroundColor: colors.warns, borderColor: 'transparent' }]}>
+                <Text style={[s.detectNoteText, { color: colors.warnt }]}>
+                  This is the sample photograph. The shots and the group shape are real, but the
+                  sizes above are scaled to the reference you entered, which was not measured off
+                  this sheet. Treat them as a walkthrough, not a result.
+                </Text>
+              </View>
+            )}
 
             {savedCount > 1 && (
               <View style={[s.perTarget, { backgroundColor: colors.inset }]}>
@@ -1474,7 +1502,6 @@ const s = StyleSheet.create({
   instructionText: { flex: 1, fontSize: 12.5, fontWeight: '600' },
   imgContainer: { position: 'relative', borderRadius: 18, overflow: 'hidden', borderWidth: 1, backgroundColor: '#222' },
   targetImg: { position: 'absolute', width: '100%', height: '100%' },
-  demoSvg: { position: 'absolute', width: '100%', height: '100%' },
   overlayLine: { position: 'absolute', width: '100%', height: '100%' },
   cornerDot: { position: 'absolute', width: 24, height: 24, borderRadius: 12, backgroundColor: '#F0872B', borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.45, shadowRadius: 5, elevation: 4 },
   cornerDotText: { color: '#fff', fontSize: 11, fontWeight: '800', fontFamily: 'JetBrainsMono_700Bold' },
