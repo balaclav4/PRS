@@ -1,10 +1,12 @@
 import { View, Text, TouchableOpacity, ScrollView, TextInput, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Download, TrendingDown, TrendingUp, CircleCheck, Info, ChartColumn, ChevronDown } from 'lucide-react-native';
+import { Download, TrendingDown, TrendingUp, Minus, CircleCheck, Info, ChartColumn, ChevronDown } from 'lucide-react-native';
 import Svg, { Line, Path, Circle, Text as SvgText } from 'react-native-svg';
 import { useState, useMemo } from 'react';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
+import { assessTrend } from '../../lib/trend';
+import { targetGroups } from '../../lib/analytics';
 import { deriveAnalytics, comparisonBuckets, compareBuckets, fmtP } from '../../lib/analytics';
 import { angularUnit, angularFallsBack, moaToAngular, formatAngular, MOA_PER_MRAD } from '../../lib/units';
 import { saveCSV } from '../../lib/export';
@@ -62,6 +64,29 @@ export default function AnalyticsScreen() {
     const rifleId = rifles.find(r => r.name === filter)?.id;
     return sessions.filter(s => s.rifleId === rifleId).map(s => s.id);
   }, [sessions, rifles, filter]);
+
+  /**
+   * Whether the shooting is actually changing.
+   *
+   * Replaces `trend[last] < trend[first]`, which compared two points out of ten
+   * - each of them a session's smallest group - and simulated to a 50% chance
+   * of announcing a direction for a shooter who had not changed at all. Worse,
+   * because a session's minimum falls the more targets are shot, someone who
+   * simply shot more targets later in the year was told they were improving
+   * 82% of the time. Now: a regression over every group with a confidence
+   * interval, which claims a direction about 9% of the time on unchanged
+   * shooting and refuses one otherwise.
+   */
+  const scopedSessions = useMemo(() => {
+    if (filter === 'all') return sessions;
+    const rifleId = rifles.find(r => r.name === filter)?.id;
+    return sessions.filter(sn => sn.rifleId === rifleId);
+  }, [sessions, rifles, filter]);
+
+  const trendVerdict = useMemo(
+    () => assessTrend(scopedSessions, (sn) => targetGroups(sn).map(g => g.moa)),
+    [scopedSessions]
+  );
 
   // Statistical comparison: pick the dimension, then the two things to compare.
   const [cmpDim, setCmpDim] = useState('loads');
@@ -196,16 +221,22 @@ export default function AnalyticsScreen() {
             <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
               <View style={s.cardHeader}>
                 <Text style={[s.cardTitle, { color: colors.tx }]}>Group Size Trend</Text>
-                {n >= 2 && (
-                  <View style={s.improving}>
-                    {improving
-                      ? <TrendingDown size={14} color="#15A34A" />
-                      : <TrendingUp size={14} color="#D9822B" />}
-                    <Text style={[s.improvingText, { color: improving ? '#15A34A' : '#D9822B' }]}>
-                      {improving ? 'Improving' : 'Opening up'}
-                    </Text>
-                  </View>
-                )}
+                {(() => {
+                  const v = trendVerdict.level;
+                  if (v === 'insufficient') return null;
+                  const look = {
+                    improving: { Icon: TrendingDown, colour: '#15A34A', label: 'Improving' },
+                    worsening: { Icon: TrendingUp, colour: '#D9822B', label: 'Opening up' },
+                    flat: { Icon: Minus, colour: colors.mut, label: 'No change' },
+                  }[v];
+                  const Icon = look.Icon;
+                  return (
+                    <View style={s.improving}>
+                      <Icon size={14} color={look.colour} />
+                      <Text style={[s.improvingText, { color: look.colour }]}>{look.label}</Text>
+                    </View>
+                  );
+                })()}
               </View>
               {n === 0 ? (
                 <Text style={[s.inlineEmpty, { color: colors.mut }]}>
@@ -232,6 +263,18 @@ export default function AnalyticsScreen() {
                     </Text>
                     <Text style={[s.trendLabel, { color: colors.fnt }]}>latest · {aUnit}</Text>
                   </View>
+
+                  {/* The reasoning, not just a coloured word. "No change" is a
+                      finding and is worded as one, with the size of shift that
+                      would have been visible - which is the part that tells a
+                      shooter whether to keep chasing something. */}
+                  <Text style={[s.trendVerdict, {
+                    color: trendVerdict.level === 'improving' ? '#15A34A'
+                      : trendVerdict.level === 'worsening' ? '#D9822B'
+                      : colors.mut,
+                  }]}>
+                    {trendVerdict.text}
+                  </Text>
                 </>
               )}
             </View>
@@ -409,6 +452,7 @@ const s = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 18, padding: 18, paddingHorizontal: 16, marginBottom: 12 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   cardTitle: { fontSize: 15, fontWeight: '800' },
+  trendVerdict: { fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginTop: 10 },
   improving: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   improvingText: { fontSize: 12, fontWeight: '700' },
   inlineEmpty: { fontSize: 13, fontWeight: '500', paddingVertical: 12 },
