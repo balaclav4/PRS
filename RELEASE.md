@@ -131,9 +131,21 @@ The `--` matters: it passes the rest through to the CLI rather than to npm.
 - Cloud sync is unwired. The reconciliation engine is built and tested; nothing
   writes to Firestore yet. The app is honest about this - Account says data stays
   on the device.
-- The bullet-hole detector has a known gap on splatter targets (Shoot-N-C, Dirty
-  Bird), recorded in `scripts/test-detect.mjs` rather than papered over. It needs
-  real photographs of that target type to fix responsibly.
+- The bullet-hole detector is an assist, not an authority, and the shooter should
+  expect to correct it. Twenty real photographs have now been measured against it
+  and the results are in `scripts/test-photos.mjs`:
+    - Search is now scoped to the target the shooter marked, which was the single
+      largest source of false positives. An NRA sheet on a cutting mat went from
+      104 detections to 14 once scoped to one bull.
+    - Printed target furniture is still reported as shots. A printed mark is
+      manufactured and a bullet hole is torn, so the printed mark is the cleaner
+      blob and outranks real holes. On a Shoot-N-C, five of the six best-scoring
+      detections are the lettering; on a clean NRA bull the best-scoring
+      detection in the image is the printed centre dot.
+    - `expectedShots` exists in the library and is deliberately not offered in the
+      UI, because on these photographs it shortens the list without improving it.
+    - Splatter targets need colour to separate a torn impact from printed
+      chartreuse. `toGrayscale` discards that before detection runs.
 - Theme and unit preferences are per-device. They will follow the account once
   sync lands.
 
