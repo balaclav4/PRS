@@ -12,6 +12,7 @@ import { rectifyToInches, project, orderCorners, perspectiveSeverity } from '../
 import { lightTap, mediumTap, successTap } from '../../lib/haptics';
 import { loadGrayscale, imageToNormalized, normalizedToImage, coverScale } from '../../lib/pixels';
 import { detectShots, expandPolygon } from '../../lib/detect';
+import { fitCircle, circleQuality, circleQuad, BULL_PRESETS } from '../../lib/circlefit';
 import { bulletDiameterIn } from '../../lib/calibers';
 import { normalizePhoto } from '../../lib/photo';
 import { toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre } from '../../lib/viewport';
@@ -73,8 +74,15 @@ export default function CaptureScreen() {
   // photo, and it works the same whether or not the view is panned.
   const [editingCorner, setEditingCorner] = useState(null);
   // 'quad' corrects perspective from four corners. 'span' takes two points a
-  // known distance apart and assumes the photo is square-on.
+  // known distance apart and assumes the photo is square-on. 'bull' fits a
+  // circle to taps around a printed bull of known diameter, which is one number
+  // instead of two and is usually a better reference than the sheet: the bull
+  // lies flat, its printed size is exact, and its centre is where the shooter
+  // was actually aiming. It shares span's limitation - a circle carries no
+  // perspective information, so an off-axis photo is caught and reported rather
+  // than silently mis-scaled.
   const [refMode, setRefMode] = useState('quad');
+  const [bullDiameter, setBullDiameter] = useState('3');
   const shots = groups[activeGroup]?.shots ?? [];
   const aim = groups[activeGroup]?.aim ?? null;
   const corners = groups[activeGroup]?.corners ?? [];
@@ -129,8 +137,11 @@ export default function CaptureScreen() {
   const dragMarkerRef = useRef(null);
   const gestureRef = useRef({ startPan: null, startDist: null, startZoom: 1 });
 
-  const refWIn = parseFloat(refW) || 0;
-  const refHIn = parseFloat(refH) || 0;
+  // A bull is described by one number, and it is square by definition, so both
+  // reference dimensions come from the diameter.
+  const bullIn = parseFloat(bullDiameter) || 0;
+  const refWIn = refMode === 'bull' ? bullIn : (parseFloat(refW) || 0);
+  const refHIn = refMode === 'bull' ? bullIn : (parseFloat(refH) || 0);
   // What the shooter typed, in whatever unit the field shows.
   const distanceEntered = parseFloat(distanceStr) || 0;
   // Yards is the canonical unit every angular calculation needs. Keeping the
@@ -140,10 +151,11 @@ export default function CaptureScreen() {
 
   // Continue is disabled on bad input; say why rather than just greying it out.
   const badNum = (raw, parsed) => raw.trim() !== '' && parsed <= 0;
-  const refSizeError =
-    badNum(refW, refWIn) || badNum(refH, refHIn)
-      ? 'Width and height must be positive numbers.'
-      : null;
+  const refSizeError = refMode === 'bull'
+    ? (badNum(bullDiameter, bullIn) ? 'Bull diameter must be a positive number.' : null)
+    : (badNum(refW, refWIn) || badNum(refH, refHIn)
+        ? 'Width and height must be positive numbers.'
+        : null);
   const distanceError = badNum(distanceStr, distanceEntered)
     ? 'Distance must be a positive number.'
     : null;
@@ -197,7 +209,12 @@ export default function CaptureScreen() {
   // Four corners of a reference rectangle of known size give both the absolute
   // scale and the perspective correction in one homography — shots project
   // straight to inches on the target plane, no marker sticker needed.
-  const maxRefPoints = refMode === 'span' ? 2 : 4;
+  // Six for a bull rather than a fixed three: three taps determine a circle
+  // exactly and therefore cannot reveal that the bull was photographed as an
+  // ellipse. Extra taps are what make that check possible, so the mode invites
+  // them and reports the fit as soon as three exist.
+  const maxRefPoints = refMode === 'span' ? 2 : refMode === 'bull' ? 6 : 4;
+  const minRefPoints = refMode === 'span' ? 2 : refMode === 'bull' ? 3 : 4;
 
   /**
    * Four corners, however they were obtained.
@@ -211,6 +228,15 @@ export default function CaptureScreen() {
    */
   const quadFrom = useCallback((pts) => {
     if (refMode === 'quad') return pts.length === 4 ? pts : null;
+    if (refMode === 'bull') {
+      // The bounding square of the fitted circle, which is a D by D rectangle
+      // and so joins the existing homography path unchanged. Refused outright
+      // when the fit says the bull is too oval to size from, because a scale
+      // taken from an ellipse is wrong along one axis and nothing downstream
+      // would ever notice.
+      const fit = fitCircle(pts);
+      return fit && circleQuality(fit).ok ? circleQuad(fit) : null;
+    }
     if (pts.length !== 2 || !(refWIn > 0) || !(refHIn > 0)) return null;
     const [a, b] = pts;
     const vx = b.x - a.x, vy = b.y - a.y;
@@ -239,9 +265,27 @@ export default function CaptureScreen() {
   // Seed the aim at the centre of the framed reference as soon as it exists, so
   // the assumption is visible and movable at capture time rather than applied
   // silently when the target is read back.
+  //
+  // In bull mode this is not an assumption at all: the quad is the circle's
+  // bounding square, so its centre is the fitted centre of the bull, which is
+  // the thing the shooter was aiming at. That falls out of circleQuad rather
+  // than needing a special case, but it is the main reason the mode is worth
+  // having over a sheet.
   useEffect(() => {
     if (ordered && !aim) setAim(quadCentre(ordered));
   }, [ordered, aim]);
+
+  // The raw fit, for the setup screen to report on. Kept separate from the quad
+  // because the quad is null once quality fails, and that is exactly when there
+  // is most to say.
+  const bullFit = useMemo(
+    () => (refMode === 'bull' ? fitCircle(corners) : null),
+    [refMode, corners]
+  );
+  const bullQuality = useMemo(
+    () => (refMode === 'bull' && corners.length >= 3 ? circleQuality(bullFit) : null),
+    [refMode, corners.length, bullFit]
+  );
 
   // Shot positions on the target plane, in inches.
   const shotsIn = useMemo(
@@ -742,32 +786,95 @@ export default function CaptureScreen() {
         {/* Step 1: Setup */}
         {step === 1 && (
           <View style={s.setupWrap}>
+            {/* What the scale is taken from. A bull is one number rather than
+                two and is usually the better reference: it lies flat, its
+                printed diameter is exact, and its centre is the aim point. */}
             <View style={s.field}>
-              <Text style={[s.fieldLabel, { color: colors.mut }]}>Reference Size (width × height)</Text>
+              <Text style={[s.fieldLabel, { color: colors.mut }]}>Scale reference</Text>
               <View style={s.twoCol}>
-                <View style={[s.inputRow, { flex: 1, backgroundColor: colors.input, borderColor: colors.ibd }]}>
-                  <TextInput
-                    value={refW}
-                    onChangeText={setRefW}
-                    keyboardType="decimal-pad"
-                    style={[s.input, { color: colors.tx, fontFamily: 'JetBrainsMono_500Medium' }]}
-                  />
-                  <Text style={[s.inputUnit, { color: colors.mut }]}>in</Text>
-                </View>
-                <View style={[s.inputRow, { flex: 1, backgroundColor: colors.input, borderColor: colors.ibd }]}>
-                  <TextInput
-                    value={refH}
-                    onChangeText={setRefH}
-                    keyboardType="decimal-pad"
-                    style={[s.input, { color: colors.tx, fontFamily: 'JetBrainsMono_500Medium' }]}
-                  />
-                  <Text style={[s.inputUnit, { color: colors.mut }]}>in</Text>
-                </View>
+                {[['bull', 'Printed bull'], ['quad', 'Sheet, 4 corners'], ['span', 'Known width']].map(([k, label]) => (
+                  <TouchableOpacity
+                    key={k}
+                    onPress={() => { setRefMode(k); setCorners([]); }}
+                    style={[s.refModeBtn, {
+                      backgroundColor: refMode === k ? colors.act : colors.input,
+                      borderColor: refMode === k ? colors.act : colors.ibd,
+                    }]}
+                  >
+                    <Text style={[s.refModeText, { color: refMode === k ? '#fff' : colors.mut }]}>{label}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
-              {refSizeError
-                ? <Text style={[s.fieldError, { color: colors.dngt }]}>{refSizeError}</Text>
-                : <Text style={[s.fieldHint, { color: colors.fnt }]}>The printed size of your target sheet or backer — you'll tap its four corners next. Sets the scale and corrects off-axis photos. Letter paper is 8.5 × 11.</Text>}
             </View>
+
+            {refMode === 'bull' ? (
+              <View style={s.field}>
+                <Text style={[s.fieldLabel, { color: colors.mut }]}>Bull diameter</Text>
+                <View style={[s.inputRow, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                  <TextInput
+                    value={bullDiameter}
+                    onChangeText={setBullDiameter}
+                    keyboardType="decimal-pad"
+                    style={[s.input, { color: colors.tx, fontFamily: 'JetBrainsMono_500Medium' }]}
+                  />
+                  <Text style={[s.inputUnit, { color: colors.mut }]}>in</Text>
+                </View>
+                <View style={s.presetRow}>
+                  {BULL_PRESETS.map(p => (
+                    <TouchableOpacity
+                      key={p.inches}
+                      onPress={() => setBullDiameter(String(p.inches))}
+                      style={[s.presetChip, {
+                        backgroundColor: bullIn === p.inches ? colors.acs : colors.input,
+                        borderColor: bullIn === p.inches ? colors.act : colors.ibd,
+                      }]}
+                    >
+                      <Text style={[s.presetText, { color: bullIn === p.inches ? colors.act : colors.mut }]}>
+                        {p.inches}"
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {refSizeError
+                  ? <Text style={[s.fieldError, { color: colors.dngt }]}>{refSizeError}</Text>
+                  : <Text style={[s.fieldHint, { color: colors.fnt }]}>
+                      The printed diameter of the bull you shot at. Next you'll tap around its edge.
+                      The presets are Shoot-N-C sizes; for anything else measure it, because a guessed
+                      reference size is a scale error on every number this reads off the photo.
+                    </Text>}
+              </View>
+            ) : (
+              <View style={s.field}>
+                <Text style={[s.fieldLabel, { color: colors.mut }]}>Reference Size (width × height)</Text>
+                <View style={s.twoCol}>
+                  <View style={[s.inputRow, { flex: 1, backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                    <TextInput
+                      value={refW}
+                      onChangeText={setRefW}
+                      keyboardType="decimal-pad"
+                      style={[s.input, { color: colors.tx, fontFamily: 'JetBrainsMono_500Medium' }]}
+                    />
+                    <Text style={[s.inputUnit, { color: colors.mut }]}>in</Text>
+                  </View>
+                  <View style={[s.inputRow, { flex: 1, backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                    <TextInput
+                      value={refH}
+                      onChangeText={setRefH}
+                      keyboardType="decimal-pad"
+                      style={[s.input, { color: colors.tx, fontFamily: 'JetBrainsMono_500Medium' }]}
+                    />
+                    <Text style={[s.inputUnit, { color: colors.mut }]}>in</Text>
+                  </View>
+                </View>
+                {refSizeError
+                  ? <Text style={[s.fieldError, { color: colors.dngt }]}>{refSizeError}</Text>
+                  : <Text style={[s.fieldHint, { color: colors.fnt }]}>
+                      {refMode === 'quad'
+                        ? 'The printed size of your target sheet or backer — you\'ll tap its four corners next. Sets the scale and corrects off-axis photos. Letter paper is 8.5 × 11.'
+                        : 'The size of whatever you\'ll mark two points across. Assumes the photo is square-on; perspective cannot be recovered from two points.'}
+                    </Text>}
+              </View>
+            )}
             {/* Tapping cycles rather than opening a list, so the control says so
                 and shows the position — a bare chevron promised a picker. */}
             <View style={s.field}>
@@ -908,7 +1015,7 @@ export default function CaptureScreen() {
           <View>
             <TargetChips />
             <View style={s.markModeRow}>
-              {[['quad', '4 corners'], ['span', '2 points']].map(([k, label]) => (
+              {[['bull', 'Bull'], ['quad', '4 corners'], ['span', '2 points']].map(([k, label]) => (
                 <TouchableOpacity
                   key={k}
                   onPress={() => { setRefMode(k); setCorners([]); setEditingCorner(null); }}
@@ -926,9 +1033,13 @@ export default function CaptureScreen() {
               <Text style={[s.instructionText, { color: colors.act }]}>
                 {editingCorner != null
                   ? `Moving point ${editingCorner + 1} — tap where it should go.`
-                  : refMode === 'span'
-                    ? `Tap the two ends of the ${refW}″ edge. Faster, but it assumes the photo is square-on — it cannot correct for angle.`
-                    : `Tap the four corners of your ${refW}″ × ${refH}″ reference, in any order. Tap a placed corner to move it.`}
+                  : refMode === 'bull'
+                    ? (corners.length < 3
+                        ? `Tap around the edge of the ${bullDiameter}″ bull — at least three, spread right around it rather than bunched on one side.`
+                        : `${corners.length} on the rim. A fourth and beyond let the fit check whether the bull was round in the photo; three cannot. Tap a point to move it.`)
+                    : refMode === 'span'
+                      ? `Tap the two ends of the ${refW}″ edge. Faster, but it assumes the photo is square-on — it cannot correct for angle.`
+                      : `Tap the four corners of your ${refW}″ × ${refH}″ reference, in any order. Tap a placed corner to move it.`}
               </Text>
             </View>
             <TouchableOpacity
@@ -988,7 +1099,37 @@ export default function CaptureScreen() {
                 </Text>
               </View>
             )}
-            {corners.length === maxRefPoints && !Hmat && (
+            {/* What the fitted bull says about itself. A circle has no
+                perspective information in it, so this verdict is the only thing
+                standing between an off-axis photo and a scale that is quietly
+                wrong along one axis. */}
+            {bullQuality && (
+              <View style={[s.detectNote, {
+                backgroundColor: bullQuality.ok
+                  ? (bullQuality.level === 'good' ? colors.oks : colors.warns)
+                  : colors.dngs,
+                borderColor: 'transparent', marginTop: 10, marginBottom: 0,
+              }]}>
+                <Text style={[s.detectNoteText, {
+                  color: bullQuality.ok
+                    ? (bullQuality.level === 'good' ? colors.okt : colors.warnt)
+                    : colors.dngt,
+                }]}>
+                  {bullQuality.text}
+                </Text>
+                {bullFit && bullQuality.level !== 'arc' && (
+                  <Text style={[s.detectNoteText, { color: colors.mut, marginTop: 4 }]}>
+                    {/* The fit works in normalized tap space, where both axes
+                        are divided by the box width, so a radius has to be
+                        multiplied back up to mean anything on screen. Printed
+                        raw it read "1px". */}
+                    {bullDiameter}″ across {(2 * bullFit.radius * IMG_W).toFixed(0)}px,
+                    from {bullFit.count} taps, widest gap {bullFit.maxGapDeg}°.
+                  </Text>
+                )}
+              </View>
+            )}
+            {refMode !== 'bull' && corners.length === maxRefPoints && !Hmat && (
               <View style={[s.detectNote, { backgroundColor: colors.inset, borderColor: colors.ibd, marginTop: 10, marginBottom: 0 }]}>
                 <Text style={[s.detectNoteText, { color: colors.mut }]}>
                   Those points don't form a usable reference. Tap one to move it, or Reset.
@@ -1015,7 +1156,8 @@ export default function CaptureScreen() {
             </View>
             <View style={s.scaleFooter}>
               <Text style={[s.scaleCount, { color: colors.mut }]}>
-                <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{corners.length}</Text>/{maxRefPoints} {refMode === 'span' ? 'points' : 'corners'} set
+                <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{corners.length}</Text>
+                {refMode === 'bull' ? ` rim taps, ${minRefPoints} minimum` : `/${maxRefPoints} ${refMode === 'span' ? 'points' : 'corners'} set`}
               </Text>
               <TouchableOpacity onPress={() => { setCorners([]); setEditingCorner(null); }} style={s.resetBtn}>
                 <RotateCcw size={14} color={colors.act} />
@@ -1342,6 +1484,11 @@ const s = StyleSheet.create({
   shotOverlayText: { color: '#fff', fontSize: 11, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' },
   detectBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#6D3BEB', padding: 13, borderRadius: 13, marginBottom: 10 },
   detectBtnText: { fontSize: 14.5, fontWeight: '700', color: '#fff' },
+  refModeBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  refModeText: { fontSize: 11.5, fontWeight: '700', textAlign: 'center' },
+  presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  presetChip: { paddingVertical: 6, paddingHorizontal: 11, borderRadius: 8, borderWidth: 1 },
+  presetText: { fontSize: 12, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' },
   markModeRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
   devCard: { marginTop: 14, padding: 14, borderRadius: 14, borderWidth: 1, gap: 9 },
   devChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
