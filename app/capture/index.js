@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, useWindowDimensions, Alert, Platform, PanResponder } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle, ZoomIn, ZoomOut, Maximize2, Plus } from 'lucide-react-native';
+import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle, ZoomIn, ZoomOut, Maximize2, Plus, Trash2 } from 'lucide-react-native';
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -557,21 +557,37 @@ export default function CaptureScreen() {
       <View style={s.groupRow}>
         {groups.map((g, i) => {
           const ready = solveFor(g.corners).H;
+          const live = i === activeGroup;
           return (
             <TouchableOpacity
               key={g.id}
               onPress={() => { setActiveGroup(i); setEditingCorner(null); detectedRef.current = false; }}
-              onLongPress={() => removeGroup(i)}
               style={[s.groupChip, {
-                backgroundColor: i === activeGroup ? colors.act : colors.card,
-                borderColor: i === activeGroup ? colors.act : (ready ? colors.okt : colors.bd),
+                backgroundColor: live ? colors.act : colors.card,
+                borderColor: live ? colors.act : (ready ? colors.okt : colors.bd),
               }]}
             >
-              <Text style={[s.groupChipText, { color: i === activeGroup ? '#fff' : colors.mut }]}>
+              <Text style={[s.groupChipText, { color: live ? '#fff' : colors.mut }]}>
                 Target {i + 1}
                 {g.shots.length ? ` · ${g.shots.length}` : (ready ? ' ·' : '')}
                 {ready && !g.shots.length ? ' ✓' : ''}
               </Text>
+              {/* A bin on the selected chip, replacing a long press.
+                  A long press is not discoverable, and it is the same gesture
+                  as tapping a chip to switch targets held a moment too long, so
+                  the most expensive action on the screen was also among the
+                  easiest to trigger by accident. Attaching it to the selected
+                  chip removes the other half of the problem too: there is no
+                  question which target it deletes. Undo covers the mis-tap. */}
+              {live && (ready || g.shots.length > 0) && groups.length > 1 && (
+                <TouchableOpacity
+                  onPress={(e) => { e.stopPropagation(); removeGroup(i); }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  style={s.groupChipBin}
+                >
+                  <Trash2 size={12} color="#fff" />
+                </TouchableOpacity>
+              )}
             </TouchableOpacity>
           );
         })}
@@ -581,8 +597,7 @@ export default function CaptureScreen() {
       </View>
       {groups.length > 1 && (
         <Text style={[s.markModeHint, { color: colors.fnt }]}>
-          Each target has its own edges, centre and shots, and is measured
-          separately. Long-press a chip to remove one.
+          Each target is measured on its own.
         </Text>
       )}
     </>
@@ -1631,24 +1646,6 @@ export default function CaptureScreen() {
               </View>
             )}
             <TargetChips />
-            <View style={{ display: 'none' }}>
-              {groups.map((g, i) => (
-                <TouchableOpacity
-                  key={g.id}
-                  onPress={() => { setActiveGroup(i); detectedRef.current = false; }}
-                  onLongPress={() => removeGroup(i)}
-                  style={[s.groupChip, {
-                    backgroundColor: i === activeGroup ? colors.act : colors.card,
-                    borderColor: i === activeGroup ? colors.act : colors.bd,
-                  }]}
-                >
-                  <Text style={[s.groupChipText, { color: i === activeGroup ? '#fff' : colors.mut }]}>
-                    Target {i + 1}{g.shots.length ? ` · ${g.shots.length}` : ''}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
             <View style={s.markModeRow}>
               {[['shot', 'Shots'], ['aim', 'Aim point']].map(([k, label]) => (
                 <TouchableOpacity
@@ -1960,6 +1957,7 @@ const s = StyleSheet.create({
   groupRow: { flexDirection: 'row', gap: 7, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 },
   groupChip: { paddingHorizontal: 11, paddingVertical: 7, borderRadius: 9, borderWidth: 1 },
   groupChipText: { fontSize: 12, fontWeight: '700' },
+  groupChipBin: { marginLeft: 6, opacity: 0.85 },
   groupAdd: { width: 32, height: 32, borderRadius: 9, borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },
   cornerDotEditing: { borderColor: '#12B76A', borderWidth: 3, transform: [{ scale: 1.25 }] },
   markModeBtn: { flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
