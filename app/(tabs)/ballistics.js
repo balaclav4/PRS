@@ -213,6 +213,7 @@ export default function BallisticsScreen() {
   const [rangeSd, setRangeSd] = useState('');
   const [mvSd, setMvSd] = useState('');
   const [groupMoa, setGroupMoa] = useState('');
+  const [compareLoadId, setCompareLoadId] = useState(null);
 
   const hit = useMemo(() => {
     if (!showHit) return null;
@@ -227,8 +228,36 @@ export default function BallisticsScreen() {
       rangeYdSd: num(rangeSd, 0), groupMoa: num(groupMoa, 0),
       trials: 2500,
     });
-    return { curve, even: rangeAtProbability(curve, 0.5), r90: rangeAtProbability(curve, 0.9) };
-  }, [showHit, plateIn, windSd, mvSd, rangeSd, groupMoa, opts]);
+    // A second load on the same axes, when one is chosen. Only the load's own
+    // coefficient and velocity change; the rifle, the conditions and every
+    // uncertainty stay identical, so the difference between the curves is the
+    // ammunition and nothing else. That is the comparison worth making the
+    // night before a match.
+    const other = compareLoadId ? loads.find(l => l.id === compareLoadId) : null;
+    let otherCurve = null;
+    if (other?.bc) {
+      const otherOpts = {
+        ...opts,
+        bc: Number(other.bc),
+        dragModel: other.dragModel || opts.dragModel,
+        mvFps: other.velocityFps ? Number(other.velocityFps) : opts.mvFps,
+      };
+      otherCurve = hitCurve({
+        opts: otherOpts, target: { diameterIn: dia }, ranges,
+        windMphSd: num(windSd, 0), mvFpsSd: num(mvSd, 0),
+        rangeYdSd: num(rangeSd, 0), groupMoa: num(groupMoa, 0),
+        trials: 2500,
+      });
+    }
+
+    return {
+      curve, ranges,
+      even: rangeAtProbability(curve, 0.5),
+      r90: rangeAtProbability(curve, 0.9),
+      other, otherCurve,
+      otherEven: otherCurve ? rangeAtProbability(otherCurve, 0.5) : null,
+    };
+  }, [showHit, plateIn, windSd, mvSd, rangeSd, groupMoa, opts, compareLoadId, loads]);
 
   // A bare linear distance, in whichever system the shooter reads lengths in.
   const fmtLen = (inches) =>
@@ -333,6 +362,24 @@ export default function BallisticsScreen() {
             <Segmented options={[['moa', 'MOA'], ['mil', 'MIL']]} value={unit} onChange={setUnit} colors={colors} />
           </View>
         </View>
+
+        {/* A typed coefficient needs a way to be kept, not only a trued one.
+            Without this the only route to storing a BC was to true it, which
+            needs range dope a shooter may not have yet. */}
+        {load && num(bc, 0) > 0 && Number(load.bc ?? -1) !== num(bc, -1) && (
+          <TouchableOpacity
+            onPress={() => {
+              updateLoad(load.id, { bc: num(bc, 0), dragModel, bcTruedAt: null });
+              setSavedBc(true);
+              setTimeout(() => setSavedBc(false), 2200);
+            }}
+            style={[s.zeroBtn, { borderColor: colors.act, backgroundColor: colors.acs, marginTop: 12 }]}
+          >
+            <Text style={[s.zeroBtnText, { color: colors.act }]}>
+              {savedBc ? 'Saved' : `Save BC ${num(bc, 0)} ${dragModel} to ${load.name}`}
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Rifle setup */}
         <Text style={[s.sectionLabel, { color: colors.fnt }]}>RIFLE</Text>
@@ -545,6 +592,12 @@ export default function BallisticsScreen() {
                       const d = c.map((pt, i) => `${i ? 'L' : 'M'} ${px(pt.rangeYd)} ${py(pt.pHit)}`).join(' ');
                       return (
                         <>
+                          {hit.otherCurve && (
+                            <Path
+                              d={hit.otherCurve.map((pt, i) => `${i ? 'L' : 'M'} ${px(pt.rangeYd)} ${py(pt.pHit)}`).join(' ')}
+                              fill="none" stroke={colors.mut} strokeWidth={1.6} strokeDasharray="4 3"
+                            />
+                          )}
                           <Path d={d} fill="none" stroke="#8B6BF5" strokeWidth={2} />
                           {c.map((pt, i) => (
                             <SvgCircle key={i} cx={px(pt.rangeYd)} cy={py(pt.pHit)} r={2.2} fill="#8B6BF5" />
@@ -576,6 +629,57 @@ export default function BallisticsScreen() {
                       <Text style={[s.hitStatLabel, { color: colors.mut }]}>Even money</Text>
                     </View>
                   </View>
+
+                  {/* Compare against another load. Only the ammunition changes,
+                      so the gap between the curves is the bullet and the
+                      velocity, not the conditions. */}
+                  {loads.length > 1 && (
+                    <>
+                      <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 14 }]}>COMPARE WITH</Text>
+                      <View style={s.presetRow}>
+                        <TouchableOpacity
+                          onPress={() => setCompareLoadId(null)}
+                          style={[s.presetChip, {
+                            backgroundColor: compareLoadId ? colors.input : colors.acs,
+                            borderColor: compareLoadId ? colors.ibd : colors.act,
+                          }]}
+                        >
+                          <Text style={[s.presetText, { color: compareLoadId ? colors.mut : colors.act }]}>None</Text>
+                        </TouchableOpacity>
+                        {loads.filter(l => l.id !== load?.id).map(l => (
+                          <TouchableOpacity
+                            key={l.id}
+                            onPress={() => setCompareLoadId(compareLoadId === l.id ? null : l.id)}
+                            style={[s.presetChip, {
+                              backgroundColor: compareLoadId === l.id ? colors.acs : colors.input,
+                              borderColor: compareLoadId === l.id ? colors.act : colors.ibd,
+                            }]}
+                          >
+                            <Text style={[s.presetText, { color: compareLoadId === l.id ? colors.act : colors.mut }]}>
+                              {l.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                      {compareLoadId && !hit.other?.bc && (
+                        <Text style={[s.note, { color: colors.warnt }]}>
+                          {hit.other?.name} has no ballistic coefficient recorded, so it cannot be
+                          compared. Open it on this screen and save one.
+                        </Text>
+                      )}
+                      {hit.otherCurve && (
+                        <Text style={[s.note, { color: colors.fnt }]}>
+                          Dashed: {hit.other.name}, G{hit.other.dragModel === 'G1' ? '1' : '7'} BC {hit.other.bc}
+                          {hit.otherEven != null && hit.even != null && (
+                            hit.even === hit.otherEven
+                              ? '. Even money at the same range.'
+                              : `. Even money ${formatDistance(Math.abs(hit.even - hit.otherEven), dU)} ` +
+                                `${hit.even > hit.otherEven ? 'closer' : 'further'} than the active load.`
+                          )}
+                        </Text>
+                      )}
+                    </>
+                  )}
 
                   {/* What to fix. Variance shares, so the biggest is genuinely
                       the one worth attacking first. */}
