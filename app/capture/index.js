@@ -14,6 +14,7 @@ import { lightTap, mediumTap, successTap } from '../../lib/haptics';
 import { loadGrayscale, imageToNormalized, normalizedToImage, coverScale } from '../../lib/pixels';
 import { detectShots, expandPolygon } from '../../lib/detect';
 import { fitCircle, circleQuality, circleQuad, BULL_PRESETS } from '../../lib/circlefit';
+import { emptyHistory, push as pushUndo, peek as peekUndo, undo as popUndo, clear as clearUndo } from '../../lib/undo';
 import { rimFit, rimQuality, rimQuad, cropFor } from '../../lib/rimfit';
 import { bulletDiameterIn } from '../../lib/calibers';
 import { normalizePhoto } from '../../lib/photo';
@@ -176,6 +177,34 @@ export default function CaptureScreen() {
       : g)));
   }, [activeGroup]);
 
+  /**
+   * Undo, for a screen made entirely of small mistakable taps.
+   *
+   * Everything that destroys work records the state before it and a name for
+   * what it did. Snapshots of the whole target list rather than inverse
+   * operations: a capture is a handful of targets, so it is cheap, and the
+   * inverse nobody remembered to write is how undo implementations corrupt
+   * documents.
+   */
+  const [history, setHistory] = useState(emptyHistory());
+  const undoLabel = peekUndo(history);
+
+  const remember = useCallback((label) => {
+    setHistory(h => pushUndo(h, label, { groups, activeGroup }));
+  }, [groups, activeGroup]);
+
+  const undoLast = useCallback(() => {
+    const { state, history: next } = popUndo(history);
+    if (!state) return;
+    setGroups(state.groups);
+    setActiveGroup(Math.min(state.activeGroup, state.groups.length - 1));
+    setHistory(next);
+    setEditingCorner(null);
+    setEditingGroup(null);
+    detectedRef.current = false;
+    mediumTap();
+  }, [history]);
+
   const addGroup = useCallback(() => {
     setGroups(prev => [...prev, { id: 'g' + Date.now(), corners: [], shots: [], aim: null, fit: null }]);
     setActiveGroup(prev => prev + 1);
@@ -184,9 +213,12 @@ export default function CaptureScreen() {
   }, []);
 
   const removeGroup = useCallback((idx) => {
+    // The most expensive action on the screen and the easiest to trigger by
+    // accident: it is a long press on the same chip that switches targets.
+    remember(`remove target ${idx + 1}`);
     setGroups(prev => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)));
     setActiveGroup(prev => (prev >= idx && prev > 0 ? prev - 1 : prev));
-  }, []);
+  }, [remember]);
 
   const [detecting, setDetecting] = useState(false);
   const [detectNote, setDetectNote] = useState(null);
@@ -450,6 +482,7 @@ export default function CaptureScreen() {
     try {
       const norm = await normalizePhoto(asset.uri);
       setPhoto(norm);
+      setHistory(clearUndo());
       setStep(1);
     } catch (e) {
       const msg = 'Could not process that photo: ' + e.message;
@@ -851,11 +884,14 @@ export default function CaptureScreen() {
   const resetView = () => { const f = fitViewport(); setZoom(f.zoom); setPan(f.pan); };
 
   const removeShot = (i) => {
+    remember(`remove shot ${i + 1}`);
     detectedRef.current = false;
     setShots(prev => prev.filter((_, j) => j !== i));
   };
 
   const clearShots = () => {
+    if (!shots.length) return;
+    remember(`clear ${shots.length} shot${shots.length === 1 ? '' : 's'}`);
     detectedRef.current = false;
     setShots([]);
     setDetectNote(null);
@@ -881,6 +917,7 @@ export default function CaptureScreen() {
              { text: 'Replace', style: 'destructive', onPress: () => res(true) }]
           ));
       if (!ok) return;
+      remember(`replace ${shots.length} marked shot${shots.length === 1 ? '' : 's'}`);
     }
 
     setDetecting(true);
@@ -1497,6 +1534,16 @@ export default function CaptureScreen() {
                 {zoom > 1 ? 'Drag to pan' : 'Pinch or zoom in to place precisely'}
               </Text>
             </View>
+            {/* Undo, named. "Undo" alone makes people guess what they are
+                about to change; naming the action means they can tell whether
+                it is the one they regret. Sits on both working steps because
+                mistakes on either are equally easy. */}
+            {undoLabel && (
+              <TouchableOpacity onPress={undoLast} style={[s.undoBar, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
+                <RotateCcw size={14} color={colors.act} />
+                <Text style={[s.undoText, { color: colors.act }]}>Undo {undoLabel}</Text>
+              </TouchableOpacity>
+            )}
             <View style={s.scaleFooter}>
               <Text style={[s.scaleCount, { color: colors.mut }]}>
                 <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{refMode === 'bull' ? placedCount : corners.length}</Text>
@@ -1504,7 +1551,13 @@ export default function CaptureScreen() {
                   ? ` target${placedCount === 1 ? '' : 's'} placed`
                   : `/${maxRefPoints} ${refMode === 'span' ? 'points' : 'corners'} set`}
               </Text>
-              <TouchableOpacity onPress={() => { setCorners([]); setEditingCorner(null); }} style={s.resetBtn}>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!corners.length && placedCount === 0) return;
+                  remember(refMode === 'bull' ? `reset ${placedCount} target${placedCount === 1 ? '' : 's'}` : 'reset points');
+                  setCorners([]); setEditingCorner(null);
+                }}
+                style={s.resetBtn}>
                 <RotateCcw size={14} color={colors.act} />
                 <Text style={[s.resetText, { color: colors.act }]}>Reset</Text>
               </TouchableOpacity>
@@ -1541,6 +1594,7 @@ export default function CaptureScreen() {
                   onPress={() => {
                     // Re-place this one target, keeping every other target and
                     // every shot already marked on them.
+                    remember(`re-place target ${activeGroup + 1}`);
                     setGroups(prev => prev.map((g, i) =>
                       i === activeGroup ? { ...g, corners: [], taps: [], fit: null } : g));
                     setEditingCorner(null);
@@ -1707,6 +1761,12 @@ export default function CaptureScreen() {
                 {zoom > 1 ? 'Drag to pan' : 'Pinch or zoom in to place precisely'}
               </Text>
             </View>
+            {undoLabel && (
+              <TouchableOpacity onPress={undoLast} style={[s.undoBar, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
+                <RotateCcw size={14} color={colors.act} />
+                <Text style={[s.undoText, { color: colors.act }]}>Undo {undoLabel}</Text>
+              </TouchableOpacity>
+            )}
             <View style={s.scaleFooter}>
               <Text style={[s.scaleCount, { color: colors.mut }]}>
                 Live group <Text style={{ color: colors.tx, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' }}>{stats ? formatGroup(stats.extremeSpreadIn, distance, units.group) : '—'}</Text>
@@ -1905,6 +1965,8 @@ const s = StyleSheet.create({
   markModeBtn: { flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
   markModeText: { fontSize: 13, fontWeight: '700' },
   markModeHint: { fontSize: 11.5, fontWeight: '600', marginBottom: 8, lineHeight: 16 },
+  undoBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 10, paddingVertical: 10, borderRadius: 11, borderWidth: 1 },
+  undoText: { fontSize: 13, fontWeight: '700' },
   replaceBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, paddingVertical: 8, borderRadius: 9, borderWidth: 1 },
   replaceBtnText: { fontSize: 12, fontWeight: '700' },
   detectNote: { borderWidth: 1, borderRadius: 11, padding: 11, paddingHorizontal: 13, marginBottom: 10 },
