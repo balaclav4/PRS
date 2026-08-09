@@ -1623,68 +1623,6 @@ export default function CaptureScreen() {
         {/* Step 3: Mark Shots */}
         {step === 3 && (
           <View>
-            <View style={[s.instruction, { backgroundColor: colors.acs }]}>
-              <Crosshair size={17} color={colors.act} />
-              <Text style={[s.instructionText, { color: colors.act }]}>Tap each bullet hole. Tap a marker again to remove it.</Text>
-            </View>
-
-            {/* What this target's rim measurement decided, and a way out of it.
-                Placing happens on the previous screen at whole-sheet zoom; this
-                is the first view where the circle is big enough to judge. Until
-                now the verdict was only shown while placing and the sole
-                recovery was Reset, which threw away every target. */}
-            {refMode === 'bull' && activeFit && (
-              <View style={[s.detectNote, {
-                backgroundColor: activeQuality.ok
-                  ? (activeQuality.level === 'good' ? colors.oks : colors.warns)
-                  : colors.dngs,
-                borderColor: 'transparent',
-              }]}>
-                <Text style={[s.detectNoteText, {
-                  color: activeQuality.ok
-                    ? (activeQuality.level === 'good' ? colors.okt : colors.warnt)
-                    : colors.dngt,
-                }]}>{activeQuality.text}</Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    // Re-place this one target, keeping every other target and
-                    // every shot already marked on them.
-                    remember(`re-place target ${activeGroup + 1}`);
-                    setGroups(prev => prev.map((g, i) =>
-                      i === activeGroup ? { ...g, corners: [], taps: [], fit: null } : g));
-                    setEditingCorner(null);
-                    setStep(2);
-                  }}
-                  style={[s.replaceBtn, { borderColor: colors.ibd }]}
-                >
-                  <RotateCcw size={13} color={colors.mut} />
-                  <Text style={[s.replaceBtnText, { color: colors.mut }]}>
-                    Re-place target {activeGroup + 1}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {photo && (
-              <TouchableOpacity
-                onPress={autoDetect}
-                disabled={detecting}
-                style={[s.detectBtn, { opacity: detecting ? 0.6 : 1 }]}
-              >
-                {detecting
-                  ? <LoaderCircle size={17} color="#fff" />
-                  : <Wand2 size={17} color="#fff" />}
-                <Text style={s.detectBtnText}>
-                  {detecting ? 'Scanning target…' : 'Suggest shots'}
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {detectNote && (
-              <View style={[s.detectNote, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
-                <Text style={[s.detectNoteText, { color: colors.mut }]}>{detectNote}</Text>
-              </View>
-            )}
             <TargetChips />
             <View style={s.markModeRow}>
               {[['shot', 'Shots'], ['aim', 'Aim point']].map(([k, label]) => (
@@ -1780,6 +1718,73 @@ export default function CaptureScreen() {
                 </Text>
               </View>
             </TouchableOpacity>
+            {/* The prose sits below the photo. It used to stack three blocks
+                above it - the instruction, the fit verdict and the detect
+                button - which put the photo 58% of the way down a phone, on the
+                step whose whole job is tapping holes. The chips stay above,
+                because they choose what you are about to tap, and they were
+                also scrolling out of reach while marking. */}
+            <View style={[s.instruction, { backgroundColor: colors.acs }]}>
+              <Crosshair size={17} color={colors.act} />
+              <Text style={[s.instructionText, { color: colors.act }]}>Tap each bullet hole. Tap a marker again to remove it.</Text>
+            </View>
+            {/* What this target's rim measurement decided, and a way out of it.
+                Placing happens on the previous screen at whole-sheet zoom; this
+                is the first view where the circle is big enough to judge. Until
+                now the verdict was only shown while placing and the sole
+                recovery was Reset, which threw away every target. */}
+            {refMode === 'bull' && activeFit && (
+              <View style={[s.detectNote, {
+                backgroundColor: activeQuality.ok
+                  ? (activeQuality.level === 'good' ? colors.oks : colors.warns)
+                  : colors.dngs,
+                borderColor: 'transparent',
+              }]}>
+                <Text style={[s.detectNoteText, {
+                  color: activeQuality.ok
+                    ? (activeQuality.level === 'good' ? colors.okt : colors.warnt)
+                    : colors.dngt,
+                }]}>{activeQuality.text}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    // Re-place this one target, keeping every other target and
+                    // every shot already marked on them.
+                    remember(`re-place target ${activeGroup + 1}`);
+                    setGroups(prev => prev.map((g, i) =>
+                      i === activeGroup ? { ...g, corners: [], taps: [], fit: null } : g));
+                    setEditingCorner(null);
+                    setStep(2);
+                  }}
+                  style={[s.replaceBtn, { borderColor: colors.ibd }]}
+                >
+                  <RotateCcw size={13} color={colors.mut} />
+                  <Text style={[s.replaceBtnText, { color: colors.mut }]}>
+                    Re-place target {activeGroup + 1}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {photo && (
+              <TouchableOpacity
+                onPress={autoDetect}
+                disabled={detecting}
+                style={[s.detectBtn, { opacity: detecting ? 0.6 : 1 }]}
+              >
+                {detecting
+                  ? <LoaderCircle size={17} color="#fff" />
+                  : <Wand2 size={17} color="#fff" />}
+                <Text style={s.detectBtnText}>
+                  {detecting ? 'Scanning target…' : 'Suggest shots'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {detectNote && (
+              <View style={[s.detectNote, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
+                <Text style={[s.detectNoteText, { color: colors.mut }]}>{detectNote}</Text>
+              </View>
+            )}
             <View style={s.zoomBar}>
               <TouchableOpacity onPress={() => stepZoom(1 / 1.6)} disabled={zoom <= 1}
                 style={[s.zoomBtn, { backgroundColor: colors.card, borderColor: colors.bd, opacity: zoom <= 1 ? 0.4 : 1 }]}>

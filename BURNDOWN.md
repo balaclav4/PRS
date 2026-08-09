@@ -181,10 +181,16 @@ until confirmed. Long term is the colour work noted in `lib/detect.js`.
 - [x] The scale-reference selector appeared on both Setup and Place. Removed
   from Place, where switching cleared the active target's points, so a mis-tap
   mid-sheet threw away work to change a setting already made one step back.
-- The target chip row scrolls above the fold once several targets exist, so the
-  control for switching between them is off screen while marking them.
-- "2 points" mode is now redundant for round targets: bull does the same job and
-  can report when it is being lied to, which span cannot.
+- [x] The target chip row scrolled above the fold once several targets existed.
+  The Targets step is reordered: chips, then the photo, then the prose. Measured
+  before and after, the photo starts 27% down a phone rather than 58%, which
+  also closes most of the over-explaining noted in the intuitiveness review.
+- [x] "2 points" mode reviewed and kept. It is redundant *for round targets*,
+  where bull does the same job and can tell when it is being lied to. It is not
+  redundant in general: it is the only mode for a reference of known width that
+  is not a circle and whose corners are not all in frame. Closed as not a defect
+  rather than removed, because deleting working functionality to tidy a list is
+  the wrong trade.
 
 ## [x] 11. The detail screen cannot adjust a fit
 
