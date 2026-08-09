@@ -2,6 +2,7 @@ import { View, Text, ScrollView, TextInput, TouchableOpacity, Modal, StyleSheet 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Crosshair, Thermometer, Gauge, Wind, ArrowLeft, ChevronDown, Mountain, Droplets, Compass, Target, Plus, Trash2, TriangleAlert, Check, BookOpen } from 'lucide-react-native';
 import { useState, useMemo } from 'react';
+import Svg, { Path, Line as SvgLine, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
@@ -11,6 +12,7 @@ import { dopeCard, trueBC } from '../../lib/ballistics';
 import { sightTape, tapeToRows } from '../../lib/sighttape';
 import { saveCSV, slugify } from '../../lib/export';
 import { bulletDiameterIn } from '../../lib/calibers';
+import { hitCurve, rangeAtProbability, dominantAdvice } from '../../lib/hitprob';
 import {
   gyroscopicStability, stabilityVerdict, secondaryEffects,
   parseTwist, parseGrains, densityRatioFromDa,
@@ -188,6 +190,31 @@ export default function BallisticsScreen() {
              needsGrains: !(grains > 0), needsTwist: !(twist > 0), needsDia: !(dia > 0) };
   }, [grainsIn, twistIn, bulletLen, latitude, azimuth, rightTwist, load, rifle,
       opts, card.rows, metricLen]);
+
+  // Hit probability. Every uncertainty starts empty, so the curve shows the
+  // rifle alone until the shooter says how well they range and call wind.
+  const [showHit, setShowHit] = useState(false);
+  const [plateIn, setPlateIn] = useState('10');
+  const [windSd, setWindSd] = useState('');
+  const [rangeSd, setRangeSd] = useState('');
+  const [mvSd, setMvSd] = useState('');
+  const [groupMoa, setGroupMoa] = useState('');
+
+  const hit = useMemo(() => {
+    if (!showHit) return null;
+    const dia = num(plateIn, 0);
+    if (!(dia > 0)) return null;
+    const step = Math.max(50, Math.round(opts.maxRangeYd / 12 / 50) * 50);
+    const ranges = [];
+    for (let r = step; r <= opts.maxRangeYd; r += step) ranges.push(r);
+    const curve = hitCurve({
+      opts, target: { diameterIn: dia }, ranges,
+      windMphSd: num(windSd, 0), mvFpsSd: num(mvSd, 0),
+      rangeYdSd: num(rangeSd, 0), groupMoa: num(groupMoa, 0),
+      trials: 2500,
+    });
+    return { curve, even: rangeAtProbability(curve, 0.5), r90: rangeAtProbability(curve, 0.9) };
+  }, [showHit, plateIn, windSd, mvSd, rangeSd, groupMoa, opts]);
 
   // A bare linear distance, in whichever system the shooter reads lengths in.
   const fmtLen = (inches) =>
@@ -443,6 +470,124 @@ export default function BallisticsScreen() {
                 past here as a starting point, then true it.
               </Text>
             </View>
+          )}
+        </View>
+
+        {/* Hit probability */}
+        <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
+          <View style={s.cardHead}>
+            <Text style={[s.cardTitle, { color: colors.tx }]}>Chance of a Hit</Text>
+            <TouchableOpacity onPress={() => setShowHit(v => !v)}
+              style={[s.saveCardBtn, { backgroundColor: colors.acs }]}>
+              <Text style={[s.saveCardText, { color: colors.act }]}>{showHit ? 'Hide' : 'Show'}</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={[s.cardBody, { color: colors.mut }]}>
+            A dope card says where to aim. This says whether you will hit, and which of
+            your uncertainties is costing you the most. Everything below starts empty:
+            until you say how well you range and call wind, this shows the rifle alone.
+          </Text>
+
+          {showHit && (
+            <>
+              <View style={[s.row, { marginTop: 12 }]}>
+                <Field label="Plate size" value={plateIn} onChange={setPlateIn} unit={lenU} colors={colors} />
+                <Field label="Your group" value={groupMoa} onChange={setGroupMoa} unit={unitLabel} colors={colors} placeholder="0.0" />
+              </View>
+              <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 10 }]}>HOW SURE ARE YOU</Text>
+              <View style={s.row}>
+                <Field label="Wind call" value={windSd} onChange={setWindSd} unit={`± ${windU}`} colors={colors} placeholder="0" />
+                <Field label="Range" value={rangeSd} onChange={setRangeSd} unit={`± ${dU}`} colors={colors} placeholder="0" />
+              </View>
+              <View style={s.row}>
+                <Field label="Velocity SD" value={mvSd} onChange={setMvSd} unit={vU} colors={colors} placeholder="0" />
+                <View style={{ flex: 1 }} />
+              </View>
+
+              {hit?.curve?.length ? (
+                <>
+                  {/* The curve. Drawn rather than tabulated because the shape is
+                      the point: where it falls off a cliff is the range worth
+                      knowing, and a column of percentages hides that. */}
+                  <Svg viewBox="0 0 300 130" style={{ width: '100%', height: undefined, aspectRatio: 300 / 130, marginTop: 14 }}>
+                    {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
+                      <SvgLine key={i} x1={30} y1={110 - p * 100} x2={296} y2={110 - p * 100}
+                        stroke={colors.grid} strokeWidth={p === 0.5 ? 1.2 : 0.6}
+                        strokeDasharray={p === 0.5 ? '3 3' : undefined} />
+                    ))}
+                    {[0, 0.5, 1].map((p, i) => (
+                      <SvgText key={i} x={26} y={110 - p * 100 + 3} fontSize="8"
+                        textAnchor="end" fill={colors.fnt}>{Math.round(p * 100)}%</SvgText>
+                    ))}
+                    {(() => {
+                      const c = hit.curve;
+                      const maxR = c[c.length - 1].rangeYd;
+                      const px = (r) => 30 + (r / maxR) * 266;
+                      const py = (p) => 110 - p * 100;
+                      const d = c.map((pt, i) => `${i ? 'L' : 'M'} ${px(pt.rangeYd)} ${py(pt.pHit)}`).join(' ');
+                      return (
+                        <>
+                          <Path d={d} fill="none" stroke="#8B6BF5" strokeWidth={2} />
+                          {c.map((pt, i) => (
+                            <SvgCircle key={i} cx={px(pt.rangeYd)} cy={py(pt.pHit)} r={2.2} fill="#8B6BF5" />
+                          ))}
+                          {hit.even != null && (
+                            <SvgLine x1={px(hit.even)} y1={10} x2={px(hit.even)} y2={110}
+                              stroke={colors.warnt} strokeWidth={1} strokeDasharray="2 2" />
+                          )}
+                          <SvgText x={30} y={124} fontSize="8" fill={colors.fnt}>0</SvgText>
+                          <SvgText x={296} y={124} fontSize="8" textAnchor="end" fill={colors.fnt}>
+                            {dU === 'm' ? Math.round(ydToM(maxR)) : maxR} {dU}
+                          </SvgText>
+                        </>
+                      );
+                    })()}
+                  </Svg>
+
+                  <View style={s.hitStats}>
+                    <View style={s.hitStat}>
+                      <Text style={[s.hitStatVal, { color: colors.tx }]}>
+                        {hit.r90 != null ? formatDistance(hit.r90, dU) : '—'}
+                      </Text>
+                      <Text style={[s.hitStatLabel, { color: colors.mut }]}>9 in 10</Text>
+                    </View>
+                    <View style={s.hitStat}>
+                      <Text style={[s.hitStatVal, { color: colors.warnt }]}>
+                        {hit.even != null ? formatDistance(hit.even, dU) : '—'}
+                      </Text>
+                      <Text style={[s.hitStatLabel, { color: colors.mut }]}>Even money</Text>
+                    </View>
+                  </View>
+
+                  {/* What to fix. Variance shares, so the biggest is genuinely
+                      the one worth attacking first. */}
+                  {(() => {
+                    const mid = hit.curve.find(c => c.pHit < 0.9) || hit.curve[hit.curve.length - 1];
+                    const advice = dominantAdvice(mid);
+                    if (!advice) {
+                      return (
+                        <Text style={[s.note, { color: colors.fnt, marginTop: 10 }]}>
+                          No uncertainties entered, so this is the rifle on its own. Add your
+                          wind call and ranging error to see what actually limits you.
+                        </Text>
+                      );
+                    }
+                    return (
+                      <View style={[s.lrCallout, { borderColor: colors.ibd }]}>
+                        <Text style={[s.lrCalloutTitle, { color: colors.tx }]}>
+                          At {formatDistance(mid.rangeYd, dU)}: {Math.round(advice.share * 100)}% of your miss is {advice.source}
+                        </Text>
+                        <Text style={[s.note, { color: colors.fnt, marginTop: 2 }]}>{advice.text}</Text>
+                      </View>
+                    );
+                  })()}
+                </>
+              ) : (
+                <Text style={[s.note, { color: colors.fnt, marginTop: 10 }]}>
+                  Enter a plate size to see the curve.
+                </Text>
+              )}
+            </>
           )}
         </View>
 
@@ -797,6 +942,10 @@ const s = StyleSheet.create({
   fieldInput: { flex: 1, minWidth: 0, paddingVertical: 11, fontSize: 14.5, fontFamily: 'JetBrainsMono_700Bold' },
   fieldUnit: { fontSize: 11, fontWeight: '700' },
   note: { fontSize: 11, fontWeight: '600', lineHeight: 16, marginTop: 2, marginHorizontal: 2 },
+  hitStats: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  hitStat: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 10 },
+  hitStatVal: { fontSize: 17, fontWeight: '800', fontFamily: 'JetBrainsMono_700Bold' },
+  hitStatLabel: { fontSize: 10.5, fontWeight: '700', marginTop: 2 },
   lrCallout: { borderWidth: 1, borderRadius: 10, padding: 10, marginTop: 10 },
   lrCalloutTitle: { fontSize: 13, fontWeight: '800' },
 
