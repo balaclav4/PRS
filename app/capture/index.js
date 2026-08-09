@@ -472,7 +472,10 @@ export default function CaptureScreen() {
         if (d < min) min = d;
       }
     }
-    return Math.max(14, Math.min(24, min));
+    // Floor raised from 14. A 14px marker is not something a thumb can hit,
+    // and the detail screen zooms in specifically so it does not have to be
+    // that small.
+    return Math.max(18, Math.min(26, min));
   }, [shots, IMG_W]);
 
   // Normalize at intake: bakes out EXIF orientation so the displayed image and
@@ -720,6 +723,18 @@ export default function CaptureScreen() {
     const pt = { x, y };
 
     if (mode === 'corner') {
+      // One entry per tap, so undo walks back through a placement rather than
+      // discarding it whole. Centre down with the edge still to come is a real
+      // state and worth being able to return to.
+      if (refMode === 'bull') {
+        const pending = groups[groups.length - 1];
+        const n = editingCorner != null ? activeGroup + 1 : groups.length;
+        remember(editingCorner != null
+          ? `move point ${editingCorner + 1} of target ${n}`
+          : `target ${n} ${(pending?.corners.length ?? 0) === 0 ? 'centre' : 'edge'}`);
+      } else {
+        remember(`reference point ${corners.length + 1}`);
+      }
       setGroups(prev => {
         // While placing, the pending target is always the last one.
         //
@@ -785,6 +800,10 @@ export default function CaptureScreen() {
       setAim(pt);
       mediumTap();
     } else {
+      // Constructive actions go in the history too. Undo that only reversed
+      // deletions was worse than no undo on a mis-tap: it left the stray shot
+      // in place and quietly reversed something older instead.
+      remember(`shot ${shots.length + 1}`);
       detectedRef.current = false;
       setShots(prev => [...prev, pt]);
       lightTap();
@@ -816,14 +835,23 @@ export default function CaptureScreen() {
 
     onPanResponderGrant: (e) => {
       draggedRef.current = false;
-      gestureRef.current = { startPan: pan, startDist: null, startZoom: zoom };
+      // Snapshot before anything moves. Recorded only if a drag actually
+      // begins, so a plain tap does not fill the history with no-ops.
+      gestureRef.current = {
+        startPan: pan, startDist: null, startZoom: zoom,
+        groupsBefore: groups, activeBefore: activeGroup, recorded: false,
+      };
       dragMarkerRef.current = null;
 
       // Did this touch land on an existing marker? Test in screen space so the
       // hit radius stays a constant finger-sized target at any zoom.
       const { locationX, locationY } = e.nativeEvent;
       if (locationX == null || locationY == null) return;
-      const HIT_PX = 26;
+      // Grab radius, in screen pixels so it stays a constant finger target at
+      // any zoom. Raised from 26: this is a phone, and a thumb is nearer 40
+      // across. It can be generous because the detail screen frames one target
+      // at a time, which spreads the markers out on screen.
+      const HIT_PX = 34;
       const list = step === 2 ? corners : step === 3 ? shots : [];
       let best = -1, bestD = HIT_PX;
       for (let i = 0; i < list.length; i++) {
@@ -845,7 +873,19 @@ export default function CaptureScreen() {
       // A marker is being dragged: move it and do not pan the view.
       const held = dragMarkerRef.current;
       if (held && dist == null) {
-        if (Math.abs(g.dx) > DRAG_SLOP_PX || Math.abs(g.dy) > DRAG_SLOP_PX) draggedRef.current = true;
+        if (Math.abs(g.dx) > DRAG_SLOP_PX || Math.abs(g.dy) > DRAG_SLOP_PX) {
+          draggedRef.current = true;
+          // The move becomes undoable at the moment it becomes a move.
+          const st = gestureRef.current;
+          if (!st.recorded) {
+            st.recorded = true;
+            setHistory(h => pushUndo(
+              h,
+              held.kind === 'corner' ? `move point ${held.index + 1}` : `move shot ${held.index + 1}`,
+              { groups: st.groupsBefore, activeGroup: st.activeBefore }
+            ));
+          }
+        }
         const { locationX, locationY } = e.nativeEvent;
         if (locationX == null || locationY == null) return;
         const img = toImage({ x: locationX, y: locationY }, zoom, pan);
@@ -889,7 +929,7 @@ export default function CaptureScreen() {
       gestureRef.current.startDist = null;
       dragMarkerRef.current = null;
     },
-  }), [zoom, pan, IMG_W, IMG_H, step, corners, shots, setShots]);
+  }), [zoom, pan, IMG_W, IMG_H, step, corners, shots, setShots, setCorners, groups, activeGroup]);
 
   const stepZoom = (factor) => {
     const next = zoomAbout({ x: IMG_W / 2, y: IMG_H / 2 }, zoom * factor, zoom, pan, IMG_W, IMG_H);
