@@ -745,7 +745,14 @@ export default function CaptureScreen() {
   // them here meant every tap wrote to whichever target was selected when the
   // handler was first created, so adding a second target silently kept filling
   // the first.
-  }, [IMG_W, editingCorner, editingGroup, maxRefPoints, setShots, setAim, refMode, activeGroup, groups, measureBull]);
+  // zoom and pan belong here. The handler undoes the viewport transform to turn
+  // a tap into an image coordinate, and without them in the list it kept the
+  // values captured when it was first created - zoom 1, pan 0. On the Place
+  // step those are the real values, so nothing looked wrong. On the detail
+  // screen, which frames each target at around 2x, every tap was converted as
+  // though the photo were not zoomed at all: the picture moved and the shots
+  // did not follow it.
+  }, [IMG_W, zoom, pan, editingCorner, editingGroup, maxRefPoints, setShots, setAim, refMode, activeGroup, groups, measureBull]);
 
   /**
    * One responder handles both panning and pinching, and decides at release
@@ -1340,7 +1347,16 @@ export default function CaptureScreen() {
               style={[s.imgContainer, { borderColor: colors.bd, width: IMG_W, height: IMG_H }]}
               {...panResponder.panHandlers}
             >
-              <View style={{
+              {/* pointerEvents none, and it is load-bearing.
+                  A tap's locationX/locationY are relative to the view that
+                  received it. This view is offset by `pan`, so when it was the
+                  touch target the handler subtracted pan a second time and every
+                  shot landed displaced by exactly -pan. At 1x pan is zero and
+                  nothing looked wrong; zoomed in, the photo appeared to move
+                  while the shots stayed on the unzoomed picture. Making it
+                  transparent to touches sends them to the container, whose
+                  coordinates are the ones the maths already assumes. */}
+              <View pointerEvents="none" style={{
                 position: 'absolute',
                 left: pan.x, top: pan.y,
                 width: IMG_W * zoom, height: IMG_H * zoom,
@@ -1356,7 +1372,11 @@ export default function CaptureScreen() {
                   Corners are normalized by the box *width*, so y spans 0..1.25
                   in a 1.25-aspect box: the viewBox must be 100x125 for a
                   uniform x100 mapping on both axes. */}
-              <Svg viewBox="0 0 100 125" preserveAspectRatio="none" style={{
+              {/* Also transparent to touches, and for the same reason: it is
+                  offset by `pan`, so any tap landing on it would be measured
+                  from the wrong origin. It sits over the whole photo, so it
+                  swallowed nearly every tap on the Place step. */}
+              <Svg pointerEvents="none" viewBox="0 0 100 125" preserveAspectRatio="none" style={{
                 position: 'absolute',
                 left: pan.x, top: pan.y,
                 width: IMG_W * zoom, height: IMG_H * zoom,
@@ -1604,7 +1624,16 @@ export default function CaptureScreen() {
               style={[s.imgContainer, { borderColor: colors.bd, width: IMG_W, height: IMG_H }]}
               {...panResponder.panHandlers}
             >
-              <View style={{
+              {/* pointerEvents none, and it is load-bearing.
+                  A tap's locationX/locationY are relative to the view that
+                  received it. This view is offset by `pan`, so when it was the
+                  touch target the handler subtracted pan a second time and every
+                  shot landed displaced by exactly -pan. At 1x pan is zero and
+                  nothing looked wrong; zoomed in, the photo appeared to move
+                  while the shots stayed on the unzoomed picture. Making it
+                  transparent to touches sends them to the container, whose
+                  coordinates are the ones the maths already assumes. */}
+              <View pointerEvents="none" style={{
                 position: 'absolute',
                 left: pan.x, top: pan.y,
                 width: IMG_W * zoom, height: IMG_H * zoom,
