@@ -6,8 +6,9 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { totalRounds, lifeStatus } from '../../lib/barrel';
+import { COMMON_FASTENERS, TORQUE_UNITS, newEntry, cleanEntries, checkTorque, fmtBoth } from '../../lib/torque';
 
-const EMPTY_RIFLE = { name: '', cartridge: '', barrelLength: '', twist: '', notes: '', priorRounds: '' };
+const EMPTY_RIFLE = { name: '', cartridge: '', barrelLength: '', twist: '', notes: '', priorRounds: '', torque: [] };
 const EMPTY_LOAD = { rifleId: '', bullet: '', powder: '', chargeGr: '', primer: '', brass: '', coalOrCbto: '', velocityFps: '', name: '', caliber: '', sd: '', powderLot: '', primerLot: '', bulletLot: '', brassLot: '' };
 
 /**
@@ -55,9 +56,9 @@ export default function EquipmentScreen() {
   const saveRifle = () => {
     if (!rifleModal.name.trim()) return;
     if (rifleModal._isNew) {
-      addRifle({ name: rifleModal.name, cartridge: rifleModal.cartridge, barrelLength: rifleModal.barrelLength, twist: rifleModal.twist, notes: rifleModal.notes, priorRounds: Number(rifleModal.priorRounds) || 0 });
+      addRifle({ name: rifleModal.name, cartridge: rifleModal.cartridge, barrelLength: rifleModal.barrelLength, twist: rifleModal.twist, notes: rifleModal.notes, priorRounds: Number(rifleModal.priorRounds) || 0, torque: cleanEntries(rifleModal.torque) });
     } else {
-      updateRifle(rifleModal.id, { name: rifleModal.name, cartridge: rifleModal.cartridge, barrelLength: rifleModal.barrelLength, twist: rifleModal.twist, notes: rifleModal.notes, priorRounds: Number(rifleModal.priorRounds) || 0 });
+      updateRifle(rifleModal.id, { name: rifleModal.name, cartridge: rifleModal.cartridge, barrelLength: rifleModal.barrelLength, twist: rifleModal.twist, notes: rifleModal.notes, priorRounds: Number(rifleModal.priorRounds) || 0, torque: cleanEntries(rifleModal.torque) });
     }
     setRifleModal(null);
   };
@@ -90,6 +91,16 @@ export default function EquipmentScreen() {
 
   const updateRifleField = (field, val) => setRifleModal(prev => ({ ...prev, [field]: val }));
   const updateLoadField = (field, val) => setLoadModal(prev => ({ ...prev, [field]: val }));
+
+  const addTorque = (name) =>
+    setRifleModal(prev => ({ ...prev, torque: [...(prev.torque || []), newEntry(name)] }));
+  const updateTorque = (i, patch) =>
+    setRifleModal(prev => ({
+      ...prev,
+      torque: (prev.torque || []).map((t, j) => (j === i ? { ...t, ...patch } : t)),
+    }));
+  const removeTorque = (i) =>
+    setRifleModal(prev => ({ ...prev, torque: (prev.torque || []).filter((_, j) => j !== i) }));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
@@ -216,6 +227,84 @@ export default function EquipmentScreen() {
                 <FormField label="Twist Rate" value={rifleModal.twist} onChangeText={v => updateRifleField('twist', v)} placeholder="e.g. 1:8" colors={colors} />
                 <FormField label="Rounds before this app" value={String(rifleModal.priorRounds ?? '')} onChangeText={v => updateRifleField('priorRounds', v)} placeholder="e.g. 1200" colors={colors} keyboardType="number-pad" />
                 <FormField label="Notes" value={rifleModal.notes} onChangeText={v => updateRifleField('notes', v)} placeholder="Optional" colors={colors} />
+
+                {/* Torque figures, all of them the shooter's own.
+                    No defaults ship with the app: over-torquing a ring crushes
+                    a tube and under-torquing an action screw moves the zero
+                    between strings, and the only figure worth having is the one
+                    from whoever made the part. */}
+                <Text style={[s.torqueHead, { color: colors.mut }]}>TORQUE</Text>
+                <Text style={[s.torqueIntro, { color: colors.fnt }]}>
+                  Your own figures, from the manufacturer of each part. Nothing here is
+                  filled in for you, because a wrong torque value damages a rifle.
+                </Text>
+
+                {(rifleModal.torque || []).map((t, i) => {
+                  const v = checkTorque(t.value, t.unit);
+                  return (
+                    <View key={t.id || i} style={[s.torqueRow, { borderColor: colors.ibd }]}>
+                      <View style={s.torqueTop}>
+                        <TextInput
+                          value={t.name}
+                          onChangeText={x => updateTorque(i, { name: x })}
+                          placeholder="Fastener"
+                          placeholderTextColor={colors.fnt}
+                          style={[s.torqueName, { color: colors.tx, backgroundColor: colors.input, borderColor: colors.ibd }]}
+                        />
+                        <TouchableOpacity onPress={() => removeTorque(i)} style={s.torqueDel}>
+                          <Trash2 size={15} color={colors.fnt} />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={s.torqueBottom}>
+                        <TextInput
+                          value={String(t.value ?? '')}
+                          onChangeText={x => updateTorque(i, { value: x })}
+                          placeholder="Value"
+                          placeholderTextColor={colors.fnt}
+                          keyboardType="decimal-pad"
+                          style={[s.torqueVal, { color: colors.tx, backgroundColor: colors.input, borderColor: colors.ibd }]}
+                        />
+                        {TORQUE_UNITS.map(u => (
+                          <TouchableOpacity
+                            key={u}
+                            onPress={() => updateTorque(i, { unit: u })}
+                            style={[s.torqueUnit, {
+                              backgroundColor: t.unit === u ? colors.act : colors.input,
+                              borderColor: t.unit === u ? colors.act : colors.ibd,
+                            }]}
+                          >
+                            <Text style={[s.torqueUnitText, { color: t.unit === u ? '#fff' : colors.mut }]}>{u}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                      {v.text && (
+                        <Text style={[s.torqueWarn, { color: v.ok ? colors.warnt : colors.dngt }]}>{v.text}</Text>
+                      )}
+                      {v.level === 'ok' && (
+                        <Text style={[s.torqueBoth, { color: colors.fnt }]}>{fmtBoth(t.value, t.unit)}</Text>
+                      )}
+                    </View>
+                  );
+                })}
+
+                <View style={s.torqueAddRow}>
+                  {COMMON_FASTENERS
+                    .filter(f => !(rifleModal.torque || []).some(t => t.name === f))
+                    .map(f => (
+                      <TouchableOpacity
+                        key={f}
+                        onPress={() => addTorque(f)}
+                        style={[s.torqueChip, { borderColor: colors.ibd }]}
+                      >
+                        <Plus size={11} color={colors.act} />
+                        <Text style={[s.torqueChipText, { color: colors.act }]}>{f}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  <TouchableOpacity onPress={() => addTorque('')} style={[s.torqueChip, { borderColor: colors.ibd }]}>
+                    <Plus size={11} color={colors.act} />
+                    <Text style={[s.torqueChipText, { color: colors.act }]}>Something else</Text>
+                  </TouchableOpacity>
+                </View>
               </ScrollView>
               <View style={s.modalActions}>
                 {!rifleModal._isNew && (
@@ -294,6 +383,21 @@ export default function EquipmentScreen() {
 }
 
 const s = StyleSheet.create({
+  torqueHead: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5, marginTop: 20, marginBottom: 4 },
+  torqueIntro: { fontSize: 11.5, fontWeight: '600', lineHeight: 16, marginBottom: 10 },
+  torqueRow: { borderWidth: 1, borderRadius: 11, padding: 10, marginBottom: 8, gap: 8 },
+  torqueTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  torqueName: { flex: 1, minWidth: 0, borderWidth: 1, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 9, fontSize: 14, fontWeight: '600' },
+  torqueDel: { padding: 6 },
+  torqueBottom: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  torqueVal: { flex: 1, minWidth: 0, borderWidth: 1, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 9, fontSize: 14, fontFamily: 'JetBrainsMono_700Bold' },
+  torqueUnit: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 9, borderWidth: 1 },
+  torqueUnitText: { fontSize: 12, fontWeight: '700' },
+  torqueWarn: { fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
+  torqueBoth: { fontSize: 11, fontWeight: '600', fontFamily: 'JetBrainsMono_500Medium' },
+  torqueAddRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  torqueChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7 },
+  torqueChipText: { fontSize: 11.5, fontWeight: '700' },
   scroll: { padding: 20, paddingBottom: 40 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
   backBtn: { width: 38, height: 38, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },

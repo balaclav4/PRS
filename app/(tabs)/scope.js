@@ -5,6 +5,7 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
+import { findByName, fmtBoth } from '../../lib/torque';
 import { trackingStep, rtzStep, evaluateScope, shotsForTracking } from '../../lib/scopeeval';
 import { sigmaFromGroup } from '../../lib/refload';
 import { unitToInches } from '../../lib/units';
@@ -26,8 +27,13 @@ const MOUNT_STEPS = [
   ['degreased', 'Rail and ring surfaces degreased'],
   ['bedded', 'Rail bedded or epoxied to the receiver'],
   ['lapped', 'Rings lapped or checked for contact'],
-  ['torqued', 'Ring screws torqued to spec (typically 15–18 in-lb)'],
-  ['baseTorqued', 'Base screws torqued to spec (typically 25–30 in-lb)'],
+  // No figures here any more. These read "typically 15-18 in-lb" and
+  // "typically 25-30 in-lb", which are hedged and were followed by a note
+  // saying to use the manufacturer's numbers - but a printed range is still the
+  // number someone reaches for with a wrench in their hand. The fastener names
+  // map onto what the shooter recorded against this rifle in Equipment.
+  ['torqued', 'Ring screws torqued to spec', 'Scope ring caps'],
+  ['baseTorqued', 'Base screws torqued to spec', 'Scope base / rail'],
   ['levelled', 'Reticle levelled to the rifle'],
   ['witness', 'Witness marks applied to screws'],
 ];
@@ -278,24 +284,38 @@ export default function ScopeScreen() {
               MOUNTING · {mountDone}/{MOUNT_STEPS.length}
             </Text>
             <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd }]}>
-              {MOUNT_STEPS.map(([key, label]) => (
-                <TouchableOpacity key={key}
-                  onPress={() => save({ mount: { ...mount, [key]: !mount[key] } })}
-                  style={s.checkRow}>
-                  <View style={[s.checkbox, {
-                    backgroundColor: mount[key] ? colors.act : 'transparent',
-                    borderColor: mount[key] ? colors.act : colors.ibd,
-                  }]}>
-                    {mount[key] && <CircleCheck size={13} color="#fff" />}
-                  </View>
-                  <Text style={[s.checkText, { color: mount[key] ? colors.tx : colors.mut }]}>{label}</Text>
-                </TouchableOpacity>
-              ))}
+              {MOUNT_STEPS.map(([key, label, fastener]) => {
+                const spec = fastener ? findByName(rifle?.torque, fastener) : null;
+                return (
+                  <TouchableOpacity key={key}
+                    onPress={() => save({ mount: { ...mount, [key]: !mount[key] } })}
+                    style={s.checkRow}>
+                    <View style={[s.checkbox, {
+                      backgroundColor: mount[key] ? colors.act : 'transparent',
+                      borderColor: mount[key] ? colors.act : colors.ibd,
+                    }]}>
+                      {mount[key] && <CircleCheck size={13} color="#fff" />}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.checkText, { color: mount[key] ? colors.tx : colors.mut }]}>{label}</Text>
+                      {/* Their figure, or a prompt to record it. Never one of ours. */}
+                      {fastener && (
+                        spec?.value
+                          ? <Text style={[s.checkSpec, { color: colors.act }]}>{fmtBoth(spec.value, spec.unit)}</Text>
+                          : <Text style={[s.checkSpec, { color: colors.fnt }]}>
+                              No figure recorded — add it against this rifle in Equipment
+                            </Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
               <View style={[s.note, { backgroundColor: colors.inset, marginTop: 6 }]}>
                 <Wrench size={15} color={colors.mut} />
                 <Text style={[s.noteText, { color: colors.mut }]}>
                   This is a record of what you did, not a measurement — the app has no
-                  way to verify any of it. Torque figures vary by manufacturer; use theirs.
+                  way to verify any of it. Torque figures shown are the ones you recorded
+                  against this rifle; the app supplies none of its own.
                 </Text>
               </View>
             </View>
@@ -341,6 +361,7 @@ const s = StyleSheet.create({
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 4 },
   checkbox: { width: 21, height: 21, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   checkText: { flex: 1, fontSize: 12.5, fontWeight: '600', lineHeight: 17 },
+  checkSpec: { fontSize: 11, fontWeight: '700', marginTop: 2, fontFamily: 'JetBrainsMono_500Medium' },
   note: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', padding: 11, borderRadius: 10 },
   noteText: { flex: 1, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
 });
