@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, TextInput, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Crosshair, Thermometer, Gauge, Wind, ArrowLeft, ChevronDown, Mountain, Droplets, Compass, Target, Plus, Trash2, TriangleAlert, Check, BookOpen } from 'lucide-react-native';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import Svg, { Path, Line as SvgLine, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
@@ -56,7 +56,7 @@ function Segmented({ options, value, onChange, colors }) {
 export default function BallisticsScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { loads, rifles, addDopeCard, updateRifle, units } = useData();
+  const { loads, rifles, addDopeCard, updateRifle, updateLoad, units } = useData();
 
   const [loadIdx, setLoadIdx] = useState(0);
   const [picking, setPicking] = useState(false);
@@ -64,8 +64,10 @@ export default function BallisticsScreen() {
   const rifle = rifles.find(r => r.id === load?.rifleId);
 
   const [mvFps, setMvFps] = useState(String(load?.velocityFps || 2800));
-  const [bc, setBc] = useState('0.315');
-  const [dragModel, setDragModel] = useState('G7');
+  // The BC belongs to the load. Typed fresh each visit it could not be compared
+  // against another load, and a trued BC was discarded on leaving the screen.
+  const [bc, setBc] = useState(String(load?.bc ?? '0.315'));
+  const [dragModel, setDragModel] = useState(load?.dragModel || 'G7');
   const [unit, setUnit] = useState('moa');
 
   const [sightHeight, setSightHeight] = useState('1.5');
@@ -86,6 +88,18 @@ export default function BallisticsScreen() {
   const [truing, setTruing] = useState(false);
   const [observations, setObservations] = useState([]);
   const [truedResult, setTruedResult] = useState(null);
+  const [savedBc, setSavedBc] = useState(false);
+
+  // Changing the active load brings its own coefficient with it.
+  const lastLoadRef = useRef(load?.id ?? null);
+  useEffect(() => {
+    if (load?.id === lastLoadRef.current) return;
+    lastLoadRef.current = load?.id ?? null;
+    if (load?.bc) setBc(String(load.bc));
+    if (load?.dragModel) setDragModel(load.dragModel);
+    if (load?.velocityFps) setMvFps(String(Math.round(load.velocityFps)));
+    setTruedResult(null);
+  }, [load?.id, load?.bc, load?.dragModel, load?.velocityFps]);
 
   const num = (v, d) => { const n = parseFloat(v); return isFinite(n) ? n : d; };
 
@@ -294,7 +308,11 @@ export default function BallisticsScreen() {
             <View style={s.loadStatCol}>
               <TextInput value={bc} onChangeText={setBc} keyboardType="decimal-pad"
                 style={s.loadStatInput} selectTextOnFocus />
-              <Text style={s.loadStatLabel}>BC {dragModel}</Text>
+              {/* Say where the figure came from. A trued BC and a box figure
+                  are different kinds of number and should not look alike. */}
+              <Text style={s.loadStatLabel}>
+                BC {dragModel}{load?.bcTruedAt && Number(load.bc) === num(bc, -1) ? ' · trued' : ''}
+              </Text>
             </View>
             <View style={s.loadStatCol}>
               <Text style={s.loadStatVal}>{card.densityRatio.toFixed(3)}</Text>
@@ -869,10 +887,30 @@ export default function BallisticsScreen() {
           {truedResult && (
             <View style={[s.trueResult, { backgroundColor: colors.oks }]}>
               <Text style={[s.trueResultText, { color: colors.okt }]}>
-                Trued BC {truedResult.bc} — a ×{truedResult.factor} correction from
-                {' '}{truedResult.factor < 1 ? 'the' : 'the'} book figure, from {truedResult.observations}
+                Trued BC {truedResult.bc} — a ×{truedResult.factor} correction from the book
+                figure, from {truedResult.observations}
                 {' '}observation{truedResult.observations === 1 ? '' : 's'}. The card above now uses it.
               </Text>
+              {/* Keep it. A BC solved backwards from this rifle's own dope is a
+                  better number for this rifle than anything on the box, and it
+                  was being discarded the moment the screen was left. */}
+              {load && (
+                <TouchableOpacity
+                  onPress={() => {
+                    updateLoad(load.id, {
+                      bc: Number(truedResult.bc), dragModel,
+                      bcTruedAt: new Date().toISOString(),
+                    });
+                    setSavedBc(true);
+                    setTimeout(() => setSavedBc(false), 2200);
+                  }}
+                  style={[s.zeroBtn, { borderColor: colors.okt, marginTop: 8 }]}
+                >
+                  <Text style={[s.zeroBtnText, { color: colors.okt }]}>
+                    {savedBc ? 'Saved to this load' : `Save ${truedResult.bc} to ${load.name}`}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>
