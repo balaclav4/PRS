@@ -10,7 +10,7 @@
  */
 import {
   solve, dopeCard, zeroAngle, trueBC, densityRatio, speedOfSound,
-  pressureAtAltitude, inchesToMoa, inchesToMil,
+  pressureAtAltitude, inchesToMoa, inchesToMil, standardCd,
 } from '../lib/ballistics.js';
 
 let fails = 0;
@@ -256,6 +256,29 @@ console.log('\nstring inputs from TextInput');
   const seaLevel = dopeCard({ mvFps: 2820, bc: 0.315, zeroYd: 100, maxRangeYd: 500, stepYd: 500 });
   check('  empty altitude is treated as unset',
     near(noAlt.rows.at(-1).elevation, seaLevel.rows.at(-1).elevation, 0.01));
+}
+
+console.log('\nthe standard drag tables are the standard ones');
+{
+  // Anchor values that identify G1 and G7. A transcription slip anywhere in a
+  // list of 140 numbers would corrupt every trajectory silently, and these are
+  // the points where the two curves are most distinctive.
+  const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+  check('  G1 subsonic floor', near(standardCd('G1', 0), 0.2629, 0.0002), standardCd('G1', 0).toFixed(4));
+  check('  G1 peaks near Mach 1.4', near(standardCd('G1', 1.40), 0.6625, 0.0002), standardCd('G1', 1.40).toFixed(4));
+  check('  G7 subsonic floor', near(standardCd('G7', 0), 0.1198, 0.0002), standardCd('G7', 0).toFixed(4));
+  check('  G7 peaks near Mach 1.05', near(standardCd('G7', 1.05), 0.4043, 0.0002), standardCd('G7', 1.05).toFixed(4));
+
+  check('  G7 is far flatter than G1 through the subsonic range',
+    standardCd('G7', 0.5) < standardCd('G1', 0.5) * 0.65,
+    `${standardCd('G7', 0.5).toFixed(4)} against ${standardCd('G1', 0.5).toFixed(4)}`);
+  check('  both climb steeply through transonic',
+    standardCd('G7', 1.0) > standardCd('G7', 0.9) * 2.4 &&
+    standardCd('G1', 1.0) > standardCd('G1', 0.9) * 1.35,
+    'this is the behaviour a single exponential decay cannot produce');
+  check('  and are clamped rather than extrapolated past the ends',
+    standardCd('G7', 99) === standardCd('G7', 4.0) && standardCd('G1', -5) === standardCd('G1', 0));
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));
