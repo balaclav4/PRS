@@ -109,3 +109,26 @@ Kept here rather than in a comment nobody reads.
 - **Torque figures** are entered by the shooter. The app ships no defaults,
   because a wrong torque value can damage a rifle or a scope, and the
   manufacturer's figure is the only one worth having.
+- **Bullet BCs.** None are shipped. The BC is typed from the box or trued from
+  the shooter's own dope, and the screen distinguishes the two. A library of
+  published BCs is wanted and is not here, because the catalogued sets belong
+  to whoever measured them.
+- **Target dimensions.** Ring diameters for competition faces are still not
+  listed. The rulebooks are the right source and the PDFs would not fetch, so
+  the numbers were never read. Nothing was estimated in the meantime.
+
+## Provenance of what ships
+
+Audited rather than assumed, on 2026-08-10.
+
+Every data table in `lib/` now states what kind of numbers it holds and where
+they came from. The audit found one gap, `lib/calibers.js`, which had a table
+of bullet diameters and no note; those are definitional rather than measured
+and the file now says so.
+
+The only route by which outside data enters the app is a drag curve the
+shooter imports, and `makeDragFunction` refuses one that does not carry a
+source. That is the whole of it today. When a BC library or a target dimension
+set does arrive, each entry needs the same field before it is stored, so that
+this document stays true rather than becoming a description of what was once
+the case.
