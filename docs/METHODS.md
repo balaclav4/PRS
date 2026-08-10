@@ -53,6 +53,9 @@ and are described in many places. The distinction that matters:
 | Spin drift | `lib/effects.js` | Named method: Litz's closed form, `1.25 x (Sg + 1.2) x TOF^1.83`. Recorded in the source as an empirical fit, not a derivation. |
 | Aerodynamic jump | `lib/effects.js` | Named method: Litz's fit in MOA per mph. Its limitation is enforced in code - outside roughly Sg 1.3 to 2.3 it returns `reliable: false` and the screen says so instead of printing a number. |
 | Coriolis, horizontal and Eotvos | `lib/effects.js` | Named method. Flat-fire Coriolis as in McCoy. Exact physics rather than a fit, and the source says which is which. |
+| Custom drag curves | `lib/dragfn.js` | Derived plumbing, **no data shipped**. The app parses and stores a curve the shooter supplies and records where it came from; it ships none of its own. A measured Cd already contains the form factor, so it is divided by sectional density rather than by BC. `test-dragfn.mjs` checks the two paths agree: a curve `i x Cd_G7` carried at `SD = i x BC` reproduces the BC solve to 0.1 inch at 1000 yards. |
+| Sectional density | `lib/dragfn.js` | Definition. `SD = (grains / 7000) / d^2`, in lb/in^2. |
+| Implied BC across Mach | `lib/dragfn.js` | Derived. `BC(M) = SD / (Cd(M) / Cd_std(M))`, which is the definition rearranged. Drawn because the answer moves: it is what a single quoted BC is averaging over. |
 
 ## Statistics
 

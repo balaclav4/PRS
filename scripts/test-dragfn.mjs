@@ -10,9 +10,9 @@
  */
 import {
   parseDragFunction, checkDragFunction, interpolateCd,
-  makeDragFunction, compareToStandard,
+  makeDragFunction, compareToStandard, sectionalDensity, impliedBc,
 } from '../lib/dragfn.js';
-import { standardCd } from '../lib/ballistics.js';
+import { standardCd, solve } from '../lib/ballistics.js';
 
 let fails = 0;
 const check = (name, ok, detail = '') => {
@@ -125,19 +125,127 @@ console.log('\nprovenance is not optional');
 
 console.log('\nagainst the standard curve it replaces');
 {
+  const BC = 0.315, i = 0.65, SD = i * BC;
   const pts = parseDragFunction(asCsv(CURVE)).points;
-  const cmp = compareToStandard(pts, standardCd, 'G7', 1);
+  const cmp = compareToStandard({ points: pts, sd: SD, standardCd, model: 'G7', bc: BC });
   check('  compares at the Mach numbers that matter', cmp.rows.length >= 6);
   check('  and names where they diverge most',
     !!cmp.worst && cmp.worst.mach > 0, `worst at Mach ${cmp.worst.mach}, ratio ${cmp.worst.ratio.toFixed(2)}`);
 
-  // A curve identical to G7 scaled by its BC should compare as ~1 everywhere.
-  const g7 = [];
-  for (let m = 0; m <= 3; m += 0.05) g7.push([+m.toFixed(2), standardCd('G7', m) / 0.315]);
-  const same = compareToStandard(g7, standardCd, 'G7', 0.315);
+  // The equivalence again, in the comparison rather than the solver: a bullet
+  // whose Cd is i*Cd_G7, carried at SD = i*BC, is the bullet that BC describes.
+  // Every row must read as no change.
+  //
+  // The earlier version of this built its fixture as Cd_std/BC and passed with
+  // sd defaulting to 1, which made it agree with a comparison that was wrong.
+  // A fixture built to the same convention as the code under test cannot
+  // discover that the convention is the bug.
+  const scaled = [];
+  for (let m = 0; m <= 3; m += 0.05) scaled.push([+m.toFixed(2), standardCd('G7', +m.toFixed(2)) * i]);
+  const same = compareToStandard({ points: scaled, sd: SD, standardCd, model: 'G7', bc: BC });
   check('  a curve equal to the standard reads as no change',
     same.rows.every(r => near(r.ratio, 1, 0.02)),
     `worst deviation ${(Math.abs(same.worst.ratio - 1) * 100).toFixed(1)}%`);
+
+  // And the deceleration ratio is what the solver actually produces, so a
+  // curve reading +20% here must drop measurably more there.
+  const draggy = scaled.map(([m, c]) => [m, c * 1.2]);
+  const worse = compareToStandard({ points: draggy, sd: SD, standardCd, model: 'G7', bc: BC });
+  check('  a 20% draggier curve reads as +20%',
+    worse.rows.every(r => near(r.ratio, 1.2, 0.03)),
+    `${((worse.worst.ratio - 1) * 100).toFixed(0)}% at worst`);
+
+  check('  refuses to compare without both divisors',
+    compareToStandard({ points: scaled, sd: 0, standardCd, bc: BC }) === null
+    && compareToStandard({ points: scaled, sd: SD, standardCd, bc: 0 }) === null,
+    'a ratio of Cd against Cd/BC is a number with no meaning');
+}
+
+console.log('\nsectional density, which is what replaces the BC');
+{
+  // A 140gr 6.5mm: 140/7000 = 0.02 lb, over 0.264^2.
+  check('  computed from weight and diameter',
+    near(sectionalDensity(140, 0.264), 0.02 / (0.264 * 0.264), 1e-9),
+    `${sectionalDensity(140, 0.264).toFixed(4)} lb/in²`);
+  check('  refuses nonsense', sectionalDensity(0, 0.264) === null && sectionalDensity(140, 0) === null);
+}
+
+console.log('\nsolving with a curve rather than a coefficient');
+{
+  // The equivalence check, and the one that matters most.
+  //
+  // Take G7 scaled by a form factor: Cd = i * Cd_G7. A bullet with that curve
+  // and sectional density SD = i * BC is, by definition, the same bullet as one
+  // quoted at that BC. The two paths through solve() must agree - if they do
+  // not, one of them is applying the form factor a second time.
+  const BC = 0.315;
+  const i = 0.65;
+  const SD = i * BC;
+  const scaled = [];
+  for (let m = 0; m <= 4.001; m += 0.05) scaled.push([+m.toFixed(2), standardCd('G7', +m.toFixed(2)) * i]);
+
+  const OPTS = {
+    mvFps: 2800, sightHeightIn: 1.5, zeroYd: 100,
+    tempF: 59, pressureInHg: 29.92, humidityPct: 50,
+    windMph: 10, windAngleDeg: 90, maxRangeYd: 1000, stepYd: 200,
+  };
+  const std = solve({ ...OPTS, bc: BC, dragModel: 'G7' }).rows;
+  const cus = solve({ ...OPTS, bc: BC, dragModel: 'G7', dragCurve: scaled, sectionalDensity: SD }).rows;
+
+  check('  a curve equal to the standard reproduces the same drop',
+    std.every((r, k) => near(r.dropIn, cus[k].dropIn, Math.max(0.2, Math.abs(r.dropIn) * 0.004))),
+    `at 1000 yd: ${std[std.length - 1].dropIn.toFixed(1)}" against ${cus[cus.length - 1].dropIn.toFixed(1)}"`);
+  check('  and the same wind drift',
+    near(std[std.length - 1].windIn, cus[cus.length - 1].windIn, 0.5),
+    `${std[std.length - 1].windIn.toFixed(1)}" against ${cus[cus.length - 1].windIn.toFixed(1)}"`);
+
+  // A curve with no sectional density must not be used with the BC as divisor.
+  const noSd = solve({ ...OPTS, bc: BC, dragModel: 'G7', dragCurve: scaled }).rows;
+  check('  a curve without a sectional density falls back to the standard model',
+    near(noSd[noSd.length - 1].dropIn, std[std.length - 1].dropIn, 1e-9),
+    'rather than dividing a real Cd by a BC, which would understate drag by 1/i');
+
+  // And that the curve is actually being used, so the check above is not passing
+  // because the argument is ignored altogether.
+  const draggier = scaled.map(([m, c]) => [m, c * 1.3]);
+  const worse = solve({ ...OPTS, bc: BC, dragModel: 'G7', dragCurve: draggier, sectionalDensity: SD }).rows;
+  check('  a draggier curve drops more',
+    worse[worse.length - 1].dropIn < std[std.length - 1].dropIn - 5,
+    `${worse[worse.length - 1].dropIn.toFixed(1)}" against ${std[std.length - 1].dropIn.toFixed(1)}"`);
+}
+
+console.log('\nthe BC a curve implies, which is not one number');
+{
+  const BC = 0.315, i = 0.65, SD = i * BC;
+  const flat = [];
+  for (let m = 0; m <= 3.001; m += 0.05) flat.push([+m.toFixed(2), standardCd('G7', +m.toFixed(2)) * i]);
+
+  const same = impliedBc(flat, SD, standardCd, 'G7');
+  check('  a curve that is the standard reads as one flat BC',
+    same.spreadPct < 0.5, `spread ${same.spreadPct.toFixed(2)}% around ${BC}`);
+  check('  and that BC is the one it was built from', near(same.rows[0].bc, BC, 0.002),
+    `${same.rows[0].bc.toFixed(3)}`);
+
+  // Built to depart from G7 rather than reused from the parsing fixture. CURVE
+  // happens to sit within 2% of G7 everywhere, so asserting spread on it was
+  // really asserting an accident of numbers invented for a different test.
+  //
+  // This one is shaped the way a real bullet departs: a form factor that is
+  // better than the reference supersonically and worse through transonic, which
+  // is where the reference shape stops describing modern boat-tails.
+  const departs = [];
+  for (let m = 0; m <= 3.001; m += 0.05) {
+    const mm = +m.toFixed(2);
+    const factor = i * (1 + 0.25 * Math.exp(-Math.pow((mm - 1.05) / 0.18, 2)));
+    departs.push([mm, standardCd('G7', mm) * factor]);
+  }
+  const real = impliedBc(departs, SD, standardCd, 'G7');
+  check('  one that departs from the reference shape does not', real.spreadPct > 15,
+    `${real.min.toFixed(3)} to ${real.max.toFixed(3)}, ${real.spreadPct.toFixed(0)}% - why one quoted number drifts`);
+  check('  and it is lowest through transonic, where it should be',
+    Math.abs(real.rows.reduce((a, b) => (b.bc < a.bc ? b : a)).mach - 1.05) < 0.15,
+    `minimum at Mach ${real.rows.reduce((a, b) => (b.bc < a.bc ? b : a)).mach}`);
+  check('  nothing in, nothing out', impliedBc([], SD, standardCd) === null && impliedBc(flat, 0, standardCd) === null);
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));

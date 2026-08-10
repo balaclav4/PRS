@@ -14,6 +14,11 @@ import { saveCSV, slugify } from '../../lib/export';
 import { bulletDiameterIn } from '../../lib/calibers';
 import { hitCurve, rangeAtProbability, dominantAdvice } from '../../lib/hitprob';
 import {
+  parseDragFunction, checkDragFunction, makeDragFunction,
+  sectionalDensity, impliedBc, compareToStandard,
+} from '../../lib/dragfn';
+import { standardCd } from '../../lib/ballistics';
+import {
   gyroscopicStability, stabilityVerdict, secondaryEffects,
   parseTwist, parseGrains, densityRatioFromDa,
 } from '../../lib/effects';
@@ -90,6 +95,13 @@ export default function BallisticsScreen() {
   const [truedResult, setTruedResult] = useState(null);
   const [savedBc, setSavedBc] = useState(false);
 
+  // A measured drag curve, when the shooter has one for this bullet.
+  const [showCurve, setShowCurve] = useState(false);
+  const [curveText, setCurveText] = useState('');
+  const [curveName, setCurveName] = useState('');
+  const [curveSource, setCurveSource] = useState('');
+  const [curveWeight, setCurveWeight] = useState('');
+
   // Changing the active load brings its own coefficient with it.
   const lastLoadRef = useRef(load?.id ?? null);
   useEffect(() => {
@@ -99,6 +111,9 @@ export default function BallisticsScreen() {
     if (load?.dragModel) setDragModel(load.dragModel);
     if (load?.velocityFps) setMvFps(String(Math.round(load.velocityFps)));
     setTruedResult(null);
+    // A half-typed curve belongs to the load it was being typed for. Carrying
+    // it across would offer to save one bullet's radar data against another's.
+    setCurveText(''); setCurveName(''); setCurveSource(''); setCurveWeight('');
   }, [load?.id, load?.bc, load?.dragModel, load?.velocityFps]);
 
   const num = (v, d) => { const n = parseFloat(v); return isFinite(n) ? n : d; };
@@ -134,10 +149,40 @@ export default function BallisticsScreen() {
     step: dU === 'm' ? '100' : '100',
   };
 
+  // The curve stored against this load, if any, and whether it can actually be
+  // used. A custom Cd is divided by sectional density rather than BC (see
+  // lib/dragfn), so weight and diameter are not optional extras here - without
+  // them there is no divisor, and the curve stays stored but unused rather than
+  // being applied with a number that would be wrong.
+  const storedCurve = useMemo(() => {
+    if (!load?.dragCurveJson) return null;
+    try {
+      const c = JSON.parse(load.dragCurveJson);
+      return c?.points?.length ? c : null;
+    } catch { return null; }
+  }, [load?.dragCurveJson]);
+
+  const curveSd = useMemo(() => {
+    const grains = num(curveWeight, 0) || parseGrains(load?.bullet) || 0;
+    const cal = bulletDiameterIn(load?.caliber || rifle?.cartridge || '');
+    // Same reasoning as the stability panel: the fallback diameter is fine for
+    // sizing a bullet hole and wrong when it is squared into a divisor.
+    if (!cal.matched || !(grains > 0)) {
+      return { sd: null, grains, dia: cal.matched ? cal.diameterIn : null, matched: cal.matched };
+    }
+    return { sd: sectionalDensity(grains, cal.diameterIn), grains, dia: cal.diameterIn, matched: true };
+  }, [curveWeight, load?.bullet, load?.caliber, rifle?.cartridge]);
+
+  const curveActive = !!(storedCurve && curveSd.sd > 0);
+
   const opts = useMemo(() => ({
     mvFps: toFps(mvFps, vU === 'm/s' ? 853 : 2800),
     bc: num(bc, 0.315),
     dragModel,
+    // Present only when both halves are: solve() checks the same pair, but a
+    // half-filled option object would leave the reason invisible here.
+    dragCurve: curveActive ? storedCurve.points : null,
+    sectionalDensity: curveActive ? curveSd.sd : null,
     sightHeightIn: toIn(sightHeight, metricLen ? 38 : 1.5),
     zeroYd: toYd(zeroYd, dU === 'm' ? 91 : 100),
     tempF: toF(tempF, tU === '°C' ? 15 : 59),
@@ -150,7 +195,33 @@ export default function BallisticsScreen() {
     stepYd: Math.min(500, Math.max(25, toYd(stepYd, 100))),
     unit,
   }), [mvFps, bc, dragModel, sightHeight, zeroYd, tempF, pressureInHg, humidityPct,
-       altitudeFt, windMph, windAngleDeg, maxRangeYd, stepYd, unit, dU, tU, vU]);
+       altitudeFt, windMph, windAngleDeg, maxRangeYd, stepYd, unit, dU, tU, vU,
+       curveActive, storedCurve, curveSd.sd]);
+
+  // What the pasted text amounts to, recomputed as it is typed so the verdict
+  // arrives before the shooter commits rather than after.
+  const pending = useMemo(() => {
+    if (!curveText.trim()) return null;
+    const parsed = parseDragFunction(curveText);
+    return { parsed, verdict: checkDragFunction(parsed) };
+  }, [curveText]);
+
+  // The BC the active curve implies, across the flight. This is the chart worth
+  // drawing: a quoted BC is one number, and the curve says by how much that is
+  // a simplification and where.
+  const implied = useMemo(() => {
+    const pts = pending?.verdict?.ok ? pending.parsed.points : storedCurve?.points;
+    if (!pts || !(curveSd.sd > 0)) return null;
+    return impliedBc(pts, curveSd.sd, standardCd, dragModel);
+  }, [pending, storedCurve, curveSd.sd, dragModel]);
+
+  const vsStandard = useMemo(() => {
+    const pts = pending?.verdict?.ok ? pending.parsed.points : storedCurve?.points;
+    if (!pts) return null;
+    return compareToStandard({
+      points: pts, sd: curveSd.sd, standardCd, model: dragModel, bc: num(bc, 0),
+    });
+  }, [pending, storedCurve, bc, dragModel, curveSd.sd]);
 
   const card = useMemo(() => dopeCard(opts), [opts]);
   const unitLabel = unit === 'mil' ? 'MIL' : 'MOA';
@@ -379,6 +450,266 @@ export default function BallisticsScreen() {
               {savedBc ? 'Saved' : `Save BC ${num(bc, 0)} ${dragModel} to ${load.name}`}
             </Text>
           </TouchableOpacity>
+        )}
+
+        {/* Measured drag curve.
+            Folded away by default: most shooters have a BC off a box and
+            nothing else, and this is the answer to a question they have not
+            asked yet. The header states which of the two is actually driving
+            the card, because that is the part that must never be ambiguous. */}
+        <TouchableOpacity onPress={() => setShowCurve(v => !v)}
+          style={[s.curveHead, { borderColor: colors.bd, backgroundColor: colors.card }]}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[s.curveHeadTitle, { color: colors.tx }]}>Drag curve</Text>
+            <Text style={[s.curveStoredMeta, { color: curveActive ? colors.act : colors.mut }]} numberOfLines={1}>
+              {curveActive
+                ? `Measured · ${storedCurve.name}`
+                : storedCurve ? 'Stored, not in use' : `Standard ${dragModel}`}
+            </Text>
+          </View>
+          <View style={[s.saveCardBtn, { backgroundColor: colors.acs }]}>
+            <Text style={[s.saveCardText, { color: colors.act }]}>{showCurve ? 'Hide' : 'Show'}</Text>
+          </View>
+        </TouchableOpacity>
+
+        {/* Said outside the fold as well. A shooter who has stored a curve and
+            then edits the BC field would otherwise watch a number they changed
+            do nothing to the card. */}
+        {curveActive && (
+          <Text style={[s.curveNote, { color: colors.mut }]}>
+            This card is solved from {storedCurve.name}, not from the BC above. The BC field is
+            kept for comparison and for the hit curve's second load.
+          </Text>
+        )}
+        {storedCurve && !curveActive && (
+          <Text style={[s.curveNote, { color: colors.warnt }]}>
+            {storedCurve.name} is stored but not in use: a measured curve needs the bullet's
+            sectional density, and {!curveSd.matched
+              ? `the caliber "${load?.caliber || rifle?.cartridge || ''}" was not recognised`
+              : 'the bullet weight could not be read from the load'}. Open the panel to supply it.
+          </Text>
+        )}
+
+        {showCurve && (
+          <View style={[s.curvePanel, { borderColor: colors.bd, backgroundColor: colors.inset }]}>
+            <Text style={[s.curveProse, { color: colors.mut }]}>
+              A ballistic coefficient says a bullet behaves like a reference shape, scaled. A
+              measured curve is the bullet's own drag, from radar, used directly — which matters
+              most through transonic, where the reference shape stops describing modern bullets.
+            </Text>
+
+            {storedCurve ? (
+              <View style={[s.curveStored, { borderColor: colors.bd }]}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[s.curveStoredName, { color: colors.tx }]}>{storedCurve.name}</Text>
+                  <Text style={[s.curveStoredMeta, { color: colors.mut }]} numberOfLines={2}>
+                    {storedCurve.points.length} points · {storedCurve.source}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => updateLoad(load.id, { dragCurveJson: null })}
+                  hitSlop={10} style={s.curveRemove}>
+                  <Trash2 size={17} color={colors.dngt} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {/* Sectional density: shown always, because when it is missing the
+                curve silently does nothing, and that has to be visible. */}
+            <View style={[s.curveSd, { borderColor: colors.bd }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[s.fieldLabel, { color: colors.mut }]}>Sectional density</Text>
+                <Text style={[s.curveSdVal, { color: curveSd.sd > 0 ? colors.tx : colors.warnt }]}>
+                  {curveSd.sd > 0
+                    ? `${curveSd.sd.toFixed(4)} lb/in²`
+                    : !curveSd.matched ? 'Caliber not recognised' : 'Bullet weight needed'}
+                </Text>
+                {curveSd.sd > 0 && (
+                  <Text style={[s.curveStoredMeta, { color: colors.fnt }]}>
+                    {curveSd.grains} gr at {curveSd.dia}"
+                  </Text>
+                )}
+              </View>
+              <View style={{ width: 92 }}>
+                <Field label="Weight" value={curveWeight} onChange={setCurveWeight}
+                  unit="gr" colors={colors}
+                  placeholder={parseGrains(load?.bullet) ? String(parseGrains(load?.bullet)) : '140'} />
+              </View>
+            </View>
+
+            <Text style={[s.fieldLabel, { color: colors.mut, marginTop: 14 }]}>
+              Paste the curve — Mach and Cd, two numbers a line
+            </Text>
+            <TextInput
+              value={curveText}
+              onChangeText={setCurveText}
+              multiline
+              placeholder={'0.00, 0.118\n0.90, 0.146\n1.00, 0.379\n…'}
+              placeholderTextColor={colors.fnt}
+              style={[s.curveInput, {
+                backgroundColor: colors.input, borderColor: colors.ibd, color: colors.tx,
+              }]}
+            />
+
+            {pending && (
+              <Text style={[s.curveVerdict, {
+                color: pending.verdict.ok ? colors.okt : colors.warnt,
+              }]}>
+                {pending.verdict.text}
+              </Text>
+            )}
+
+            {pending?.verdict?.ok && (
+              <>
+                <View style={[s.row, { marginTop: 10 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.fieldLabel, { color: colors.mut }]}>Name</Text>
+                    <View style={[s.fieldBox, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                      <TextInput value={curveName} onChangeText={setCurveName}
+                        placeholder={load?.bullet || 'Bullet'} placeholderTextColor={colors.fnt}
+                        style={[s.fieldInput, { color: colors.tx }]} />
+                    </View>
+                  </View>
+                </View>
+                <View style={{ marginTop: 8 }}>
+                  <Text style={[s.fieldLabel, { color: colors.mut }]}>Where it came from</Text>
+                  <View style={[s.fieldBox, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+                    <TextInput value={curveSource} onChangeText={setCurveSource}
+                      placeholder="e.g. Lapua published radar data"
+                      placeholderTextColor={colors.fnt}
+                      style={[s.fieldInput, { color: colors.tx }]} />
+                  </View>
+                  {/* Required, and said plainly rather than enforced silently. */}
+                  <Text style={[s.curveStoredMeta, { color: colors.fnt, marginTop: 4 }]}>
+                    Required. A curve with no recorded origin cannot be checked later, and nobody
+                    can tell whether it may be shared.
+                  </Text>
+                </View>
+              </>
+            )}
+
+            {/* The chart. The claim it makes is specific: the BC this curve
+                implies is not one number, and here is where it sags. */}
+            {implied && (
+              <>
+                <Text style={[s.fieldLabel, { color: colors.mut, marginTop: 16 }]}>
+                  The {dragModel} BC this curve implies
+                </Text>
+                <Svg viewBox="0 0 300 120" style={{ width: '100%', height: undefined, aspectRatio: 300 / 120, marginTop: 8 }}>
+                  {(() => {
+                    // The quoted BC shares the axis when it is close enough to
+                    // be worth comparing against. When it is not - and a curve
+                    // implying 0.44 against a typed 0.315 is not - drawing it
+                    // would flatten the curve's shape to a line, so it is left
+                    // off and the prose says so rather than promising a line
+                    // that is not there.
+                    const quoted = num(bc, 0);
+                    const showQuoted = quoted > implied.min * 0.8 && quoted < implied.max * 1.2;
+                    const lo = Math.min(implied.min * 0.96, showQuoted ? quoted * 0.98 : Infinity);
+                    const hi = Math.max(implied.max * 1.04, showQuoted ? quoted * 1.02 : -Infinity);
+                    const px = (m) => 34 + ((m - 0.6) / 2.4) * 262;
+                    const py = (b) => 100 - ((b - lo) / (hi - lo || 1)) * 88;
+                    const d = implied.rows.map((r, i) => `${i ? 'L' : 'M'} ${px(r.mach)} ${py(r.bc)}`).join(' ');
+                    return (
+                      <>
+                        {[lo, (lo + hi) / 2, hi].map((b, i) => (
+                          <SvgLine key={i} x1={34} y1={py(b)} x2={296} y2={py(b)}
+                            stroke={colors.grid} strokeWidth={0.6} />
+                        ))}
+                        {[lo, hi].map((b, i) => (
+                          <SvgText key={i} x={30} y={py(b) + 3} fontSize="8"
+                            textAnchor="end" fill={colors.fnt}>{b.toFixed(2)}</SvgText>
+                        ))}
+                        {/* The single quoted figure, for contrast. */}
+                        {showQuoted && (
+                          <SvgLine x1={34} y1={py(quoted)} x2={296} y2={py(quoted)}
+                            stroke={colors.mut} strokeWidth={1} strokeDasharray="4 3" />
+                        )}
+                        {/* Mach 1, which is where the divergence lives. */}
+                        <SvgLine x1={px(1)} y1={8} x2={px(1)} y2={100}
+                          stroke={colors.warnt} strokeWidth={0.8} strokeDasharray="2 2" />
+                        <SvgText x={px(1)} y={116} fontSize="8" textAnchor="middle" fill={colors.fnt}>Mach 1</SvgText>
+                        <Path d={d} fill="none" stroke="#8B6BF5" strokeWidth={2} />
+                        <SvgText x={34} y={116} fontSize="8" fill={colors.fnt}>0.6</SvgText>
+                        <SvgText x={296} y={116} fontSize="8" textAnchor="end" fill={colors.fnt}>3.0</SvgText>
+                      </>
+                    );
+                  })()}
+                </Svg>
+                <Text style={[s.curveProse, { color: colors.mut }]}>
+                  {implied.min.toFixed(3)} to {implied.max.toFixed(3)} across the flight,
+                  a spread of {implied.spreadPct.toFixed(0)}%. One quoted BC has to stand in for
+                  all of that, and the sag through Mach 1 is where it stands in worst.
+                  {' '}
+                  {num(bc, 0) > 0 && (num(bc, 0) <= implied.min * 0.8 || num(bc, 0) >= implied.max * 1.2)
+                    ? `Your ${num(bc, 0)} is off this scale entirely — the curve implies nearer ${((implied.min + implied.max) / 2).toFixed(2)}, so check the weight and caliber above are right for this bullet before trusting either.`
+                    : 'The flat dashed line is the BC you typed.'}
+                </Text>
+              </>
+            )}
+
+            {vsStandard && (
+              <>
+                <Text style={[s.fieldLabel, { color: colors.mut, marginTop: 12 }]}>
+                  Drag against {dragModel} at BC {num(bc, 0.315)}
+                </Text>
+                <View style={s.curveRow}>
+                  <Text style={[s.curveCell, { color: colors.fnt }]}>MACH</Text>
+                  <Text style={[s.curveCell, { color: colors.fnt, textAlign: 'right' }]}>Cd</Text>
+                  <Text style={[s.curveCell, { color: colors.fnt, textAlign: 'right' }]}>DRAG</Text>
+                </View>
+                {vsStandard.rows.map(r => (
+                  <View key={r.mach} style={s.curveRow}>
+                    <Text style={[s.curveCell, { color: colors.mut }]}>{r.mach.toFixed(2)}</Text>
+                    <Text style={[s.curveCell, { color: colors.tx, textAlign: 'right' }]}>
+                      {r.cd.toFixed(4)}
+                    </Text>
+                    {/* The ratio of decelerations, not of bare Cd - a raw Cd
+                        and a Cd/BC are not comparable quantities. */}
+                    <Text style={[s.curveCell, {
+                      color: Math.abs(r.ratio - 1) > 0.05 ? colors.warnt : colors.mut,
+                      textAlign: 'right',
+                    }]}>
+                      {r.ratio > 1 ? '+' : ''}{((r.ratio - 1) * 100).toFixed(1)}%
+                    </Text>
+                  </View>
+                ))}
+                <Text style={[s.curveProse, { color: colors.mut }]}>
+                  Positive means this curve produces more drag than your BC assumes, so the card
+                  under-dials. {vsStandard.worst && Math.abs(vsStandard.worst.ratio - 1) > 0.02
+                    ? `Furthest apart at Mach ${vsStandard.worst.mach.toFixed(2)}, by ${Math.abs((vsStandard.worst.ratio - 1) * 100).toFixed(0)}%.`
+                    : 'This curve and your BC agree closely, so importing it will change little.'}
+                </Text>
+              </>
+            )}
+
+            {pending?.verdict?.ok && (
+              <TouchableOpacity
+                disabled={!load || !curveSource.trim()}
+                onPress={() => {
+                  const df = makeDragFunction({
+                    name: curveName.trim() || load?.bullet || 'Measured curve',
+                    source: curveSource.trim(),
+                    points: pending.parsed.points,
+                  });
+                  if (!df) return;
+                  updateLoad(load.id, { dragCurveJson: JSON.stringify(df) });
+                  setCurveText(''); setCurveName(''); setCurveSource('');
+                }}
+                style={[s.zeroBtn, {
+                  borderColor: curveSource.trim() ? colors.act : colors.bd,
+                  backgroundColor: curveSource.trim() ? colors.acs : 'transparent',
+                  marginTop: 14,
+                }]}
+              >
+                <Text style={[s.zeroBtnText, { color: curveSource.trim() ? colors.act : colors.fnt }]}>
+                  {!load ? 'Pick a load first'
+                    : !curveSource.trim() ? 'Say where it came from to save'
+                    : `Save to ${load.name}`}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         )}
 
         {/* Rifle setup */}
@@ -1072,6 +1403,34 @@ const s = StyleSheet.create({
   zeroBtn: { paddingVertical: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
   zeroBtnText: { fontSize: 12.5, fontWeight: '700' },
   sectionLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5, marginTop: 18, marginBottom: 8 },
+  curveHead: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1,
+    borderRadius: 12, padding: 12, marginTop: 12,
+  },
+  curveHeadTitle: { fontSize: 13.5, fontWeight: '800', marginBottom: 2 },
+  curveNote: { fontSize: 11.5, lineHeight: 16.5, marginTop: 8, paddingHorizontal: 2 },
+  curvePanel: { borderWidth: 1, borderRadius: 12, padding: 14, marginTop: 8 },
+  curveProse: { fontSize: 11.5, lineHeight: 16.5, marginTop: 8 },
+  curveStored: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderRadius: 10, padding: 10, marginTop: 12,
+  },
+  curveStoredName: { fontSize: 13, fontWeight: '700' },
+  curveStoredMeta: { fontSize: 11, lineHeight: 15 },
+  // Comfortably past a thumb's width: this one deletes work.
+  curveRemove: { padding: 8 },
+  curveSd: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderWidth: 1, borderRadius: 10, padding: 10, marginTop: 10,
+  },
+  curveSdVal: { fontSize: 13, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' },
+  curveInput: {
+    borderWidth: 1, borderRadius: 11, padding: 12, minHeight: 110,
+    fontSize: 12.5, fontFamily: 'JetBrainsMono_700Bold', textAlignVertical: 'top',
+  },
+  curveVerdict: { fontSize: 11.5, lineHeight: 16.5, fontWeight: '700', marginTop: 8 },
+  curveRow: { flexDirection: 'row', gap: 8, paddingVertical: 5 },
+  curveCell: { flex: 1, fontSize: 11.5, fontFamily: 'JetBrainsMono_700Bold' },
   row: { flexDirection: 'row', gap: 10, marginBottom: 8 },
   fieldLabel: { fontSize: 11.5, fontWeight: '700', marginBottom: 6 },
   fieldBox: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 11, paddingHorizontal: 12 },
