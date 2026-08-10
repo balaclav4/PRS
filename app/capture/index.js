@@ -13,7 +13,7 @@ import { rectifyToInches, project, orderCorners, perspectiveSeverity } from '../
 import { lightTap, mediumTap, successTap } from '../../lib/haptics';
 import { loadGrayscale, imageToNormalized, normalizedToImage, coverScale } from '../../lib/pixels';
 import { detectShots, expandPolygon } from '../../lib/detect';
-import { fitCircle, circleQuality, circleQuad, BULL_PRESETS } from '../../lib/circlefit';
+import { fitCircle, circleQuality, circleQuad, allBullPresets, makeBullPreset } from '../../lib/circlefit';
 import { emptyHistory, push as pushUndo, peek as peekUndo, undo as popUndo, clear as clearUndo } from '../../lib/undo';
 import { rimFit, rimQuality, rimQuad, cropFor } from '../../lib/rimfit';
 import { bulletDiameterIn } from '../../lib/calibers';
@@ -82,7 +82,8 @@ const DEMO_PHOTO = {
 
 export default function CaptureScreen() {
   const { colors } = useTheme();
-  const { addSession, rifles, loads, projects, units, trainingConsent } = useData();
+  const { addSession, rifles, loads, projects, units, trainingConsent,
+          bullPresets, addBullPreset, deleteBullPreset } = useData();
   const params = useLocalSearchParams();
   const router = useRouter();
 
@@ -155,6 +156,7 @@ export default function CaptureScreen() {
   // than silently mis-scaled.
   const [refMode, setRefMode] = useState('bull');
   const [bullDiameter, setBullDiameter] = useState('3');
+  const [presetLabel, setPresetLabel] = useState('');
   const shots = groups[activeGroup]?.shots ?? [];
   const aim = groups[activeGroup]?.aim ?? null;
   const corners = groups[activeGroup]?.corners ?? [];
@@ -1189,27 +1191,88 @@ export default function CaptureScreen() {
                   <Text style={[s.inputUnit, { color: colors.mut }]}>in</Text>
                 </View>
                 <View style={s.presetRow}>
-                  {BULL_PRESETS.map(p => (
+                  {allBullPresets(bullPresets).map(p => {
+                    const on = bullIn === p.inches;
+                    return (
+                      <TouchableOpacity
+                        key={p.id || p.inches}
+                        onPress={() => setBullDiameter(String(p.inches))}
+                        style={[s.presetChip, {
+                          backgroundColor: on ? colors.acs : colors.input,
+                          borderColor: on ? colors.act : colors.ibd,
+                        }]}
+                      >
+                        <Text style={[s.presetText, { color: on ? colors.act : colors.mut }]}
+                          numberOfLines={1}>
+                          {p.measuredBy === 'user' ? `${p.label} ${p.inches}"` : `${p.inches}"`}
+                        </Text>
+                        {/* The bin appears on the selected chip, the same way it
+                            does on a target chip. Long-press would have been
+                            tidier in the row and is the thing a thumb cannot
+                            discover, which is why it lost that argument once
+                            already. Built-in sizes cannot be removed, so they
+                            never show one. */}
+                        {on && p.measuredBy === 'user' && (
+                          <TouchableOpacity
+                            // Removing a preset leaves its diameter in the
+                            // field, so the save row reappears immediately.
+                            // Putting the name back into it too makes that row
+                            // the undo: one tap restores what was just binned,
+                            // rather than asking for the name again.
+                            onPress={() => { deleteBullPreset(p.id); setPresetLabel(p.label); }}
+                            hitSlop={{ top: 12, bottom: 12, left: 10, right: 12 }}
+                            style={s.presetBin}
+                          >
+                            <Trash2 size={13} color={colors.dngt} />
+                          </TouchableOpacity>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Saving a measured size. Offered only once the typed diameter
+                    is not already a chip, so it does not sit there inviting a
+                    duplicate of something already in the row. */}
+                {bullIn > 0 && !allBullPresets(bullPresets).some(p => p.inches === bullIn) && (
+                  <View style={s.savePresetRow}>
+                    <TextInput
+                      value={presetLabel}
+                      onChangeText={setPresetLabel}
+                      placeholder={`Name this ${bullIn}" bull to keep it`}
+                      placeholderTextColor={colors.fnt}
+                      style={[s.savePresetInput, {
+                        backgroundColor: colors.input, borderColor: colors.ibd, color: colors.tx,
+                      }]}
+                    />
                     <TouchableOpacity
-                      key={p.inches}
-                      onPress={() => setBullDiameter(String(p.inches))}
-                      style={[s.presetChip, {
-                        backgroundColor: bullIn === p.inches ? colors.acs : colors.input,
-                        borderColor: bullIn === p.inches ? colors.act : colors.ibd,
+                      disabled={!presetLabel.trim()}
+                      onPress={() => {
+                        const p = makeBullPreset({ label: presetLabel, inches: bullIn });
+                        if (!p) return;
+                        addBullPreset(p);
+                        setPresetLabel('');
+                      }}
+                      style={[s.savePresetBtn, {
+                        backgroundColor: presetLabel.trim() ? colors.acs : colors.input,
+                        borderColor: presetLabel.trim() ? colors.act : colors.ibd,
                       }]}
                     >
-                      <Text style={[s.presetText, { color: bullIn === p.inches ? colors.act : colors.mut }]}>
-                        {p.inches}"
+                      <Text style={[s.savePresetText, { color: presetLabel.trim() ? colors.act : colors.fnt }]}>
+                        Save
                       </Text>
                     </TouchableOpacity>
-                  ))}
-                </View>
+                  </View>
+                )}
+
                 {refSizeError
                   ? <Text style={[s.fieldError, { color: colors.dngt }]}>{refSizeError}</Text>
                   : <Text style={[s.fieldHint, { color: colors.fnt }]}>
                       The printed diameter of the bull you shot at. Next you'll tap around its edge.
-                      The presets are Shoot-N-C sizes; for anything else measure it, because a guessed
-                      reference size is a scale error on every number this reads off the photo.
+                      The plain sizes are Shoot-N-C; competition faces are not listed because their
+                      published figures disagree with each other, and a guessed reference size is a
+                      scale error on every number read off this photo. Measure yours once, name it,
+                      and it stays.
                     </Text>}
               </View>
             ) : (
@@ -1989,8 +2052,23 @@ const s = StyleSheet.create({
   refModeBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   refModeText: { fontSize: 11.5, fontWeight: '700', textAlign: 'center' },
   presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  presetChip: { paddingVertical: 6, paddingHorizontal: 11, borderRadius: 8, borderWidth: 1 },
+  presetChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    paddingVertical: 6, paddingHorizontal: 11, borderRadius: 8, borderWidth: 1,
+  },
+  presetBin: { paddingVertical: 2, paddingLeft: 1 },
   presetText: { fontSize: 12, fontWeight: '700', fontFamily: 'JetBrainsMono_700Bold' },
+  savePresetRow: { flexDirection: 'row', gap: 8, marginTop: 8, alignItems: 'stretch' },
+  // minWidth 0 for the same reason as everywhere else: without it the web
+  // <input> keeps its 20-character intrinsic width and pushes Save off the row.
+  savePresetInput: {
+    flex: 1, minWidth: 0, borderWidth: 1, borderRadius: 9,
+    paddingHorizontal: 11, paddingVertical: 9, fontSize: 12.5,
+  },
+  savePresetBtn: {
+    justifyContent: 'center', paddingHorizontal: 16, borderRadius: 9, borderWidth: 1,
+  },
+  savePresetText: { fontSize: 12.5, fontWeight: '800' },
   markModeRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
   devVariantText: { fontSize: 15, fontWeight: '800', marginTop: 2 },
   devVariantSub: { fontSize: 12, fontWeight: '600', marginTop: 2 },

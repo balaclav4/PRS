@@ -89,6 +89,9 @@ export function DataProvider({ children }) {
   // Backs the initials in the dashboard corner. Local label, not an identity —
   // there is no account behind it yet.
   const [profileName, setProfileName] = useState('');
+  // Bull diameters the shooter measured themselves. The app ships none for
+  // competition faces, so this is the only place those can come from.
+  const [bullPresets, setBullPresets] = useState([]);
   // Off until explicitly granted. Never inferred, never defaulted on.
   const [trainingConsent, setTrainingConsentState] = useState(noConsent());
   const [ready, setReady] = useState(false);
@@ -114,6 +117,7 @@ export function DataProvider({ children }) {
         setUnits({ ...DEFAULT_UNITS, ...(data.prefs?.units || {}) });
         setProfileName(data.prefs?.profileName ?? '');
         setTrainingConsentState(data.prefs?.trainingConsent ?? noConsent());
+        setBullPresets(data.prefs?.bullPresets || []);
       }
       if (!cancelled) setReady(true);
     })();
@@ -258,6 +262,25 @@ export function DataProvider({ children }) {
     persist(() => db.putPref('profileName', name));
   }, []);
 
+  const addBullPreset = useCallback((preset) => {
+    if (!preset) return;
+    setBullPresets(prev => {
+      // Same diameter means the same target measured twice, so the newer name
+      // wins rather than the list growing a duplicate.
+      const next = [preset, ...prev.filter(p => Number(p.inches) !== Number(preset.inches))];
+      persist(() => db.putPref('bullPresets', next));
+      return next;
+    });
+  }, []);
+
+  const deleteBullPreset = useCallback((id) => {
+    setBullPresets(prev => {
+      const next = prev.filter(p => p.id !== id);
+      persist(() => db.putPref('bullPresets', next));
+      return next;
+    });
+  }, []);
+
   const getDopeCard = useCallback((id) => dopeCards.find(c => c.id === id), [dopeCards]);
 
   const addDopeCard = useCallback((card) => {
@@ -338,8 +361,10 @@ export function DataProvider({ children }) {
     deleteSession,
     getProject, addProject, updateProject, deleteProject,
     getDopeCard, addDopeCard, deleteDopeCard,
+    bullPresets, addBullPreset, deleteBullPreset,
     exportSessionsCSV,
   }), [rifles, loads, sessions, projects, dopeCards, units, setUnit, ready,
+       bullPresets, addBullPreset, deleteBullPreset,
        profileName, setProfile, clearAllData, deleteAccount,
        trainingConsent, setTrainingConsent, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, getDopeCard, addDopeCard, deleteDopeCard, exportSessionsCSV]);
 

@@ -11,7 +11,10 @@
  *
  * Run: node scripts/test-circlefit.mjs
  */
-import { fitCircle, circleQuality, circleQuad, scaleErrorPct, BULL_PRESETS } from '../lib/circlefit.js';
+import {
+  fitCircle, circleQuality, circleQuad, scaleErrorPct,
+  BULL_PRESETS, makeBullPreset, allBullPresets,
+} from '../lib/circlefit.js';
 
 let fails = 0;
 const check = (name, ok, detail = '') => {
@@ -147,6 +150,33 @@ console.log('\npresets');
     BULL_PRESETS.every(p => /Shoot-N-C/.test(p.label) && p.inches > 0),
     `${BULL_PRESETS.length} Shoot-N-C sizes, no guessed competition ring diameters`);
   check('  and they are distinct', new Set(BULL_PRESETS.map(p => p.inches)).size === BULL_PRESETS.length);
+
+  // What the shooter measures themselves, which is the only competition-face
+  // dimension this app is willing to hold.
+  check('  a measured preset needs a name', makeBullPreset({ inches: 24 }) === null,
+    '"24" tells nobody anything in six months');
+  check('  and a diameter', makeBullPreset({ label: 'MR-1 black' }) === null);
+  check('  and a believable one',
+    makeBullPreset({ label: 'x', inches: 0 }) === null
+    && makeBullPreset({ label: 'x', inches: 500 }) === null,
+    'though 60 inch LR seven rings are real, so the cap is generous');
+
+  const mine = makeBullPreset({ label: 'MR-1 aiming black', inches: 24 });
+  check('  a complete one is kept and marked as the shooter\'s own',
+    mine.inches === 24 && mine.measuredBy === 'user' && !!mine.addedAt);
+
+  const merged = allBullPresets([mine]);
+  check('  custom presets come first', merged[0].label === 'MR-1 aiming black',
+    'someone who saved one has said which targets they actually shoot');
+  check('  and the built-ins follow', merged.length === BULL_PRESETS.length + 1);
+
+  const clash = allBullPresets([makeBullPreset({ label: 'My 3in bull', inches: 3 })]);
+  check('  a custom entry replaces a built-in of the same size',
+    clash.length === BULL_PRESETS.length && clash.filter(p => p.inches === 3).length === 1,
+    'rather than two chips both reading 3"');
+
+  check('  no custom presets means the built-in list, unchanged',
+    allBullPresets().length === BULL_PRESETS.length && allBullPresets(null).length === BULL_PRESETS.length);
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));
