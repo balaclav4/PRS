@@ -109,6 +109,12 @@ Kept here rather than in a comment nobody reads.
 - **Torque figures** are entered by the shooter. The app ships no defaults,
   because a wrong torque value can damage a rifle or a scope, and the
   manufacturer's figure is the only one worth having.
+- **Rim fitting when shots land on the rim.** Measured on a real NRA 50ft
+  sheet: of four bulls in one photograph, the two with clean rims fitted at
+  100% coverage and read square-on; the two with holes broken through the
+  printed edge read 54 and 55 degrees off-axis, which the photograph is not.
+  Refused rather than worked around, so it costs a refusal rather than a silent
+  scale error. `lib/rimfit.js` records the cause and the fix if it matters.
 - **Bullet BCs.** None are shipped. The BC is typed from the box or trued from
   the shooter's own dope, and the screen distinguishes the two. A library of
   published BCs is wanted and is not here, because the catalogued sets belong

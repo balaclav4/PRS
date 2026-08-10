@@ -218,3 +218,56 @@ wrong number.
 What did change: the frame now also takes in any shots already marked on the
 target, so returning to one can never put a previously marked shot off screen.
 Pinch and zoom remain for anything tighter.
+
+---
+
+## Found during the app-verification pass, 10 Aug 2026
+
+## [x] 13. A refused bull fit was still used as the scale reference
+
+`app/capture/index.js` — `measureBull`
+
+The four-corner circle path refuses on quality:
+`circleQuality(fit).ok ? circleQuad(fit) : null`. The two-tap path, which is
+now the primary flow, returned a quad whatever the verdict said. So a fit the
+app had itself judged unusable still counted as placed, still fed the
+homography, and still carried a green tick.
+
+What made it silent rather than merely wrong: an oblique fit becomes a
+rectangle, `solveFor` fits a circle back to those four corners, and the four
+corners of a rectangle are always exactly concyclic — so the re-fit is perfect,
+passes its own quality check, and yields the circumcircle, whose diameter is
+the rectangle's *diagonal*.
+
+Measured on an NRA 50ft sheet: one bull read **94px** across where the same
+bull on the same photograph read **65px**. A 45% scale error on every group
+from that target, announced by a green tick.
+
+Fixed: a fit that fails `rimQuality` yields no corners, so it is not placed and
+does not tick. The fit itself is kept so the verdict still has something to
+report. Placing no longer advances to a fresh target on a refusal either —
+advancing moved the shooter off the one target needing attention and onto an
+empty slot that looked like progress.
+
+Verified: the same two taps that produced 94px now report `—px`, leave
+`0 targets placed`, spawn no Target 2, and show no tick.
+
+## [x] 14. Deprecated `pointerEvents` prop
+
+The zoom fix used `pointerEvents="none"` as a prop, which RN 0.86 deprecates in
+favour of `style.pointerEvents`. Five call sites moved. Tap accuracy at 1.6x
+re-verified afterwards, since this is the exact code path the zoom bug lived in.
+
+## Known and not fixed
+
+- **Shots on the rim defeat the rim fit.** Same NRA sheet: the two bulls with
+  clean rims fitted at 100% coverage and read square-on; the two with holes
+  through the printed edge read 54 and 55 degrees off-axis. The app refuses
+  these, which is the honest failure — it costs a refusal on a target that
+  might have been measurable, not a scale error on one that was not. Recorded
+  in `lib/rimfit.js` with the fix if it ever matters.
+- **Dragging a placement marker is unverified.** Synthetic mouse drags do not
+  drive `PanResponder` reliably, so this needs a finger. It is the only way to
+  adjust a placed bull — taps past the second are deliberately inert so a stray
+  tap cannot destroy a calibration — which makes it the recovery path for a
+  refused fit and worth checking first on the phone.

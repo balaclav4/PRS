@@ -643,6 +643,28 @@ export default function CaptureScreen() {
     });
     if (!fit) return null;
 
+    // A fit this module has already judged unusable does not become corners.
+    //
+    // This was the gap. The four-corner circle path refuses on quality
+    // (`circleQuality(fit).ok ? circleQuad(fit) : null`), but the two-tap path
+    // handed back a quad whatever the verdict said, so a rejected fit still
+    // counted as placed and still fed the homography, under a green tick.
+    //
+    // What made it silent rather than merely wrong: an oblique fit becomes a
+    // rectangle here, `solveFor` fits a circle back to those four corners, and
+    // the four corners of a rectangle are always exactly concyclic - so the
+    // re-fit is perfect, passes its own quality check, and yields the
+    // circumcircle, whose diameter is the rectangle's *diagonal*. Measured on
+    // an NRA 50ft sheet: one bull read 94px across where the same bull on the
+    // same photo read 65px. A 45% scale error on every group from that target,
+    // announced by a green tick.
+    //
+    // The verdict text already tells the shooter to use the four-corner
+    // reference. Now the flow means it. `fit` is still returned so that verdict
+    // has something to report on; only the corners are withheld.
+    const verdict = rimQuality(fit);
+    if (!verdict.ok) return { fit, corners: [] };
+
     const quad = rimQuad(fit)
       .map(p => imageToNormalized(p.x, p.y, gs.width, gs.height, IMG_W, IMG_H));
     return { fit, corners: quad };
@@ -787,7 +809,14 @@ export default function CaptureScreen() {
             // adjusting an existing one does not spawn an empty slot. This is
             // what makes a six-bull sheet a matter of tapping round the page
             // rather than a round trip per target.
-            if (editingCorner == null && idx === prev.length - 1) {
+            //
+            // And only when the measurement was actually usable. Advancing off
+            // a refused fit moves the shooter away from the one target that
+            // needs their attention, onto a fresh empty slot that looks like
+            // progress - so the verdict scrolls past unread and the sheet ends
+            // up one target short. Staying put keeps the two taps they need to
+            // adjust under the finger that is already there.
+            if (editingCorner == null && idx === prev.length - 1 && measured.corners.length) {
               next.push({ id: 'g' + Date.now() + '-' + next.length, corners: [], shots: [], aim: null, fit: null });
             }
           }
@@ -1511,7 +1540,8 @@ export default function CaptureScreen() {
                   while the shots stayed on the unzoomed picture. Making it
                   transparent to touches sends them to the container, whose
                   coordinates are the ones the maths already assumes. */}
-              <View pointerEvents="none" style={{
+              <View style={{
+                pointerEvents: 'none',
                 position: 'absolute',
                 left: pan.x, top: pan.y,
                 width: IMG_W * zoom, height: IMG_H * zoom,
@@ -1531,7 +1561,8 @@ export default function CaptureScreen() {
                   offset by `pan`, so any tap landing on it would be measured
                   from the wrong origin. It sits over the whole photo, so it
                   swallowed nearly every tap on the Place step. */}
-              <Svg pointerEvents="none" viewBox="0 0 100 125" preserveAspectRatio="none" style={{
+              <Svg viewBox="0 0 100 125" preserveAspectRatio="none" style={{
+                pointerEvents: 'none',
                 position: 'absolute',
                 left: pan.x, top: pan.y,
                 width: IMG_W * zoom, height: IMG_H * zoom,
@@ -1725,7 +1756,8 @@ export default function CaptureScreen() {
                   while the shots stayed on the unzoomed picture. Making it
                   transparent to touches sends them to the container, whose
                   coordinates are the ones the maths already assumes. */}
-              <View pointerEvents="none" style={{
+              <View style={{
+                pointerEvents: 'none',
                 position: 'absolute',
                 left: pan.x, top: pan.y,
                 width: IMG_W * zoom, height: IMG_H * zoom,
@@ -1737,8 +1769,8 @@ export default function CaptureScreen() {
               {groups.map((g, gi) => (gi === activeGroup ? null : g.shots.map((p, i) => (
                 <View
                   key={`${g.id}-${i}`}
-                  pointerEvents="none"
                   style={[s.shotDot, {
+                    pointerEvents: 'none',
                     width: dotSize, height: dotSize, borderRadius: dotSize / 2,
                     left: p.x * IMG_W * zoom + pan.x - dotSize / 2,
                     top: p.y * IMG_W * zoom + pan.y - dotSize / 2,
@@ -1747,7 +1779,8 @@ export default function CaptureScreen() {
                 />
               ))))}
               {aim && (
-                <View pointerEvents="none" style={{
+                <View style={{
+                  pointerEvents: 'none',
                   position: 'absolute',
                   left: aim.x * IMG_W * zoom + pan.x - 13,
                   top: aim.y * IMG_W * zoom + pan.y - 13,

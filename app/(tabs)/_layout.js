@@ -19,7 +19,7 @@ function TabBarIcon({ icon: Icon, color, size }) {
  */
 function CaptureButton({ onPress }) {
   return (
-    <View style={s.fabSlot} pointerEvents="box-none">
+    <View style={[s.fabSlot, { pointerEvents: 'box-none' }]}>
       <TouchableOpacity onPress={onPress} style={s.fab} activeOpacity={0.8}>
         <Camera size={24} color="#fff" />
       </TouchableOpacity>
