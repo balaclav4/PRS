@@ -6,7 +6,13 @@
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 
-const gates = ['scripts/check-syntax.mjs', 'scripts/check-schema.mjs'];
+const gates = [
+  'scripts/check-syntax.mjs',
+  'scripts/check-schema.mjs',
+  // Native APIs are executed by neither the web build nor any harness, so
+  // until this existed their first run was on a phone. See the file header.
+  'scripts/check-native-api.mjs',
+];
 
 /**
  * ESLint runs first and separately because it catches a class the parser
