@@ -12,6 +12,10 @@ const gates = [
   // Native APIs are executed by neither the web build nor any harness, so
   // until this existed their first run was on a phone. See the file header.
   'scripts/check-native-api.mjs',
+  // Runs the schema, the migrations and every statement against real SQLite.
+  // The static check above catches mismatches between statements; this catches
+  // mistakes inside one, which otherwise first execute on a phone at launch.
+  'scripts/check-sqlite.mjs',
 ];
 
 /**

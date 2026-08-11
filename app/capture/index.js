@@ -1009,7 +1009,14 @@ export default function CaptureScreen() {
     setDetecting(true);
     setDetectNote(null);
     try {
-      const { gray, width, height } = await loadGrayscale(photo.uri);
+      // Reuse the decode the placement step already did for this photo.
+      //
+      // `grayRef` is keyed on photo.uri and holds exactly this result. Decoding
+      // again costs nothing measurable on web, where it is a canvas call - but
+      // on a device the chain is manipulate, resize, save as base64, decode the
+      // base64, then decode the JPEG in JS. Running that twice put the whole
+      // cost on a button press, with the shooter watching.
+      const { gray, width, height } = grayRef.current ?? await loadGrayscale(photo.uri);
       const boxH = IMG_H;
       const k = coverScale(width, height, IMG_W, boxH);
 

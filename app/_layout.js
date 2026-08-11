@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useFonts, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold } from '@expo-google-fonts/manrope';
+import { useFonts } from '@expo-google-fonts/manrope';
 import { JetBrainsMono_500Medium, JetBrainsMono_700Bold } from '@expo-google-fonts/jetbrains-mono';
 import { ThemeProvider, useTheme } from '../lib/theme';
 import { DataProvider } from '../store/data';
@@ -32,16 +32,26 @@ function InnerLayout() {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
-    Manrope_500Medium,
-    Manrope_600SemiBold,
-    Manrope_700Bold,
-    Manrope_800ExtraBold,
+  // Only the faces actually used.
+  //
+  // Four Manrope weights were loaded here and referenced by nothing - no
+  // `fontFamily` in the app names them, so every non-numeric string already
+  // renders in the system font on both platforms. They cost launch time and
+  // gave nothing back. If Manrope is wanted later it needs a fontFamily to go
+  // with it; loading a font is not the same as using one.
+  const [fontsLoaded, fontError] = useFonts({
     JetBrainsMono_500Medium,
     JetBrainsMono_700Bold,
   });
 
-  if (!fontsLoaded) return null;
+  // Render anyway if the fonts fail.
+  //
+  // The error was previously discarded and this read `if (!fontsLoaded) return
+  // null`, so a font that never resolved left the app blank permanently - no
+  // splash, no message, nothing to report. Fonts are cosmetic and the app is
+  // not: the monospace numbers fall back to the system font, which is a worse
+  // look and a working app.
+  if (!fontsLoaded && !fontError) return null;
 
   return (
     <ThemeProvider>
