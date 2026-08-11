@@ -1,12 +1,19 @@
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Target, TrendingUp, Crosshair, Camera, Wind, FlaskConical, BookOpen, User } from 'lucide-react-native';
+import { Target, TrendingUp, Crosshair, Camera, Wind, FlaskConical, BookOpen, User, ChevronRight } from 'lucide-react-native';
 import { initialsFrom } from '../../lib/profile';
 import { useRouter } from 'expo-router';
 import { useTheme, groupColor } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { formatGroup, groupUnitLabel } from '../../lib/units';
 import { LinearGradient } from '../../components/Gradient';
+
+/**
+ * Step names, so the dashboard can say where a workup stopped rather than
+ * printing a bare number. Kept in step order and short enough for one line.
+ * The reloading screen owns the full metadata; this is only the labels.
+ */
+const LOADDEV_STEPS = ['Goal', 'Screen', 'Max Chg', 'Accuracy', 'Primers', 'Ladder', 'Seating', 'Ref'];
 
 export default function HomeScreen() {
   const { colors } = useTheme();
@@ -176,11 +183,53 @@ export default function HomeScreen() {
             <Text style={[s.quickTitle, { color: colors.tx }]}>Load Dev</Text>
             <Text style={[s.quickSub, { color: colors.mut }]}>
               {projects?.length
-                ? `${projects[0].name} · Step ${projects[0].currentStep || 1}`
+                ? `${projects.length} in progress`
                 : 'No project yet'}
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Every workup, not just the first.
+            The card above used to name projects[0] and nothing else, so a
+            second one was invisible from here and easy to forget entirely -
+            which is exactly what happens to a workup left half-finished over a
+            winter. Each row says where it stopped, because "step 6 of 8" is the
+            thing you need to remember and the thing you never do. */}
+        {!!projects?.length && (
+          <>
+            <Text style={[s.sectionTitle, { color: colors.tx, marginTop: 24 }]}>In Progress</Text>
+            {projects.map(p => {
+              const done = Math.max(0, Math.min(8, (p.currentStep || 1) - 1));
+              return (
+                <TouchableOpacity
+                  key={p.id}
+                  onPress={() => router.push({ pathname: '/reloading', params: { projectId: p.id } })}
+                  style={[s.devRow, { backgroundColor: colors.card, borderColor: colors.bd }]}
+                >
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[s.devName, { color: colors.tx }]} numberOfLines={1}>{p.name}</Text>
+                    <Text style={[s.devSub, { color: colors.mut }]} numberOfLines={1}>
+                      {[getRifleName?.(p.rifleId), `Step ${p.currentStep || 1} of 8 — ${LOADDEV_STEPS[(p.currentStep || 1) - 1] || ''}`]
+                        .filter(Boolean).join(' · ')}
+                    </Text>
+                    {/* Eight steps, eight ticks. A bar would imply the steps are
+                        equal in effort, which they are not; discrete marks just
+                        say how far along it is. */}
+                    <View style={s.devTicks}>
+                      {LOADDEV_STEPS.map((_, i) => (
+                        <View key={i} style={[s.devTick, {
+                          backgroundColor: i < done ? colors.act
+                            : i === done ? colors.warnt : colors.ring,
+                        }]} />
+                      ))}
+                    </View>
+                  </View>
+                  <ChevronRight size={18} color={colors.mut} />
+                </TouchableOpacity>
+              );
+            })}
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -212,6 +261,14 @@ const s = StyleSheet.create({
   statLabel: { fontSize: 11, fontWeight: '600', marginTop: 2 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '800' },
+  devRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 10,
+  },
+  devName: { fontSize: 14.5, fontWeight: '700' },
+  devSub: { fontSize: 12, marginTop: 2 },
+  devTicks: { flexDirection: 'row', gap: 4, marginTop: 9 },
+  devTick: { flex: 1, height: 4, borderRadius: 2 },
   seeAll: { fontSize: 13, fontWeight: '700' },
   recentList: { gap: 10 },
   recentRow: { flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1, borderRadius: 16, padding: 14 },

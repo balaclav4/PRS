@@ -1,9 +1,10 @@
 import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CircleCheck, Target, FlaskConical, TrendingUp, Gauge, Zap, BarChart3, Ruler, BookCheck, ChevronRight, ArrowLeft, Plus, Trash2, Info, TriangleAlert, Crosshair } from 'lucide-react-native';
-import { useState, useMemo, useCallback } from 'react';
-import { useRouter } from 'expo-router';
+import { CircleCheck, Target, FlaskConical, TrendingUp, Gauge, Zap, BarChart3, Ruler, BookCheck, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Info, TriangleAlert, Crosshair } from 'lucide-react-native';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../lib/theme';
+import PickerSheet from '../../components/PickerSheet';
 import { useData } from '../../store/data';
 import { parseRungs, findNode, bestGroup } from '../../lib/loaddev';
 import { parseDepths, analyseSeating } from '../../lib/seating';
@@ -47,7 +48,7 @@ function NumField({ colors, label, unit, value, onChange }) {
 export default function ReloadingScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { projects, rifles, loads, sessions, updateProject, units } = useData();
+  const { projects, rifles, loads, sessions, updateProject, addProject, units } = useData();
   // Load dev figures are whatever the shooter enters — the analyses are
   // scale-invariant (they work in ratios and multiples of sigma), so the unit
   // only has to be labelled consistently and used in the prose.
@@ -55,8 +56,34 @@ export default function ReloadingScreen() {
   const gLabel = groupUnitLabel(units.group);
   const vLabel = units.velocity;
 
-  const project = projects[0] || null;
+  /**
+   * Which project is being worked on.
+   *
+   * This was `projects[0]`, so however many were stored, only the first was
+   * ever reachable - a second load workup could be created and then never
+   * opened again. The store has always held an array; the screen simply never
+   * offered a way in.
+   *
+   * Held by id rather than index so that adding or deleting one cannot slide
+   * the selection onto a different project.
+   */
+  // The dashboard links straight to a specific workup, so a shooter picking one
+  // off the "In Progress" list lands on it rather than on whichever happens to
+  // be first.
+  const params = useLocalSearchParams();
+  const [projectId, setProjectId] = useState(params.projectId ?? null);
+  const [pickingProject, setPickingProject] = useState(false);
+  const project = projects.find(p => p.id === projectId) || projects[0] || null;
   const [step, setStep] = useState(project?.currentStep || 6);
+
+  // Switching project brings its own step with it, rather than showing one
+  // project's data under another's position in the workflow.
+  const lastProjectRef = useRef(project?.id ?? null);
+  useEffect(() => {
+    if (project?.id === lastProjectRef.current) return;
+    lastProjectRef.current = project?.id ?? null;
+    if (project) setStep(project.currentStep || 1);
+  }, [project?.id, project?.currentStep]);
   const [chronoRung, setChronoRung] = useState(null);
 
   const meta = STEP_META[step - 1];
@@ -278,6 +305,32 @@ export default function ReloadingScreen() {
     if (project) updateProject(project.id, { currentStep: n });
   };
 
+  /**
+   * Start another workup, and open it.
+   *
+   * Begins at step 1 rather than at the ladder, because step 1 is where the
+   * goal and hit rate are set and every later step is judged against them.
+   * Named after the rifle and its cartridge, which is what a shooter calls a
+   * workup out loud - and it stays editable.
+   */
+  const newProject = useCallback(() => {
+    const r = rifles[0] || null;
+    const l = loads.find(x => x.rifleId === r?.id) || null;
+    const created = addProject({
+      name: r ? `${r.cartridge || 'New'} — ${r.name}` : 'New workup',
+      rifleId: r?.id ?? null,
+      loadId: l?.id ?? null,
+      goalMoa: null,
+      hitRatePct: null,
+      testDistanceYd: 100,
+      shotsPerCharge: 3,
+      currentStep: 1,
+      rungs: [],
+    });
+    setProjectId(created.id);
+    setStep(1);
+  }, [addProject, rifles, loads]);
+
   if (!project) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
@@ -317,14 +370,36 @@ export default function ReloadingScreen() {
 
         <View style={[s.projCard, { backgroundColor: colors.card, borderColor: colors.bd }]}>
           <View style={s.projHeader}>
-            <View style={{ flex: 1 }}>
-              <Text style={[s.projName, { color: colors.tx }]}>{project.name}</Text>
+            {/* The name is the switch. Several workups run at once - a barrel
+                being broken in while another rifle is on a seating ladder - and
+                each keeps its own step, rungs and rows. */}
+            <TouchableOpacity
+              onPress={() => projects.length > 1 && setPickingProject(true)}
+              disabled={projects.length < 2}
+              style={{ flex: 1, minWidth: 0 }}
+            >
+              <View style={s.projNameRow}>
+                <Text style={[s.projName, { color: colors.tx }]} numberOfLines={1}>{project.name}</Text>
+                {projects.length > 1 && <ChevronDown size={17} color={colors.act} />}
+              </View>
               <Text style={[s.projSub, { color: colors.mut }]}>
                 {[rifle?.name, load?.name].filter(Boolean).join(' · ') || 'No rifle or load linked'}
+                {projects.length > 1 ? ` · ${projects.length} projects` : ''}
               </Text>
-            </View>
-            <View style={[s.badge, { backgroundColor: colors.warns }]}>
-              <Text style={[s.badgeText, { color: colors.warnt }]}>IN PROGRESS</Text>
+            </TouchableOpacity>
+            <View style={{ alignItems: 'flex-end', gap: 8 }}>
+              <View style={[s.badge, { backgroundColor: colors.warns }]}>
+                <Text style={[s.badgeText, { color: colors.warnt }]}>STEP {step}/8</Text>
+              </View>
+              {/* Starting another workup.
+                  Nothing in the app created a project before this - the store
+                  had always held an array and grown the API for it, but the
+                  only one that existed was the seeded one, so "how many can I
+                  run at once" answered itself: one, forever. */}
+              <TouchableOpacity onPress={newProject} style={[s.newProjBtn, { borderColor: colors.act }]}>
+                <Plus size={13} color={colors.act} />
+                <Text style={[s.newProjText, { color: colors.act }]}>New</Text>
+              </TouchableOpacity>
             </View>
           </View>
           {/* Reads from the project, so editing the goal in step 1 shows here. */}
@@ -1021,6 +1096,23 @@ export default function ReloadingScreen() {
         onClose={() => setChronoRung(null)}
         onImport={({ velocities }) => setRung(chronoRung, 'velocities', velocities)}
       />
+      <PickerSheet
+        visible={pickingProject}
+        title="Load development"
+        options={projects.map(p => {
+          const r = rifles.find(x => x.id === p.rifleId);
+          return {
+            key: p.id,
+            label: p.name,
+            sub: [r?.name, `Step ${p.currentStep || 1} — ${STEP_META[(p.currentStep || 1) - 1]?.label}`]
+              .filter(Boolean).join(' · '),
+            meta: p.goalMoa ? `≤${p.goalMoa} ${gLabel}` : '',
+          };
+        })}
+        selectedKey={project?.id}
+        onSelect={(id) => { setProjectId(id); setPickingProject(false); }}
+        onClose={() => setPickingProject(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -1069,7 +1161,13 @@ const s = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
   projCard: { borderWidth: 1, borderRadius: 18, padding: 18 },
   projHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 },
-  projName: { fontSize: 17, fontWeight: '800' },
+  projNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  newProjBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderWidth: 1, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10,
+  },
+  newProjText: { fontSize: 11.5, fontWeight: '800' },
+  projName: { fontSize: 17, fontWeight: '800', flexShrink: 1 },
   projSub: { fontSize: 13, fontWeight: '500', marginTop: 4 },
   badge: { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999 },
   badgeText: { fontSize: 11, fontWeight: '700' },
