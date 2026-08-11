@@ -51,6 +51,10 @@ const REQUIRED = [
     module: 'expo-file-system',
     usedBy: ['lib/export.js'],
     exports: ['File', 'Paths'],
+    // `write` is declared on the native base class File extends, not on File
+    // itself, which is why a shallow read of File.d.ts suggests it is missing.
+    // It is not - but the next SDK is exactly where that would change.
+    anywhere: ['write', 'document'],
   },
   {
     module: 'expo-sharing',
