@@ -17,9 +17,24 @@ next to the box; "didn't try" is a useful answer and "seemed fine" is not.
       Reanimated needs and which was missing until recently.
 
 - [ ] **Splash, then the app.** Not a white flash, not a stall.
+      A permanently blank app used to be possible here and is now not: the error
+      from `useFonts` was discarded, so a font that never resolved returned null
+      forever. If this still hangs, the cause is something else and worth saying
+      so — that one is closed.
 
 - [ ] **Dark mode follows the system,** and switches live from Control Centre
       without a restart.
+
+## Already found and fixed on hardware
+
+Listed so a repeat is recognised immediately rather than re-diagnosed.
+
+- **"Could not process that photo: undefined is not a function"** —
+  `expo-image-manipulator` was called on the module namespace instead of the
+  exported object. Fixed in both places it appeared. If this exact wording comes
+  back, it is a *different* call with the same shape, and
+  `scripts/check-native-api.mjs` should have caught it — say so.
+- **Blank app forever** if a font failed to load. Fixed.
 
 ## The photo path — where native and web differ most
 
@@ -92,6 +107,11 @@ touched this code.**
 - [ ] **Detection finds holes,** and the caliber-derived radius is sane.
       Expect to correct it — it is an assist, not an authority. Printed target
       furniture still scores as shots.
+      *Watch the timing:* "Suggest shots" used to decode the whole image a
+      second time, on the button press. It now reuses the decode the placement
+      step already did. If there is still a long pause, the cost is in detection
+      itself rather than decoding, which is a different problem and worth
+      timing before anyone optimises the wrong half.
 
 - [ ] **A bull with shots on its rim is refused,** not silently mis-scaled.
       Measured on an NRA 50ft sheet: clean rims fit at 100% coverage and read
