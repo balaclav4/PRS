@@ -16,6 +16,7 @@ import { groupUnitLabel, inchesToUnit, formatDistance } from '../../lib/units';
 import { reconcileRows, reconcileVelocityRows, variantLabel } from '../../lib/variants';
 import { targetGroups } from '../../lib/analytics';
 import ChronoImport from '../../components/ChronoImport';
+import MeasureGuide from '../../components/MeasureGuide';
 
 const STEP_META = [
   { num: 1, label: 'Goal', icon: Target, desc: 'Define your accuracy goal and hit-rate target for this load.' },
@@ -452,6 +453,8 @@ export default function ReloadingScreen() {
 
           {step === 1 && (
             <View style={cs.wrap}>
+              {/* The vocabulary every later step assumes. */}
+              <MeasureGuide kind="anatomy" style={{ marginTop: 0, marginBottom: 12 }} />
               <View style={cs.row}>
                 <View style={{ flex: 1 }}>
                   <Text style={[cs.lbl, { color: colors.mut }]}>Goal {gLabel}</Text>
@@ -649,6 +652,11 @@ export default function ReloadingScreen() {
 
           {step === 7 && (
             <View style={cs.wrap}>
+              {/* Next to the field, not in a help screen nobody opens. CBTO is
+                  the dimension most often measured as something else, and a
+                  COAL typed here would solve and be wrong. */}
+              <MeasureGuide kind="cbto" style={{ marginTop: 0, marginBottom: 6 }} />
+              <MeasureGuide kind="jump" style={{ marginTop: 0, marginBottom: 12 }} />
               <View style={cs.ladderHead}>
                 <Text style={[cs.colH, { color: colors.fnt, flex: 1 }]}>CBTO</Text>
                 <Text style={[cs.colH, { color: colors.fnt, flex: 1, textAlign: 'center' }]}>GROUP</Text>
@@ -854,6 +862,11 @@ export default function ReloadingScreen() {
                   than the charge — a bend that shows up before brass does.
                 </Text>
               </View>
+              {/* Brass is the other half of this step: a case that has grown or
+                  a shoulder that has moved is evidence, and both are measured
+                  rather than eyeballed. */}
+              <MeasureGuide kind="bump" style={{ marginBottom: 4 }} />
+              <MeasureGuide kind="caseLength" style={{ marginTop: 6, marginBottom: 12 }} />
 
               <View style={cs.ladderHead}>
                 <Text style={[cs.colH, { color: colors.fnt, flex: 1 }]}>CHARGE</Text>
