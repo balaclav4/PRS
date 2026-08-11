@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, StyleSheet, useWindowDimensions, Alert, Platform, PanResponder } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, Wand2, LoaderCircle, ZoomIn, ZoomOut, Maximize2, Plus, Trash2 } from 'lucide-react-native';
+import { ArrowLeft, Camera, ImageIcon, ArrowRight, Ruler, Crosshair, RotateCcw, Eraser, Save, ChevronRight, ChevronDown, Wand2, LoaderCircle, ZoomIn, ZoomOut, Maximize2, Plus, Trash2 } from 'lucide-react-native';
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -18,7 +18,8 @@ import { emptyHistory, push as pushUndo, peek as peekUndo, undo as popUndo, clea
 import { rimFit, rimQuality, rimQuad, cropFor } from '../../lib/rimfit';
 import { bulletDiameterIn } from '../../lib/calibers';
 import { normalizePhoto } from '../../lib/photo';
-import { toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre, frameOn } from '../../lib/viewport';
+import PickerSheet from '../../components/PickerSheet';
+import { toImage, zoomAbout, fitViewport, pinchDistance, pinchCentre, pinchTransform, centreOn, frameOn } from '../../lib/viewport';
 import { quadCentre } from '../../lib/homography';
 import { formatGroup, groupUnitLabel, formatDistance } from '../../lib/units';
 import { consentIsCurrent } from '../../lib/consent';
@@ -48,6 +49,17 @@ const TAP_SLOP_PX = 10;
  * move it a little. Two pixels meant a tap on a marker nudged it.
  */
 const DRAG_SLOP_PX = 5;
+
+/**
+ * How far in to jump when a bull's centre is tapped.
+ *
+ * Chosen against the sheets this is actually used on: a six-bull competition
+ * face puts each bull at roughly a third of the photo's width, so 3x fills the
+ * screen with one bull and a margin of the rings around it. Enough to place the
+ * edge tap deliberately, and enough margin that a rim near the frame edge is
+ * still reachable rather than pinned under the thumb.
+ */
+const CLOSE_UP_ZOOM = 3;
 
 const STEP_LABELS = ['Photo', 'Setup', 'Place', 'Targets', 'Review'];
 const IMG_ASPECT = 1.25;
@@ -119,6 +131,13 @@ export default function CaptureScreen() {
   // shooter started from a specific rung. Reading params in the initialiser also
   // leaves them free to change it afterwards, which an effect keyed on params
   // would fight.
+  // The view to come back to once a bull has been marked up close. Held in a
+  // ref rather than state: it is not rendered, and writing it during a tap
+  // must not queue another render.
+  const wideViewRef = useRef(null);
+  const [closeUp, setCloseUp] = useState(false);
+  const [pickingRifle, setPickingRifle] = useState(false);
+  const [pickingLoad, setPickingLoad] = useState(false);
   const [devProjectId, setDevProjectId] = useState(params.projectId ?? null);
   const [devStep, setDevStep] = useState(params.step ? Number(params.step) : null);
   const [devRowId, setDevRowId] = useState(params.rowId ?? null);
@@ -329,8 +348,18 @@ export default function CaptureScreen() {
   }, [devProject, devRows, devRowId, devStep, loads, load]);
 
 
-  const cycleRifle = () => { setRifleIdx(i => i + 1); setLoadIdx(0); };
-  const cycleLoad = () => setLoadIdx(i => i + 1);
+  // Selection by identity rather than by position in the list, so that adding
+  // or removing equipment cannot silently change what is selected.
+  const pickRifle = (id) => {
+    const i = rifles.findIndex(r => r.id === id);
+    if (i >= 0) { setRifleIdx(i); setLoadIdx(0); }
+    setPickingRifle(false);
+  };
+  const pickLoad = (id) => {
+    const i = rifleLoads.findIndex(l => l.id === id);
+    if (i >= 0) setLoadIdx(i);
+    setPickingLoad(false);
+  };
 
   // Suggested name follows the selections, so leaving the field blank still
   // yields something more useful than a bare date.
@@ -429,7 +458,25 @@ export default function CaptureScreen() {
     for (let i = groups.length - 1; i >= 0; i--) if (groups[i].fit) return groups[i];
     return null;
   }, [groups]);
-  const placeGroup = groups[activeGroup]?.fit ? groups[activeGroup] : lastPlaced;
+  /**
+   * A bull half-placed is still the one being worked on.
+   *
+   * This selected the active target only once it had a *fit*, which takes two
+   * taps - so between the centre tap and the edge tap it fell back to the last
+   * completed target, and the centre mark just placed was drawn nowhere. On the
+   * whole sheet that was a missing dot nobody noticed. Zooming in on the centre
+   * tap made it obvious: the shooter is looking straight at the mark they just
+   * made, and it is not there.
+   *
+   * Taps count, not just fits. After a successful placement the flow opens a
+   * fresh empty slot, which has neither, so the fallback still shows the target
+   * that was just finished - which is what it was written for.
+   */
+  const placeGroup = useMemo(() => {
+    const active = groups[activeGroup];
+    const started = active?.fit || active?.taps?.length || active?.corners?.length;
+    return started ? active : lastPlaced;
+  }, [groups, activeGroup, lastPlaced]);
   const placeFit = placeGroup?.fit ?? null;
   const placeQuality = useMemo(() => rimQuality(placeFit), [placeFit]);
   // The quad belonging to the target being reported on, not to whichever slot
@@ -823,6 +870,32 @@ export default function CaptureScreen() {
         }
         return next;
       });
+
+      /**
+       * Tapping a bull's centre brings the view to it.
+       *
+       * The edge tap is the one that decides the scale for every measurement
+       * taken from this target, and at whole-sheet zoom it is being placed on a
+       * rim a few pixels wide under a thumb. Jumping in makes that tap a
+       * considered one, and leaves the marker big enough to drag afterwards.
+       *
+       * Only on the *first* tap of a bull, and only when the view is still
+       * wide: doing it on the second tap would move the ground under the
+       * finger mid-gesture, and doing it while already close up would zoom in
+       * on a zoom.
+       */
+      if (refMode === 'bull' && editingCorner == null) {
+        const g = groups[groups.length - 1];
+        const wasEmpty = !(g?.taps?.length ?? g?.corners?.length ?? 0);
+        if (wasEmpty && !closeUp) {
+          wideViewRef.current = { zoom, pan };
+          const v = centreOn({ x: pt.x * IMG_W, y: pt.y * IMG_W }, CLOSE_UP_ZOOM, IMG_W, IMG_H);
+          setZoom(v.zoom);
+          setPan(v.pan);
+          setCloseUp(true);
+        }
+      }
+
       setEditingCorner(null);
       setEditingGroup(null);
       mediumTap();
@@ -869,7 +942,7 @@ export default function CaptureScreen() {
       // Snapshot before anything moves. Recorded only if a drag actually
       // begins, so a plain tap does not fill the history with no-ops.
       gestureRef.current = {
-        startPan: pan, startDist: null, startZoom: zoom,
+        startPan: pan, startDist: null, startCentre: null, startZoom: zoom,
         groupsBefore: groups, activeBefore: activeGroup, recorded: false,
       };
       dragMarkerRef.current = null;
@@ -931,26 +1004,40 @@ export default function CaptureScreen() {
       }
 
       if (dist != null) {
-        // Pinch: scale about the midpoint so the group stays under the fingers.
+        // Two fingers move the view: pinch and slide are one gesture, handled
+        // in one step so they cannot fight each other. See pinchTransform.
         draggedRef.current = true;
         const st = gestureRef.current;
-        if (st.startDist == null) { st.startDist = dist; st.startZoom = zoom; st.startPan = pan; }
         const centre = pinchCentre(touches, 0, 0) || { x: IMG_W / 2, y: IMG_H / 2 };
-        const next = zoomAbout(centre, st.startZoom * (dist / st.startDist), zoom, pan, IMG_W, IMG_H);
-        setZoom(next.zoom);
-        setPan(next.pan);
+        if (st.startDist == null) {
+          st.startDist = dist;
+          st.startCentre = centre;
+          st.startZoom = zoom;
+          st.startPan = pan;
+          return;
+        }
+        const next = pinchTransform({
+          startCentre: st.startCentre, startDist: st.startDist,
+          startZoom: st.startZoom, startPan: st.startPan,
+          centre, dist, boxW: IMG_W, boxH: IMG_H,
+        });
+        if (next) { setZoom(next.zoom); setPan(next.pan); }
         return;
       }
 
+      // One finger moves marks, not the view.
+      //
+      // It used to pan whenever the touch missed a marker, which put the two
+      // most common actions on the same gesture: a drag starting a few pixels
+      // off a shot slid the whole photo instead of moving the shot, and on a
+      // zoomed screen that is most of them. Panning is now two fingers, which
+      // nothing else uses, so neither gesture can be mistaken for the other.
       if (Math.abs(g.dx) > TAP_SLOP_PX || Math.abs(g.dy) > TAP_SLOP_PX) draggedRef.current = true;
-      if (zoom > 1 && gestureRef.current.startPan) {
-        const base = gestureRef.current.startPan;
-        setPan(clampPan({ x: base.x + g.dx, y: base.y + g.dy }, zoom, IMG_W, IMG_H));
-      }
     },
 
     onPanResponderRelease: () => {
       gestureRef.current.startDist = null;
+      gestureRef.current.startCentre = null;
       // A dragged corner is already where it belongs; clear the pick-up state so
       // the next tap on the photo adds a point rather than moving this one.
       if (dragMarkerRef.current?.kind === 'corner' && draggedRef.current) setEditingCorner(null);
@@ -958,9 +1045,32 @@ export default function CaptureScreen() {
     },
     onPanResponderTerminate: () => {
       gestureRef.current.startDist = null;
+      gestureRef.current.startCentre = null;
       dragMarkerRef.current = null;
     },
   }), [zoom, pan, IMG_W, IMG_H, step, corners, shots, setShots, setCorners, groups, activeGroup]);
+
+  /**
+   * Leave a close-up and return to whatever the sheet looked like before.
+   *
+   * Restores the remembered view rather than resetting to fit, because the
+   * shooter may have zoomed or panned deliberately to reach a bull on a large
+   * sheet, and throwing that away would make them do it again for every target.
+   */
+  const exitCloseUp = useCallback(() => {
+    const w = wideViewRef.current;
+    if (w) { setZoom(w.zoom); setPan(w.pan); }
+    else { const f = fitViewport(); setZoom(f.zoom); setPan(f.pan); }
+    wideViewRef.current = null;
+    setCloseUp(false);
+    setEditingCorner(null);
+  }, []);
+
+  // Leaving the Place step ends any close-up with it, so returning later does
+  // not offer to restore a view from a different photo or a different target.
+  useEffect(() => {
+    if (step !== 2 && closeUp) { wideViewRef.current = null; setCloseUp(false); }
+  }, [step, closeUp]);
 
   const stepZoom = (factor) => {
     const next = zoomAbout({ x: IMG_W / 2, y: IMG_H / 2 }, zoom * factor, zoom, pan, IMG_W, IMG_H);
@@ -1343,32 +1453,40 @@ export default function CaptureScreen() {
                     </Text>}
               </View>
             )}
-            {/* Tapping cycles rather than opening a list, so the control says so
-                and shows the position — a bare chevron promised a picker. */}
+            {/* A list, not a cycler.
+                Cycling was fine for two rifles and became a game of tapping
+                past the wrong ones the moment there were several - and it can
+                only ever go forwards, so overshooting means going all the way
+                round. PickerSheet is the control the rest of the app already
+                uses, and it searches. */}
             <View style={s.field}>
               <Text style={[s.fieldLabel, { color: colors.mut }]}>Rifle</Text>
-              <TouchableOpacity onPress={cycleRifle} disabled={rifles.length < 2} style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+              <TouchableOpacity onPress={() => rifles.length && setPickingRifle(true)}
+                disabled={!rifles.length}
+                style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
                 <Text style={[s.pickerText, { color: rifle ? colors.tx : colors.mut }]}>
                   {rifle ? `${rifle.name} · ${rifle.cartridge}` : 'No rifles — add one in Equipment'}
                 </Text>
                 {rifles.length > 1 && (
                   <View style={s.pickerCycle}>
-                    <Text style={[s.pickerCount, { color: colors.mut }]}>{(rifleIdx % rifles.length) + 1}/{rifles.length}</Text>
-                    <ChevronRight size={18} color={colors.act} />
+                    <Text style={[s.pickerCount, { color: colors.mut }]}>{rifles.length}</Text>
+                    <ChevronDown size={18} color={colors.act} />
                   </View>
                 )}
               </TouchableOpacity>
             </View>
             <View style={s.field}>
               <Text style={[s.fieldLabel, { color: colors.mut }]}>Load</Text>
-              <TouchableOpacity onPress={cycleLoad} disabled={rifleLoads.length < 2} style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
+              <TouchableOpacity onPress={() => rifleLoads.length && setPickingLoad(true)}
+                disabled={!rifleLoads.length}
+                style={[s.picker, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
                 <Text style={[s.pickerText, { color: load ? colors.tx : colors.mut }]}>
                   {load ? load.name : 'No loads for this rifle'}
                 </Text>
                 {rifleLoads.length > 1 && (
                   <View style={s.pickerCycle}>
-                    <Text style={[s.pickerCount, { color: colors.mut }]}>{(loadIdx % rifleLoads.length) + 1}/{rifleLoads.length}</Text>
-                    <ChevronRight size={18} color={colors.act} />
+                    <Text style={[s.pickerCount, { color: colors.mut }]}>{rifleLoads.length}</Text>
+                    <ChevronDown size={18} color={colors.act} />
                   </View>
                 )}
               </TouchableOpacity>
@@ -1687,9 +1805,26 @@ export default function CaptureScreen() {
                 <Maximize2 size={15} color={colors.tx} />
               </TouchableOpacity>
               <Text style={[s.zoomHint, { color: colors.fnt }]}>
-                {zoom > 1 ? 'Drag to pan' : 'Pinch or zoom in to place precisely'}
+                {zoom > 1 ? 'Two fingers to move the view' : 'Pinch, or zoom in to place precisely'}
               </Text>
             </View>
+            {/* The way back out of a close-up.
+                Deliberately a button rather than an automatic zoom-out the
+                moment the edge is tapped. Zooming out on its own would be one
+                tap cheaper and would remove the very window this feature
+                exists for: seeing the fitted rim large enough to judge, and
+                dragging either mark if it is off. The shooter decides when
+                they are happy with the target rather than the app deciding
+                for them. */}
+            {closeUp && (
+              <TouchableOpacity onPress={exitCloseUp}
+                style={[s.closeUpBar, { backgroundColor: colors.acs, borderColor: colors.act }]}>
+                <Maximize2 size={15} color={colors.act} />
+                <Text style={[s.closeUpText, { color: colors.act }]}>
+                  {lastPlaced && placeQuality.ok ? 'Done — back to the sheet' : 'Back to the sheet'}
+                </Text>
+              </TouchableOpacity>
+            )}
             {/* Undo, named. "Undo" alone makes people guess what they are
                 about to change; naming the action means they can tell whether
                 it is the one they regret. Sits on both working steps because
@@ -1903,7 +2038,7 @@ export default function CaptureScreen() {
                 <Maximize2 size={15} color={colors.tx} />
               </TouchableOpacity>
               <Text style={[s.zoomHint, { color: colors.fnt }]}>
-                {zoom > 1 ? 'Drag to pan' : 'Pinch or zoom in to place precisely'}
+                {zoom > 1 ? 'Two fingers to move the view' : 'Pinch, or zoom in to place precisely'}
               </Text>
             </View>
             {undoLabel && (
@@ -2030,6 +2165,35 @@ export default function CaptureScreen() {
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      <PickerSheet
+        visible={pickingRifle}
+        title="Rifle"
+        options={rifles.map(r => ({
+          key: r.id,
+          label: r.name,
+          sub: [r.cartridge, r.twist && `1:${String(r.twist).replace(/^1:/, '')}`].filter(Boolean).join(' · '),
+          meta: loads.filter(l => l.rifleId === r.id).length
+            ? `${loads.filter(l => l.rifleId === r.id).length} loads` : 'no loads',
+        }))}
+        selectedKey={rifle?.id}
+        onSelect={pickRifle}
+        onClose={() => setPickingRifle(false)}
+      />
+      <PickerSheet
+        visible={pickingLoad}
+        title="Load"
+        options={rifleLoads.map(l => ({
+          key: l.id,
+          label: l.name,
+          sub: [l.bullet, l.powder && `${l.powder}${l.chargeGr ? ` ${l.chargeGr}gr` : ''}`]
+            .filter(Boolean).join(' · '),
+          meta: l.velocityFps ? `${Math.round(l.velocityFps)} fps` : '',
+        }))}
+        selectedKey={load?.id}
+        onSelect={pickLoad}
+        onClose={() => setPickingLoad(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -2126,6 +2290,11 @@ const s = StyleSheet.create({
   markModeBtn: { flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
   markModeText: { fontSize: 13, fontWeight: '700' },
   markModeHint: { fontSize: 11.5, fontWeight: '600', marginBottom: 8, lineHeight: 16 },
+  closeUpBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    paddingVertical: 12, borderRadius: 11, borderWidth: 1, marginTop: 10,
+  },
+  closeUpText: { fontSize: 13, fontWeight: '800' },
   undoBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 10, paddingVertical: 10, borderRadius: 11, borderWidth: 1 },
   undoText: { fontSize: 13, fontWeight: '700' },
   replaceBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, paddingVertical: 8, borderRadius: 9, borderWidth: 1 },

@@ -10,6 +10,7 @@
  */
 import {
   toScreen, toImage, clampPan, zoomAbout, fitViewport, pinchDistance, pinchCentre, frameOn,
+  pinchTransform, centreOn,
 } from '../lib/viewport.js';
 
 let fails = 0;
@@ -176,6 +177,107 @@ console.log('\nframing one target at a time');
   })(), 'no blank space beside a target near the edge');
   check('  a target with no size falls back to the whole photo',
     frameOn({ x: 100, y: 100 }, 0, W, H).zoom === 1);
+}
+
+console.log('\ntwo fingers: scale and slide in one gesture');
+{
+  const W = 335, H = 419;
+  const base = { startZoom: 2, startPan: { x: -100, y: -120 }, boxW: W, boxH: H };
+
+  // Pure translation: fingers stay the same distance apart and move together.
+  {
+    const t = pinchTransform({
+      ...base,
+      startCentre: { x: 160, y: 200 }, startDist: 180,
+      centre: { x: 200, y: 240 }, dist: 180,
+    });
+    check('  a two-finger drag pans without changing zoom', t.zoom === 2,
+      'the whole point of separating pan from pinch');
+    check('  and moves the view by the finger travel',
+      near(t.pan.x, -60, 0.001) && near(t.pan.y, -80, 0.001),
+      `pan ${t.pan.x.toFixed(0)},${t.pan.y.toFixed(0)} from -100,-120 after +40,+40`);
+  }
+
+  // Pure scale: midpoint held still. Must agree with zoomAbout exactly, since
+  // that is the same gesture expressed the other way.
+  {
+    const focal = { x: 160, y: 200 };
+    const t = pinchTransform({
+      ...base, startCentre: focal, startDist: 100, centre: focal, dist: 150,
+    });
+    const z = zoomAbout(focal, 3, base.startZoom, base.startPan, W, H);
+    check('  a pinch about a fixed midpoint matches zoomAbout',
+      near(t.zoom, z.zoom, 1e-9) && near(t.pan.x, z.pan.x, 1e-9) && near(t.pan.y, z.pan.y, 1e-9),
+      `zoom ${t.zoom.toFixed(2)}`);
+  }
+
+  // The defining property, and the one a user actually feels: whatever was
+  // under the fingers stays under the fingers.
+  {
+    const startCentre = { x: 120, y: 300 };
+    const before = toImage(startCentre, 2, base.startPan);
+    for (const [dist, cx, cy] of [[240, 200, 180], [90, 90, 350], [180, 120, 300]]) {
+      const t = pinchTransform({
+        ...base, startCentre, startDist: 180, centre: { x: cx, y: cy }, dist,
+      });
+      const after = toImage({ x: cx, y: cy }, t.zoom, t.pan);
+      // Clamping can legitimately pull the view back at the edges, so this is
+      // asserted where the transform is not against a limit.
+      const clamped = t.pan.x === 0 || t.pan.y === 0
+        || t.pan.x <= W - W * t.zoom + 0.01 || t.pan.y <= H - H * t.zoom + 0.01;
+      check(`  what was under the fingers stays there (d=${dist})`,
+        clamped || (near(after.x, before.x, 0.01) && near(after.y, before.y, 0.01)),
+        clamped ? 'against a clamp, skipped' : `image ${after.x.toFixed(1)},${after.y.toFixed(1)}`);
+    }
+  }
+
+  check('  zoom stays within limits', (() => {
+    const huge = pinchTransform({ ...base, startCentre: { x: 100, y: 100 }, startDist: 10,
+      centre: { x: 100, y: 100 }, dist: 10000 });
+    const tiny = pinchTransform({ ...base, startCentre: { x: 100, y: 100 }, startDist: 10000,
+      centre: { x: 100, y: 100 }, dist: 10 });
+    return huge.zoom <= 8 && tiny.zoom >= 1;
+  })());
+
+  check('  a gesture with nothing to measure yields nothing',
+    pinchTransform({ ...base, startCentre: null, startDist: 100, centre: { x: 1, y: 1 }, dist: 100 }) === null
+    && pinchTransform({ ...base, startCentre: { x: 1, y: 1 }, startDist: 0, centre: { x: 1, y: 1 }, dist: 100 }) === null,
+    'a released finger must not divide by zero');
+}
+
+console.log('\njumping to a tapped bull');
+{
+  const W = 335, H = 419;
+
+  // A bull in the middle of the photo should land in the middle of the screen.
+  const mid = centreOn({ x: 167.5, y: 209.5 }, 3, W, H);
+  const onScreen = toScreen({ x: 167.5, y: 209.5 }, mid.zoom, mid.pan);
+  check('  a central bull lands centred',
+    near(onScreen.x, W / 2, 0.5) && near(onScreen.y, H / 2, 0.5),
+    `${onScreen.x.toFixed(0)},${onScreen.y.toFixed(0)} of ${W}x${H}`);
+
+  check('  at the zoom asked for', mid.zoom === 3);
+
+  // Near a corner the clamp takes over, and the point cannot be centred - but
+  // it must still be visible, which is the property that actually matters.
+  for (const pt of [{ x: 5, y: 5 }, { x: 330, y: 414 }, { x: 5, y: 414 }]) {
+    const v = centreOn(pt, 3, W, H);
+    const sp = toScreen(pt, v.zoom, v.pan);
+    check(`  a bull at ${pt.x},${pt.y} stays on screen`,
+      sp.x >= 0 && sp.x <= W && sp.y >= 0 && sp.y <= H,
+      `${sp.x.toFixed(0)},${sp.y.toFixed(0)}`);
+  }
+
+  check('  never leaves blank space beside the photo', (() => {
+    for (const pt of [{ x: 0, y: 0 }, { x: 335, y: 419 }, { x: 100, y: 400 }]) {
+      const v = centreOn(pt, 3, W, H);
+      if (v.pan.x > 0 || v.pan.y > 0) return false;
+      if (v.pan.x < W - W * v.zoom - 0.001 || v.pan.y < H - H * v.zoom - 0.001) return false;
+    }
+    return true;
+  })());
+
+  check('  respects the zoom ceiling', centreOn({ x: 100, y: 100 }, 99, W, H).zoom === 8);
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));
