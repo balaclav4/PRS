@@ -77,7 +77,16 @@ been verified, not merely written.
       publishing, either build the upload path or soften those sections to
       describe a feature that is coming.
 
-- [ ] **EAS secrets.** `.env.local` is gitignored and is not available to cloud
+- [x] **EAS secrets.** Done, 10 Aug 2026. All six `EXPO_PUBLIC_FIREBASE_*`
+      values are registered for the development, preview and production
+      environments, and each build profile in `eas.json` now names its
+      environment — without that field the build reads none of them and ships
+      local-only, which looks identical to a working build until you try to
+      sign in. The iOS build of 5 Aug predates this and was unconfigured.
+
+      Original note follows, for the next project.
+
+      `.env.local` is gitignored and is not available to cloud
       builds, so the six `EXPO_PUBLIC_FIREBASE_*` values must be registered with
       EAS or builds will ship unconfigured and run local-only:
 
@@ -89,17 +98,18 @@ been verified, not merely written.
       Firebase web key identifies a project and is not a credential. Firestore
       rules are the access control.
 
-- [ ] **Deploy the Firestore rules.** `firestore.rules` is in the repo and
-      fixes two gaps in what is currently live: `loaddev` and `dopecards` were
-      unmatched and therefore denied, and `training-data` had no rule at all
-      despite the web app reading and writing it.
+- [x] **Deploy the Firestore rules.** Published 10 Aug 2026, as written. That
+      closes the two gaps: `loaddev` and `dopecards` were unmatched and
+      therefore denied, and `training-data` had no rule at all.
 
-      npm run firebase -- login          # once
-      npm run rules:deploy
+      **What went live for `training-data`:** any signed-in user may read the
+      corpus; a contribution can only be created by the account stamping its own
+      uid; nothing may be edited or deleted from a client. The read policy was
+      raised as a decision rather than a detail and taken deliberately.
 
-      Review the `training-data` policy before deploying - it allows any
-      signed-in user to read the corpus and permits no client-side edits or
-      deletes. Tighten if that is not what you want.
+      It costs nothing today because the corpus is empty - the upload path does
+      not exist yet. If that read rule is ever to be tightened, before the
+      upload is built is the moment; afterwards it is retroactive.
 
 - [ ] **Apple privacy nutrition labels** in App Store Connect. What is collected:
       email address, linked to identity, for account management. Nothing else
@@ -119,12 +129,14 @@ The `--` matters: it passes the rest through to the CLI rather than to npm.
 
 ## Done
 
-- [x] `expo-doctor` passes 20/20.
+- [x] `expo-doctor` passes 20/20. Re-verified 10 Aug 2026 after nine packages
+  had drifted to older patches within SDK 57; fixed before the device build so
+  the hardware test exercises what would actually ship.
 - [x] Bundle identifiers, versions and build numbers set for both platforms.
 - [x] Camera and photo library usage descriptions written for iOS and Android.
 - [x] Icons, adaptive icons and splash screen configured.
 - [x] `eas.json` with development, preview and production profiles.
-- [x] `npm test` - 23 checks: a syntax gate, a schema gate and 21 harnesses.
+- [x] `npm test` - 37 checks: a syntax gate, a schema gate and 35 harnesses.
 
 ## Not blocking
 
