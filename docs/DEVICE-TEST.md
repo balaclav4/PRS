@@ -74,13 +74,16 @@ touched this code.**
       the aim point and the scale all survive.
       *Failure:* empty session list, or a session with no shots.
 
+- [ ] **Account screen names the Firebase project** (`prs-precision`).
+      Do this one *first* — it costs a glance and proves the build picked up the
+      EAS environment, without signing in to anything.
+      *Failure:* it says the app is unconfigured, and every auth check below is
+      moot. The iOS build of 5 Aug would have failed exactly here.
+
 - [ ] **Sign in, force-quit, reopen — still signed in.** Proves
       `getReactNativePersistence(AsyncStorage)`. Plain `getAuth` looks identical
       until the app restarts, which is why this needs a real force-quit rather
       than backgrounding.
-      *Requires* the Firebase values, which are now registered with EAS. If
-      sign-in reports the app is unconfigured, the build did not pick up the
-      environment.
 
 - [ ] **A custom bull preset survives a restart.**
 
