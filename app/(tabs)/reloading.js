@@ -866,7 +866,10 @@ export default function ReloadingScreen() {
                   a shoulder that has moved is evidence, and both are measured
                   rather than eyeballed. */}
               <MeasureGuide kind="bump" style={{ marginBottom: 4 }} />
-              <MeasureGuide kind="caseLength" style={{ marginTop: 6, marginBottom: 12 }} />
+              {/* Why one shooter's bump figure means nothing to another. */}
+              <MeasureGuide kind="datum" style={{ marginTop: 6, marginBottom: 4 }} />
+              <MeasureGuide kind="caseLength" style={{ marginTop: 6, marginBottom: 4 }} />
+              <MeasureGuide kind="trim" style={{ marginTop: 6, marginBottom: 12 }} />
 
               <View style={cs.ladderHead}>
                 <Text style={[cs.colH, { color: colors.fnt, flex: 1 }]}>CHARGE</Text>

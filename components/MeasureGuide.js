@@ -1,8 +1,8 @@
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native';
 import Svg, { Path, Line, Polygon, Circle, Text as SvgText, Rect } from 'react-native-svg';
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useTheme } from '../lib/theme';
-import { ChevronDown, Ruler } from 'lucide-react-native';
+import { ChevronDown, Ruler, X } from 'lucide-react-native';
 
 /**
  * Diagrams that explain what to measure, next to the box you type it into.
@@ -263,7 +263,117 @@ function CaseLength({ colors }) {
   );
 }
 
+/**
+ * Sight height: bore centreline to scope centreline.
+ *
+ * Not a cartridge, so it does not use the shared profile.
+ */
+function SightHeight({ colors }) {
+  const bore = 92, scope = 44;
+  return (
+    <Svg viewBox="0 0 300 128" style={[s.svg, { aspectRatio: 300 / 128 }]}>
+      {/* Barrel */}
+      <Rect x={20} y={bore - 11} width={250} height={22} rx={3}
+        fill={colors.inset} stroke={colors.mut} strokeWidth={1.2} />
+      <Line x1={14} y1={bore} x2={278} y2={bore} stroke={colors.fnt}
+        strokeWidth={0.8} strokeDasharray="5 3" />
+      <SvgText x={282} y={bore + 3} fontSize="7.5" fill={colors.fnt}>bore</SvgText>
+
+      {/* Scope tube with objective and ocular bells */}
+      <Rect x={60} y={scope - 8} width={170} height={16} rx={2}
+        fill={colors.inset} stroke={colors.mut} strokeWidth={1.2} />
+      <Rect x={40} y={scope - 12} width={24} height={24} rx={3}
+        fill={colors.inset} stroke={colors.mut} strokeWidth={1.2} />
+      <Rect x={226} y={scope - 11} width={22} height={22} rx={3}
+        fill={colors.inset} stroke={colors.mut} strokeWidth={1.2} />
+      <Line x1={14} y1={scope} x2={278} y2={scope} stroke={colors.fnt}
+        strokeWidth={0.8} strokeDasharray="5 3" />
+      <SvgText x={282} y={scope + 3} fontSize="7.5" fill={colors.fnt}>optic</SvgText>
+
+      {/* Rings, so it is clear what is not being measured. */}
+      <Rect x={96} y={scope + 8} width={13} height={bore - 11 - scope - 8} fill={colors.ring} opacity={0.6} />
+      <Rect x={186} y={scope + 8} width={13} height={bore - 11 - scope - 8} fill={colors.ring} opacity={0.6} />
+
+      {/* The dimension: centreline to centreline. */}
+      <Line x1={150} y1={scope} x2={150} y2={bore} stroke={colors.act} strokeWidth={1.3} />
+      <Polygon points={`150,${scope} ${150 - 2.5},${scope + 4} ${150 + 2.5},${scope + 4}`} fill={colors.act} />
+      <Polygon points={`150,${bore} ${150 - 2.5},${bore - 4} ${150 + 2.5},${bore - 4}`} fill={colors.act} />
+      <SvgText x={157} y={(scope + bore) / 2 + 3} fontSize="9" fontWeight="700" fill={colors.act}>
+        sight height
+      </SvgText>
+      <SvgText x={150} y={120} fontSize="7.5" textAnchor="middle" fill={colors.fnt}>
+        centre of bore to centre of scope — not ring height, not tube to barrel
+      </SvgText>
+    </Svg>
+  );
+}
+
+/** Trim length against maximum, and why they are different numbers. */
+function Trim({ colors }) {
+  const caseProfile = PROFILE.filter(([x]) => x <= MOUTH_X);
+  const MAXX = MOUTH_X, TRIMX = MOUTH_X - 14;
+  return (
+    <Svg viewBox="0 0 300 130" style={[s.svg, { aspectRatio: 300 / 130 }]}>
+      <Path d={outlinePath(caseProfile)} fill={colors.inset} stroke={colors.mut} strokeWidth={1.2} />
+      {/* The band between trim-to and maximum: where a case may live. */}
+      <Rect x={TRIMX} y={CY - 11} width={MAXX - TRIMX} height={22}
+        fill={colors.okt} opacity={0.16} />
+      <Line x1={TRIMX} y1={CY - 14} x2={TRIMX} y2={100} stroke={colors.okt} strokeWidth={0.9} strokeDasharray="2 2" />
+      <Line x1={MAXX} y1={CY - 14} x2={MAXX} y2={82} stroke={colors.dngt} strokeWidth={0.9} strokeDasharray="2 2" />
+
+      <Dim x1={HEAD_X} x2={MAXX} y={78} label="maximum" colors={colors} accent={colors.dngt} />
+      <Dim x1={HEAD_X} x2={TRIMX} y={102} label="trim-to" colors={colors} accent={colors.okt} />
+      <SvgText x={150} y={124} fontSize="7.5" textAnchor="middle" fill={colors.fnt}>
+        trim below maximum, so it is not due again after one firing
+      </SvgText>
+    </Svg>
+  );
+}
+
+/**
+ * The datum diameter, and why a bump figure only means something with the
+ * insert and the brass it was taken with.
+ */
+function Datum({ colors }) {
+  const caseProfile = PROFILE.filter(([x]) => x <= MOUTH_X);
+  const dA = 100, dB = 112;
+  return (
+    <Svg viewBox="0 0 300 132" style={[s.svg, { aspectRatio: 300 / 132 }]}>
+      <Path d={outlinePath(caseProfile)} fill={colors.inset} stroke={colors.mut} strokeWidth={1.2} />
+      {/* Two candidate datum positions on the same cone. */}
+      {[[dA, colors.act, 'insert A'], [dB, colors.warnt, 'insert B']].map(([x, c, label]) => (
+        <React.Fragment key={label}>
+          <Line x1={x} y1={16} x2={x} y2={96} stroke={c} strokeWidth={1} strokeDasharray="3 3" />
+          <SvgText x={x} y={12} fontSize="7.5" textAnchor="middle" fill={c}>{label}</SvgText>
+        </React.Fragment>
+      ))}
+      <Dim x1={HEAD_X} x2={dA} y={106} label="reads one figure" colors={colors} accent={colors.act} />
+      <Dim x1={HEAD_X} x2={dB} y={122} label="reads another" colors={colors} accent={colors.warnt} />
+      <SvgText x={214} y={CY - 2} fontSize="8" fill={colors.mut}>same case,</SvgText>
+      <SvgText x={214} y={CY + 9} fontSize="8" fill={colors.mut}>same shoulder</SvgText>
+    </Svg>
+  );
+}
+
 const GUIDES = {
+  sightHeight: {
+    title: 'Sight height',
+    Diagram: SightHeight,
+    tool: 'Calipers, or the ring maker\'s published figure plus half the tube and half the barrel diameter.',
+    body: 'The solver needs the distance from the centre of the bore to the centre of the scope, because that is the offset between where the rifle looks and where it shoots. It is not ring height, which is measured from the rail, and not the gap between tube and barrel. A quick way to get it: half the barrel diameter at the ring, plus the visible gap, plus half the tube diameter. Half an inch of error here moves the near zero noticeably and barely touches the far one, which is why a zero that looks right at 100 can be wrong up close.',
+  },
+  trim: {
+    title: 'Trim length and maximum',
+    Diagram: Trim,
+    tool: 'Calipers, and a trimmer set with a case gauge.',
+    body: 'These are two different numbers and using the maximum as a target is the common mistake. Brass grows a little each firing, so a case trimmed exactly to maximum is over it again after one more. Trim to the trim-to length, which sits below maximum, and the case has somewhere to grow before it needs doing again. Trim, then chamfer the inside and deburr the outside, or the sharp mouth shaves the bullet on seating and the neck tension you measured is not the one you get.',
+  },
+  datum: {
+    title: 'Why a bump figure is only yours',
+    Diagram: Datum,
+    tool: 'The same headspace comparator insert, every time.',
+    body: 'The shoulder is a cone, so a measurement to it depends entirely on where along the cone you touch. That point is set by your comparator insert, and inserts differ. Two inserts on the same case give two different readings, and neither is wrong. What follows is that a shoulder figure is only comparable against another taken with the same insert on the same kind of brass: different makers form shoulders differently, so a number from one headstamp does not transfer to another. Record the difference between fired and sized on the same brass with the same insert, and ignore the absolute value.',
+  },
   anatomy: {
     title: 'Cartridge anatomy',
     Diagram: Anatomy,
@@ -295,6 +405,56 @@ const GUIDES = {
     body: 'Brass flows forward each firing. Past the maximum the mouth can be pinched in the chamber throat, which raises pressure. Measured head to mouth, and trimmed to the trim-to length rather than the maximum, so it does not need doing every firing.',
   },
 };
+
+/**
+ * A question mark beside a field, opening the same guide in a sheet.
+ *
+ * The fold works where there is room for it. Next to a labelled input in a
+ * two-column row there is none, and a fold that pushes the field it explains
+ * off the screen is worse than no help at all. Same content, smaller door.
+ */
+export function MeasureHint({ kind }) {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const g = GUIDES[kind];
+  if (!g) return null;
+  const { Diagram } = g;
+
+  return (
+    <>
+      <TouchableOpacity onPress={() => setOpen(true)} hitSlop={10}
+        accessibilityLabel={`How to measure: ${g.title}`}
+        style={[s.hint, { borderColor: colors.act }]}>
+        <Text style={[s.hintText, { color: colors.act }]}>?</Text>
+      </TouchableOpacity>
+
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <View style={s.overlay}>
+          <View style={[s.sheet, { backgroundColor: colors.bg }]}>
+            <View style={s.sheetHead}>
+              <Text style={[s.sheetTitle, { color: colors.tx }]}>{g.title}</Text>
+              <TouchableOpacity onPress={() => setOpen(false)} hitSlop={10}>
+                <X size={22} color={colors.mut} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
+              <View style={[s.panel, { borderColor: colors.bd, backgroundColor: colors.inset }]}>
+                <Diagram colors={colors} />
+                <Text style={[s.body, { color: colors.mut }]}>{g.body}</Text>
+                {!!g.tool && (
+                  <View style={[s.tool, { borderTopColor: colors.line }]}>
+                    <Text style={[s.toolLabel, { color: colors.fnt }]}>MEASURED WITH</Text>
+                    <Text style={[s.toolText, { color: colors.tx }]}>{g.tool}</Text>
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
 
 export function MeasureDiagram({ kind }) {
   const { colors } = useTheme();
@@ -358,4 +518,13 @@ const s = StyleSheet.create({
   tool: { borderTopWidth: 1, marginTop: 12, paddingTop: 10 },
   toolLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginBottom: 3 },
   toolText: { fontSize: 12, lineHeight: 17 },
+  hint: {
+    width: 17, height: 17, borderRadius: 9, borderWidth: 1.2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  hintText: { fontSize: 11, fontWeight: '800', lineHeight: 13 },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '86%' },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  sheetTitle: { fontSize: 17, fontWeight: '800', flex: 1, minWidth: 0 },
 });

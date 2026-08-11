@@ -23,12 +23,21 @@ import {
   parseTwist, parseGrains, densityRatioFromDa,
 } from '../../lib/effects';
 import PickerSheet from '../../components/PickerSheet';
+import { MeasureHint } from '../../components/MeasureGuide';
 
 /** Labelled numeric field. */
-function Field({ label, value, onChange, unit, colors, flex = 1, placeholder }) {
+/**
+ * `hint` puts a question mark beside the label, opening the diagram for that
+ * measurement. Only on fields where the number is measured off the rifle rather
+ * than read off a screen or a box - those are the ones people get wrong.
+ */
+function Field({ label, value, onChange, unit, colors, flex = 1, placeholder, hint }) {
   return (
     <View style={{ flex }}>
-      <Text style={[s.fieldLabel, { color: colors.mut }]}>{label}</Text>
+      <View style={s.fieldLabelRow}>
+        <Text style={[s.fieldLabel, { color: colors.mut, marginBottom: 0 }]}>{label}</Text>
+        {!!hint && <MeasureHint kind={hint} />}
+      </View>
       <View style={[s.fieldBox, { backgroundColor: colors.input, borderColor: colors.ibd }]}>
         <TextInput
           value={value}
@@ -715,7 +724,7 @@ export default function BallisticsScreen() {
         {/* Rifle setup */}
         <Text style={[s.sectionLabel, { color: colors.fnt }]}>RIFLE</Text>
         <View style={s.row}>
-          <Field label="Sight height" value={sightHeight} onChange={setSightHeight} unit={lenU} colors={colors} />
+          <Field label="Sight height" value={sightHeight} onChange={setSightHeight} unit={lenU} colors={colors} hint="sightHeight" />
           <Field label="Zero" value={zeroYd} onChange={setZeroYd} unit={dU} colors={colors} />
         </View>
 
@@ -1433,6 +1442,7 @@ const s = StyleSheet.create({
   curveCell: { flex: 1, fontSize: 11.5, fontFamily: 'JetBrainsMono_700Bold' },
   row: { flexDirection: 'row', gap: 10, marginBottom: 8 },
   fieldLabel: { fontSize: 11.5, fontWeight: '700', marginBottom: 6 },
+  fieldLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   fieldBox: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 11, paddingHorizontal: 12 },
   // minWidth 0 because a flex item will not shrink below its intrinsic content
   // width by default. On web the underlying <input> carries a default size of
