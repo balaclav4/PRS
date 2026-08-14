@@ -123,6 +123,40 @@ Kept here rather than in a comment nobody reads.
   listed. The rulebooks are the right source and the PDFs would not fetch, so
   the numbers were never read. Nothing was estimated in the meantime.
 
+## Where free data can actually come from
+
+Checked 11 Aug 2026, because "it is on the internet" and "we may ship it" are
+different questions and the second one is the one that matters.
+
+**Usable, and already used or worth using.**
+
+| Source | Status | What it gives |
+|---|---|---|
+| G1–G8 standard drag functions | US Army BRL — US Government work, public domain | The reference drag curves. Already shipped in `lib/ballistics.js`. |
+| US Standard Atmosphere 1976 | NOAA / NASA / USAF, public domain | The atmosphere model already in use. |
+| MCRP 3-01A | US Marine Corps, public domain | Field method for wind, ranging and holds. Quotable **with citation**, unlike the commercial titles. |
+| NOAA/NCEI World Magnetic Model | Public domain, reissued every five years | Magnetic declination. Wanted because Coriolis needs a *true* azimuth and a shooter reads a magnetic one off a compass — currently the app just asks and hopes. |
+| DTIC / BRL technical reports (McCoy and others) | US Government works, public domain | Measured drag data for standard and military projectiles, and the derivations behind the fits this app uses. |
+
+**Not ours to ship, whatever the wording elsewhere.**
+
+- **Lapua radar curves.** Free to download and use in ballistics software, and the
+  intended source for `lib/dragfn.js`. But the redistribution permission that
+  exists is a specific grant to a specific vendor, not a general licence — so
+  the app must not carry the files. This is exactly why import exists: the
+  shooter downloads from Lapua and imports, and the curve is stored with its
+  source recorded. That design was right for a better reason than we knew.
+- **JBM's bullet library** — all rights reserved.
+- **Applied Ballistics data** — all rights reserved, stated on their own papers.
+- **Manufacturer BC tables** — individual figures are facts, but the tables are
+  compilations and scraping one is taking the compilation. Ask, or let the
+  shooter type the number off the box.
+
+The pattern: ship the *method*, import the *data*. Everything in the first table
+is a method or a government dataset; everything in the second is somebody's
+measurement programme, and the app already has the machinery to accept it from
+whoever is entitled to hand it over.
+
 ## Provenance of what ships
 
 Audited rather than assumed, on 2026-08-10.
