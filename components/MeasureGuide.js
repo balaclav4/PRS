@@ -41,21 +41,72 @@ const CY = 56;
  */
 function cartridgeProfile() {
   const pts = [
-    [14, 19],   // rim
-    [22, 19],
-    [22, 17.5], // extractor groove step
-    [26, 17.5],
-    [26, 18],
-    [96, 17],   // body, very slightly tapered
-    [116, 9.6], // shoulder
-    [140, 9.6], // neck
+    // Rim and extractor groove. A rimless case is not a smooth cylinder at the
+    // back: the rim stands slightly proud, the groove is cut behind it, and the
+    // body starts forward of that. Drawn as a step before, which read as a
+    // manufacturing defect rather than as the feature an extractor claws into.
+    [14, 19.5],
+    [19, 19.5],
+    [20.5, 15.5],
+    [26, 15.5],
+    [27.5, 18.4],
+    // Body, tapered. Most bottleneck cases taper about half a degree; drawn
+    // dead parallel it looks like a tube rather than a case.
+    [96, 17.4],
+    // Shoulder cone, with the junctions eased. A real shoulder meets the body
+    // and the neck through small radii, not sharp corners.
+    [99, 16.6],
+    [116, 10.4],
+    [119, 9.8],
+    [140, 9.8],
   ];
-  // Bullet: bearing surface, then an ogive sampled as an arc to the meplat.
-  pts.push([140, 8.8], [168, 8.8]);
-  const x0 = 168, x1 = 236, h0 = 8.8;
-  for (let i = 1; i <= 14; i++) {
-    const t = i / 14;
-    pts.push([x0 + (x1 - x0) * t, Math.max(1.5, h0 * Math.sqrt(Math.max(0, 1 - t * t * 0.97)))]);
+  // Bullet: bearing surface, ogive, and a meplat that is flat, because it is.
+  pts.push([140, 9.0], [170, 9.0]);
+  const x0 = 170, x1 = 238, h0 = 9.0, meplat = 1.9;
+  for (let i = 1; i <= 16; i++) {
+    const t = i / 16;
+    pts.push([x0 + (x1 - x0) * t, Math.max(meplat, h0 * Math.sqrt(Math.max(0, 1 - t * t * 0.955)))]);
+  }
+  return pts;
+}
+
+/**
+ * The powder cavity, for the cutaway.
+ *
+ * Wall thickness is not constant: brass is thick at the web, where the pressure
+ * is, and thin at the neck, where it has to grip and release a bullet. Drawing
+ * one uniform wall made the case look like a moulded shell.
+ */
+function cavityProfile() {
+  return [
+    [31, 0],     // the web is solid; the cavity starts forward of it
+    [33, 14.4],
+    [96, 14.6],
+    [116, 8.2],
+    [119, 8.0],
+    [140, 8.0],
+  ];
+}
+
+/**
+ * The seated bullet, including the part inside the neck.
+ *
+ * The base is a boat tail, which is what almost every match bullet has and what
+ * the drag curves in this app are shaped by. It is invisible on the outside
+ * view and it is the whole point of the cutaway: seating depth is about where
+ * this sits, not about the tip.
+ */
+function bulletProfile() {
+  const base = 122;
+  const pts = [
+    [base, 6.2],      // boat tail heel
+    [base + 9, 8.6],  // boat tail meets the bearing surface
+    [170, 9.0],
+  ];
+  const x0 = 170, x1 = 238, h0 = 9.0, meplat = 1.9;
+  for (let i = 1; i <= 16; i++) {
+    const t = i / 16;
+    pts.push([x0 + (x1 - x0) * t, Math.max(meplat, h0 * Math.sqrt(Math.max(0, 1 - t * t * 0.955)))]);
   }
   return pts;
 }
@@ -68,7 +119,36 @@ function outlinePath(profile) {
 }
 
 const PROFILE = cartridgeProfile();
-const OUTLINE = outlinePath(PROFILE);
+const CAVITY = cavityProfile();
+const BULLET = bulletProfile();
+
+/**
+ * Powder grains, laid out once at module load.
+ *
+ * Deterministic rather than random: a diagram that reshuffles itself on every
+ * render is distracting, and two screenshots of the same guide should be the
+ * same picture. Packed inside the cavity and stopping at the shoulder, because
+ * a case is not charged to the mouth.
+ */
+const POWDER = (() => {
+  const out = [];
+  const heightAt = (x) => {
+    for (let i = 1; i < CAVITY.length; i++) {
+      const [ax, ah] = CAVITY[i - 1], [bx, bh] = CAVITY[i];
+      if (x >= ax && x <= bx) return ah + (bh - ah) * ((x - ax) / (bx - ax || 1));
+    }
+    return 0;
+  };
+  let seed = 7;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  for (let x = 37; x <= 112; x += 5.2) {
+    const h = heightAt(x) - 3;
+    for (let y = -h; y <= h; y += 5.0) {
+      out.push([x + (rnd() - 0.5) * 2.2, CY + y + (rnd() - 0.5) * 2.2]);
+    }
+  }
+  return out;
+})();
 
 /** Where the case mouth sits, so bullet and case can be drawn separately. */
 const MOUTH_X = 140;
@@ -85,15 +165,48 @@ function ogiveTopAt(x) {
   return CY - best[1];
 }
 
-function Cartridge({ colors, caseFill, bulletFill, dim = false }) {
+function Cartridge({ colors, caseFill, bulletFill, dim = false, cutaway = false }) {
   const caseProfile = PROFILE.filter(([x]) => x <= MOUTH_X);
-  const bulletProfile = PROFILE.filter(([x]) => x >= MOUTH_X);
+  const bulletOuter = PROFILE.filter(([x]) => x >= MOUTH_X);
+  const op = dim ? 0.45 : 1;
+
+  if (!cutaway) {
+    return (
+      <>
+        <Path d={outlinePath(caseProfile)} fill={caseFill || colors.inset}
+          stroke={colors.mut} strokeWidth={1.2} opacity={op} />
+        <Path d={outlinePath(bulletOuter)} fill={bulletFill || colors.ring}
+          stroke={colors.mut} strokeWidth={1.2} opacity={op} />
+      </>
+    );
+  }
+
   return (
     <>
-      <Path d={outlinePath(caseProfile)} fill={caseFill || colors.inset}
-        stroke={colors.mut} strokeWidth={1.2} opacity={dim ? 0.45 : 1} />
-      <Path d={outlinePath(bulletProfile)} fill={bulletFill || colors.ring}
-        stroke={colors.mut} strokeWidth={1.2} opacity={dim ? 0.45 : 1} />
+      {/* Brass, solid. */}
+      <Path d={outlinePath(caseProfile)} fill={colors.ring}
+        stroke={colors.mut} strokeWidth={1.2} opacity={op} />
+      {/* The powder space, cut out of it. Filled with the panel colour so it
+          reads as a void rather than as another part - the first attempt used
+          the page background, which on this panel is nearly the same tone, and
+          the whole cutaway just looked like an outline. */}
+      <Path d={outlinePath(CAVITY)} fill={colors.inset} stroke={colors.mut}
+        strokeWidth={0.8} opacity={op} />
+      {/* Powder, as grains rather than a wash. A flat fill read as "some other
+          component"; grains are unmistakable, and showing the case filled to
+          the shoulder rather than to the mouth is itself correct. */}
+      {POWDER.map(([px, py], i) => (
+        <Circle key={i} cx={px} cy={py} r={1.5} fill={colors.mut} opacity={0.55 * op} />
+      ))}
+      {/* Primer, seated down in the pocket rather than stuck on the back. */}
+      <Rect x={17} y={CY - 6.5} width={9} height={13} rx={1}
+        fill={colors.inset} stroke={colors.mut} strokeWidth={0.9} opacity={op} />
+      {/* Flash hole, which is why the pocket is there at all. */}
+      <Rect x={26} y={CY - 1.2} width={6} height={2.4}
+        fill={colors.inset} opacity={op} />
+      {/* Bullet, boat tail and all, seated into the neck. */}
+      <Path d={outlinePath(BULLET)} fill={bulletFill || colors.acs}
+        stroke={colors.act} strokeWidth={1.2} opacity={op} />
     </>
   );
 }
@@ -139,16 +252,21 @@ function Callout({ x, y, tx, ty, label, colors, anchor = 'middle' }) {
 
 function Anatomy({ colors }) {
   return (
-    <Svg viewBox="0 0 300 118" style={[s.svg, { aspectRatio: 300 / 118 }]}>
-      <Cartridge colors={colors} />
-      <Callout x={18} y={CY + 19} tx={26} ty={104} label="head" colors={colors} />
-      <Callout x={24} y={CY + 17.5} tx={72} ty={104} label="extractor groove" colors={colors} />
-      <Callout x={60} y={CY - 17.4} tx={60} ty={16} label="body" colors={colors} />
-      <Callout x={SHOULDER_X - 8} y={CY - 13} tx={126} ty={14} label="shoulder" colors={colors} />
-      <Callout x={128} y={CY - 9.6} tx={158} ty={26} label="neck" colors={colors} />
-      <Callout x={MOUTH_X} y={CY + 9.6} tx={140} ty={104} label="case mouth" colors={colors} />
-      <Callout x={200} y={CY - 6.5} tx={206} ty={20} label="ogive" colors={colors} />
-      <Callout x={TIP_X} y={CY} tx={266} ty={92} label="meplat (tip)" colors={colors} />
+    <Svg viewBox="0 0 300 126" style={[s.svg, { aspectRatio: 300 / 126 }]}>
+      {/* Sectioned, because half of what these guides refer to is inside:
+          the boat tail that seating depth actually positions, the powder
+          column, and the primer. */}
+      <Cartridge colors={colors} cutaway />
+      <Callout x={21} y={CY - 6} tx={24} ty={20} label="primer" colors={colors} />
+      <Callout x={62} y={CY - 17.8} tx={68} ty={20} label="body" colors={colors} />
+      <Callout x={107} y={CY - 13.5} tx={112} ty={14} label="shoulder" colors={colors} />
+      <Callout x={130} y={CY - 9.8} tx={158} ty={26} label="neck" colors={colors} />
+      <Callout x={204} y={CY - 6} tx={212} ty={18} label="ogive" colors={colors} />
+
+      <Callout x={23} y={CY + 15.5} tx={30} ty={108} label="extractor groove" colors={colors} />
+      <Callout x={126} y={CY + 7.4} tx={122} ty={94} label="boat tail" colors={colors} />
+      <Callout x={MOUTH_X} y={CY + 9.8} tx={176} ty={108} label="case mouth" colors={colors} />
+      <Callout x={TIP_X} y={CY} tx={268} ty={88} label="meplat" colors={colors} />
     </Svg>
   );
 }
