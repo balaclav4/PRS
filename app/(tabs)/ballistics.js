@@ -247,6 +247,34 @@ export default function BallisticsScreen() {
   const [rightTwist, setRightTwist] = useState(true);
   const [latitude, setLatitude] = useState('');
   const [azimuth, setAzimuth] = useState('');
+  /**
+   * Whether the azimuth typed above is magnetic or true, and by how much they
+   * differ here.
+   *
+   * Coriolis needs a *true* bearing, and a compass reads a magnetic one. The
+   * app asked for "azimuth" and used whatever arrived, which in western North
+   * America is well over ten degrees adrift and in parts of Alaska more than
+   * twenty. The horizontal Coriolis term goes as sin of the bearing, so near
+   * east or west that is a few percent and near north or south it is most of
+   * the answer.
+   *
+   * The declination itself is asked for rather than computed. The NOAA World
+   * Magnetic Model is public domain and would give it from a position, but it
+   * is a set of coefficients reissued every five years - shipping numbers from
+   * memory is exactly the failure this project keeps refusing, and the figure
+   * is printed on every chart and given by any compass app.
+   */
+  const [azimuthIsMagnetic, setAzimuthIsMagnetic] = useState(false);
+  const [declination, setDeclination] = useState('');
+
+  /**
+   * The bearing Coriolis actually wants. East declination is positive, so a
+   * magnetic bearing plus the declination is the true one.
+   */
+  const trueAzimuth = useMemo(
+    () => num(azimuth, 0) + (azimuthIsMagnetic ? num(declination, 0) : 0),
+    [azimuth, azimuthIsMagnetic, declination]
+  );
 
   const [foldEffects, setFoldEffects] = useState(true);
   // Look angle to the target. Uphill positive, downhill negative — though the
@@ -281,9 +309,9 @@ export default function BallisticsScreen() {
       lengthCalibers: lengthIn / dia,
       rightHandTwist: rightTwist,
       latitudeDeg: latitude.trim() === '' ? null : num(latitude, 0),
-      azimuthDeg: num(azimuth, 0),
+      azimuthDeg: trueAzimuth,
     };
-  }, [foldEffects, grainsIn, twistIn, bulletLen, latitude, azimuth, rightTwist,
+  }, [foldEffects, grainsIn, twistIn, bulletLen, latitude, trueAzimuth, rightTwist,
       load, rifle, opts.mvFps, opts.pressureInHg, opts.tempF, opts.humidityPct]);
 
   const card = useMemo(
@@ -346,13 +374,13 @@ export default function BallisticsScreen() {
         sg, lengthCalibers: dia > 0 ? lengthIn / dia : 0,
         timeOfFlightSec: r.tofSec, rangeFt: r.rangeYd * 3,
         crosswindMph, rightHandTwist: rightTwist,
-        latitudeDeg: lat, azimuthDeg: num(azimuth, 0),
+        latitudeDeg: lat, azimuthDeg: trueAzimuth,
       }),
     }));
 
     return { grains, twist, dia, lengthIn, sg, rows, needsLength: !(lengthIn > 0),
              needsGrains: !(grains > 0), needsTwist: !(twist > 0), needsDia: !(dia > 0) };
-  }, [grainsIn, twistIn, bulletLen, latitude, azimuth, rightTwist, load, rifle,
+  }, [grainsIn, twistIn, bulletLen, latitude, trueAzimuth, rightTwist, load, rifle,
       opts, card.rows, metricLen]);
 
   // Hit probability. Every uncertainty starts empty, so the curve shows the
@@ -1318,9 +1346,10 @@ export default function BallisticsScreen() {
           </View>
           <Text style={[s.cardBody, { color: colors.mut }]}>
             Spin drift, Coriolis and aerodynamic jump. Each is small on its own and they
-            add up to roughly a minute at 1000. The dope card above does not include them,
-            so truing a BC without them folds them into a number that is supposed to
-            describe the bullet.
+            add up to roughly a minute at 1000. Fill these in and the card above carries
+            them; leave them and it says so rather than quietly leaving them out. Truing a
+            BC without them folds them into a number that is supposed to describe the
+            bullet.
           </Text>
 
           {showLR && (
@@ -1442,6 +1471,24 @@ export default function BallisticsScreen() {
                   <View style={s.row}>
                     <Field label="Latitude" value={latitude} onChange={setLatitude} unit="° N" colors={colors} />
                     <Field label="Azimuth" value={azimuth} onChange={setAzimuth} unit="° from N" colors={colors} />
+                  </View>
+                  {/* Which north that bearing was read from. Coriolis wants
+                      true; a compass gives magnetic, and the difference is
+                      over ten degrees across much of western North America. */}
+                  <View style={s.row}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.fieldLabel, { color: colors.mut }]}>Bearing is</Text>
+                      <Segmented
+                        options={[['true', 'True N'], ['mag', 'Magnetic']]}
+                        value={azimuthIsMagnetic ? 'mag' : 'true'}
+                        onChange={(v) => setAzimuthIsMagnetic(v === 'mag')}
+                        colors={colors}
+                      />
+                    </View>
+                    {azimuthIsMagnetic && (
+                      <Field label="Declination" value={declination} onChange={setDeclination}
+                        unit="° E" placeholder="0" colors={colors} />
+                    )}
                   </View>
                   <Text style={[s.note, { color: colors.fnt }]}>
                     {latitude.trim() === ''

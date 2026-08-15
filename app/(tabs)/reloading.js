@@ -15,6 +15,7 @@ import { parseCandidates, analyseScreen } from '../../lib/screening';
 import { groupUnitLabel, inchesToUnit, formatDistance } from '../../lib/units';
 import { reconcileRows, reconcileVelocityRows, variantLabel } from '../../lib/variants';
 import { targetGroups } from '../../lib/analytics';
+import Svg, { Path, Line, Circle, Text as SvgText } from 'react-native-svg';
 import ChronoImport from '../../components/ChronoImport';
 import MeasureGuide from '../../components/MeasureGuide';
 
@@ -628,6 +629,77 @@ export default function ReloadingScreen() {
                   </View>
                 </View>
               </View>
+
+              {/* Velocity against charge, with the spread it was measured
+                  through.
+                  A ladder plotted as a bare line makes every wobble look like a
+                  node - the eye finds flat spots in noise reliably, which is
+                  most of why node hunting persists. Shading each rung by its
+                  own velocity spread puts the question the right way round: a
+                  flat spot no wider than the band is the band, and one that
+                  clears it is worth shooting again. Rungs with a pasted string
+                  get their real SD; the rest get the ladder's scatter about its
+                  own trend, which is the best available stand-in. */}
+              {parsed.length >= 3 && (() => {
+                const pts = parsed.filter(r => isFinite(r.charge) && isFinite(r.velocity));
+                if (pts.length < 3) return null;
+                const charges = pts.map(p => p.charge), vs = pts.map(p => p.velocity);
+                const c0 = Math.min(...charges), c1 = Math.max(...charges);
+                // Residual scatter about a straight fit, as the fallback spread.
+                const mc = charges.reduce((a, b) => a + b, 0) / pts.length;
+                const mv = vs.reduce((a, b) => a + b, 0) / pts.length;
+                let sxy = 0, sxx = 0;
+                for (const p of pts) { sxy += (p.charge - mc) * (p.velocity - mv); sxx += (p.charge - mc) ** 2; }
+                const slope = sxx > 0 ? sxy / sxx : 0;
+                const resid = Math.sqrt(pts.reduce((a, p) =>
+                  a + (p.velocity - (mv + slope * (p.charge - mc))) ** 2, 0) / Math.max(1, pts.length - 2));
+                const sdOf = (p) => {
+                  if (p.velocities?.length > 2) {
+                    const m = p.velocities.reduce((a, b) => a + b, 0) / p.velocities.length;
+                    return Math.sqrt(p.velocities.reduce((a, v) => a + (v - m) ** 2, 0) / (p.velocities.length - 1));
+                  }
+                  return resid;
+                };
+                const band = Math.max(...pts.map(sdOf), 1);
+                const v0 = Math.min(...vs) - band * 1.6, v1 = Math.max(...vs) + band * 1.6;
+                const px = (c) => 34 + ((c - c0) / ((c1 - c0) || 1)) * 258;
+                const py = (v) => 96 - ((v - v0) / ((v1 - v0) || 1)) * 84;
+                return (
+                  <>
+                    <Text style={[cs.colH, { color: colors.fnt, marginTop: 16 }]}>
+                      VELOCITY AGAINST CHARGE, WITH SPREAD
+                    </Text>
+                    <Svg viewBox="0 0 300 112" style={{ width: '100%', height: undefined, aspectRatio: 300 / 112, marginTop: 6 }}>
+                      {pts.map((p, i) => {
+                        const sd = sdOf(p);
+                        return (
+                          <Line key={'e' + i} x1={px(p.charge)} y1={py(p.velocity - sd)}
+                            x2={px(p.charge)} y2={py(p.velocity + sd)}
+                            stroke={colors.mut} strokeWidth={5} strokeLinecap="round" opacity={0.3} />
+                        );
+                      })}
+                      <Path d={pts.map((p, i) => `${i ? 'L' : 'M'} ${px(p.charge)} ${py(p.velocity)}`).join(' ')}
+                        fill="none" stroke={colors.act} strokeWidth={2} />
+                      {pts.map((p, i) => (
+                        <Circle key={'p' + i} cx={px(p.charge)} cy={py(p.velocity)} r={2.6}
+                          fill={analysis.node && p.charge === analysis.node.centreCharge
+                            ? (analysis.node.significant ? colors.okt : colors.warnt)
+                            : colors.act} />
+                      ))}
+                      <SvgText x={34} y={108} fontSize="8" fill={colors.fnt}>{c0}gr</SvgText>
+                      <SvgText x={292} y={108} fontSize="8" textAnchor="end" fill={colors.fnt}>{c1}gr</SvgText>
+                      <SvgText x={30} y={py(Math.max(...vs)) + 3} fontSize="8" textAnchor="end"
+                        fill={colors.fnt}>{Math.round(Math.max(...vs))}</SvgText>
+                      <SvgText x={30} y={py(Math.min(...vs)) + 3} fontSize="8" textAnchor="end"
+                        fill={colors.fnt}>{Math.round(Math.min(...vs))}</SvgText>
+                    </Svg>
+                    <Text style={[cs.landsHint, { color: colors.fnt, marginBottom: 10 }]}>
+                      The bars are one standard deviation of velocity at each charge. A flat
+                      spot no wider than a bar is the bar.
+                    </Text>
+                  </>
+                );
+              })()}
 
               {/* The analysis. Verdict wording comes from lib/loaddev so the
                   uncertainty can't be dropped on its way to the screen. */}
