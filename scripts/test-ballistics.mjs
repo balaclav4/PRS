@@ -10,8 +10,7 @@
  */
 import {
   solve, dopeCard, zeroAngle, trueBC, densityRatio, speedOfSound,
-  pressureAtAltitude, inchesToMoa, inchesToMil, standardCd,
-} from '../lib/ballistics.js';
+  pressureAtAltitude, inchesToMoa, inchesToMil, standardCd, windBracket } from '../lib/ballistics.js';
 
 let fails = 0;
 const check = (name, ok, detail = '') => {
@@ -279,6 +278,73 @@ console.log('\nthe standard drag tables are the standard ones');
     'this is the behaviour a single exponential decay cannot produce');
   check('  and are clamped rather than extrapolated past the ends',
     standardCd('G7', 99) === standardCd('G7', 4.0) && standardCd('G1', -5) === standardCd('G1', 0));
+}
+
+console.log('\nthe card carries the effects the app computes');
+{
+  const base = {
+    mvFps: 2800, bc: 0.315, dragModel: 'G7', sightHeightIn: 1.5, zeroYd: 100,
+    tempF: 59, pressureInHg: 29.92, humidityPct: 50,
+    windMph: 10, windAngleDeg: 90, maxRangeYd: 1000, stepYd: 1000, unit: 'moa',
+  };
+  const plain = dopeCard(base);
+  const withFx = dopeCard({
+    ...base,
+    effects: { sg: 1.8, lengthCalibers: 4.6, rightHandTwist: true, latitudeDeg: 45, azimuthDeg: 90 },
+  });
+
+  check('  a card without them says so', plain.includesEffects === false);
+  check('  and with them says so too', withFx.includesEffects === true);
+
+  const a = plain.rows[plain.rows.length - 1], b = withFx.rows[withFx.rows.length - 1];
+  check('  windage at 1000 moves once they are included',
+    Math.abs(b.wind - a.wind) > 0.05,
+    `${a.wind} -> ${b.wind} MOA`);
+  check('  spin drift is right-hand and positive', b.spinDriftIn > 0,
+    `${b.spinDriftIn}" at 1000`);
+  check('  and is the size the Litz form predicts, a few inches at 1000',
+    b.spinDriftIn > 3 && b.spinDriftIn < 15, `${b.spinDriftIn}"`);
+  check('  the components sum to the difference', (() => {
+    const delta = b.windIn - a.windIn;
+    return near(delta, b.spinDriftIn + b.coriolisHIn, 0.05);
+  })(), 'the total is auditable rather than magic');
+
+  // Left-hand twist must drift the other way, which is the cheapest possible
+  // check that the sign is threaded through rather than assumed.
+  const lh = dopeCard({
+    ...base,
+    effects: { sg: 1.8, lengthCalibers: 4.6, rightHandTwist: false, latitudeDeg: null },
+  });
+  check('  a left-hand twist drifts the other way',
+    lh.rows[lh.rows.length - 1].spinDriftIn < 0,
+    `${lh.rows[lh.rows.length - 1].spinDriftIn}"`);
+
+  check('  an unusable effects block is ignored rather than half-applied',
+    dopeCard({ ...base, effects: { sg: 0, lengthCalibers: 4.6 } }).includesEffects === false);
+}
+
+console.log('\nwind as a bracket');
+{
+  const base = {
+    mvFps: 2800, bc: 0.315, dragModel: 'G7', sightHeightIn: 1.5, zeroYd: 100,
+    maxRangeYd: 600, stepYd: 200, unit: 'moa',
+  };
+  const wb = windBracket(base, [5, 10, 20]);
+  check('  one row per range', wb.rows.length === 3);
+
+  const r = wb.rows[wb.rows.length - 1];
+  check('  drift is linear in wind speed', near(r.holds[2], r.holds[0] * 4, 0.02),
+    `5mph ${r.holds[0]}, 20mph ${r.holds[2]} MOA — exactly four times`);
+  check('  and ten is twice five', near(r.holds[1], r.holds[0] * 2, 0.02));
+  check('  per-mph agrees with the bracket', near(r.perMph * 10, r.holds[1], 0.02),
+    `${r.perMph} MOA per mph at 600`);
+
+  // The bracket must agree with a full solve at that wind, or it is a shortcut
+  // that quietly disagrees with the card printed beside it.
+  const solved = dopeCard({ ...base, windMph: 20, windAngleDeg: 90 });
+  const last = solved.rows[solved.rows.length - 1];
+  check('  and with a real solve at that speed', near(r.holds[2], last.wind, 0.05),
+    `bracket ${r.holds[2]}, solved ${last.wind} MOA`);
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));

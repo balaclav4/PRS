@@ -8,7 +8,7 @@ import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { formatVelocity, formatDistance, mToYd, cToF, mpsToFps, ydToM, fToC, fpsToMps } from '../../lib/units';
 import { establishZero, zeroUnderConditions, densityAltitude } from '../../lib/zeroing';
-import { dopeCard, trueBC } from '../../lib/ballistics';
+import { dopeCard, trueBC, windBracket } from '../../lib/ballistics';
 import { sightTape, tapeToRows } from '../../lib/sighttape';
 import { saveCSV, slugify } from '../../lib/export';
 import { bulletDiameterIn } from '../../lib/calibers';
@@ -232,13 +232,13 @@ export default function BallisticsScreen() {
     });
   }, [pending, storedCurve, bc, dragModel, curveSd.sd]);
 
-  const card = useMemo(() => dopeCard(opts), [opts]);
-  const unitLabel = unit === 'mil' ? 'MIL' : 'MOA';
-  const firstTransonic = card.rows.find(r => r.transonic);
-
-  // Long-range effects. Bullet length has no home in the load record and has to
-  // be measured or looked up, so it is asked for. Weight, diameter and twist do
-  // have homes, so they are read from there and only asked for when unreadable.
+  // Whether the printed card carries spin drift, Coriolis and aero jump.
+  // Default on: the app computes them, they are worth about a minute at 1000,
+  // and a card that silently omits them is the thing the audit called out.
+  // Bullet and rifle geometry. These used to sit beside the Long Range panel,
+  // which was their only reader. The dope card folds the same effects in now,
+  // so they are declared with the rest of the state rather than halfway down
+  // the component, below the memo that needs them.
   const [showLR, setShowLR] = useState(false);
   const [bulletLen, setBulletLen] = useState('');
   const [twistIn, setTwistIn] = useState('');
@@ -246,6 +246,50 @@ export default function BallisticsScreen() {
   const [rightTwist, setRightTwist] = useState(true);
   const [latitude, setLatitude] = useState('');
   const [azimuth, setAzimuth] = useState('');
+
+  const [foldEffects, setFoldEffects] = useState(true);
+
+  /**
+   * The effects block handed to dopeCard.
+   *
+   * Built from the same inputs as the Long Range panel but not from `lr`, which
+   * is derived from `card` - taking it from there would make the card depend on
+   * itself. Both read the rifle and the bullet; only the plumbing differs.
+   */
+  const cardEffects = useMemo(() => {
+    if (!foldEffects) return null;
+    const grains = num(grainsIn, 0) || parseGrains(load?.bullet);
+    const twist = num(twistIn, 0) || parseTwist(rifle?.twist);
+    const cal = bulletDiameterIn(load?.caliber || rifle?.cartridge || '');
+    const dia = cal.matched ? cal.diameterIn : 0;
+    const lengthIn = toIn(bulletLen, 0);
+    if (!(grains > 0) || !(twist > 0) || !(dia > 0) || !(lengthIn > 0)) return null;
+    const da = densityAltitude({
+      pressureInHg: opts.pressureInHg, tempF: opts.tempF, humidityPct: opts.humidityPct,
+    });
+    const sg = gyroscopicStability({
+      bulletGrains: grains, diameterIn: dia, lengthIn, twistIn: twist,
+      mvFps: opts.mvFps, densityRatio: densityRatioFromDa(da),
+    });
+    if (!(sg > 0)) return null;
+    return {
+      sg,
+      lengthCalibers: lengthIn / dia,
+      rightHandTwist: rightTwist,
+      latitudeDeg: latitude.trim() === '' ? null : num(latitude, 0),
+      azimuthDeg: num(azimuth, 0),
+    };
+  }, [foldEffects, grainsIn, twistIn, bulletLen, latitude, azimuth, rightTwist,
+      load, rifle, opts.mvFps, opts.pressureInHg, opts.tempF, opts.humidityPct]);
+
+  const card = useMemo(() => dopeCard({ ...opts, effects: cardEffects }), [opts, cardEffects]);
+  const wind = useMemo(() => windBracket(opts), [opts]);
+  const unitLabel = unit === 'mil' ? 'MIL' : 'MOA';
+  const firstTransonic = card.rows.find(r => r.transonic);
+
+  // Long-range effects. Bullet length has no home in the load record and has to
+  // be measured or looked up, so it is asked for. Weight, diameter and twist do
+  // have homes, so they are read from there and only asked for when unreadable.
 
   const lr = useMemo(() => {
     const grains = num(grainsIn, 0) || parseGrains(load?.bullet);
@@ -842,6 +886,28 @@ export default function BallisticsScreen() {
             {formatDistance(opts.zeroYd, dU)} zero · {unitLabel} · {tU === '°C' ? Math.round(fToC(opts.tempF)) : opts.tempF}{tU}
           </Text>
 
+          {/* Whether the card carries spin drift, Coriolis and aero jump.
+              Stated on the card itself rather than hidden in a setting: a
+              shooter comparing this against another solver needs to know
+              which numbers are in it, and one that silently included them
+              would be as misleading as one that silently did not. */}
+          <TouchableOpacity onPress={() => setFoldEffects(v => !v)}
+            style={[s.fxRow, {
+              backgroundColor: card.includesEffects ? colors.acs : colors.inset,
+              borderColor: card.includesEffects ? colors.act : colors.bd,
+            }]}>
+            <Text style={[s.fxText, { color: card.includesEffects ? colors.act : colors.mut }]}>
+              {card.includesEffects
+                ? 'Includes spin drift, Coriolis and aero jump'
+                : foldEffects
+                  ? 'Spin drift and Coriolis need bullet length, twist and caliber'
+                  : 'Elevation and wind only'}
+            </Text>
+            <Text style={[s.fxToggle, { color: card.includesEffects ? colors.act : colors.fnt }]}>
+              {foldEffects ? 'ON' : 'OFF'}
+            </Text>
+          </TouchableOpacity>
+
           <View style={s.tableHead}>
             <Text style={[s.th, { color: colors.fnt, flex: 1.1 }]}>RANGE</Text>
             <Text style={[s.th, { color: colors.fnt }]}>ELEV</Text>
@@ -865,6 +931,39 @@ export default function BallisticsScreen() {
               <Text style={[s.td, { color: colors.mut, textAlign: 'right' }]}>{r.tofSec.toFixed(2)}</Text>
             </View>
           ))}
+
+          {/* Wind as a bracket.
+              The card above solves one wind speed, and nobody knows the wind -
+              they estimate it. Drift is exactly linear in speed, so the whole
+              table comes out of the same solve for nothing, and the field
+              arithmetic becomes "call it eight, read the eight column" rather
+              than going back to the inputs and re-solving. */}
+          <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 18 }]}>
+            WIND HOLD ({unitLabel}), FULL VALUE
+          </Text>
+          <View style={s.wbRow}>
+            <Text style={[s.wbHead, { color: colors.fnt, textAlign: 'left' }]}>RANGE</Text>
+            {wind.speeds.map(v => (
+              <Text key={v} style={[s.wbHead, { color: colors.fnt }]}>{v}{windU}</Text>
+            ))}
+            <Text style={[s.wbHead, { color: colors.fnt }]}>PER</Text>
+          </View>
+          {wind.rows.map((r, i) => (
+            <View key={r.rangeYd} style={[s.wbRow, i % 2 === 0 && { backgroundColor: colors.inset }]}>
+              <Text style={[s.wbCell, { color: colors.tx, textAlign: 'left' }]}>
+                {dU === 'm' ? Math.round(ydToM(r.rangeYd)) : r.rangeYd}
+              </Text>
+              {r.holds.map((h, j) => (
+                <Text key={j} style={[s.wbCell, { color: j === 1 ? colors.act : colors.tx }]}>{h}</Text>
+              ))}
+              <Text style={[s.wbCell, { color: colors.mut }]}>{r.perMph}</Text>
+            </View>
+          ))}
+          <Text style={[s.cardBody, { color: colors.fnt, marginTop: 6 }]}>
+            A full-value crosswind. Multiply by the sine of the clock angle for anything
+            else — half value at 30°. The last column is per mile an hour, for a call
+            between the columns.
+          </Text>
 
           {firstTransonic && (
             <View style={[s.warn, { backgroundColor: colors.warns }]}>
@@ -1442,6 +1541,16 @@ const s = StyleSheet.create({
   curveCell: { flex: 1, fontSize: 11.5, fontFamily: 'JetBrainsMono_700Bold' },
   row: { flexDirection: 'row', gap: 10, marginBottom: 8 },
   fieldLabel: { fontSize: 11.5, fontWeight: '700', marginBottom: 6 },
+  fxRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  fxText: { flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
+  fxToggle: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+  wbRow: { flexDirection: 'row', paddingVertical: 6 },
+  wbCell: { flex: 1, fontSize: 12, fontFamily: 'JetBrainsMono_700Bold', textAlign: 'right' },
+  wbHead: { flex: 1, fontSize: 10, fontWeight: '800', letterSpacing: 0.4, textAlign: 'right' },
   fieldLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   fieldBox: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 11, paddingHorizontal: 12 },
   // minWidth 0 because a flex item will not shrink below its intrinsic content
