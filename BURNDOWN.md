@@ -271,3 +271,111 @@ re-verified afterwards, since this is the exact code path the zoom bug lived in.
   adjust a placed bull — taps past the second are deliberately inert so a stray
   tap cannot destroy a calibration — which makes it the recovery path for a
   refused fit and worth checking first on the phone.
+
+---
+
+# Pre-beta audit, 11 Aug 2026
+
+Everything below is a gap, not a bug. Ordered by what it costs.
+
+## A. Blocks a beta with strangers
+
+## [ ] B1. Every new user inherits somebody else's rifles
+
+`store/data.js` seeds three rifles, two loads, five sessions and a load
+development project on first launch, gated on a `seeded` pref. That is right
+for a demo and wrong for a tester: they open the app, see "Impact 737R" and
+five sessions they did not shoot, and have no way to tell which data is theirs.
+Worse, their first real session lands in a list of fiction, and any statistic
+on the dashboard — typical group, best group, trend — is computed over invented
+numbers.
+
+Needs a first-run choice: start empty, or load the demo set and label it as
+such. Settings already has Clear All Data, so the machinery exists; what is
+missing is being asked.
+
+## [ ] B2. No error boundary
+
+A render error anywhere unmounts the tree to a blank screen with no message and
+no way back except force-quitting. Grep confirms no `ErrorBoundary` and no
+`componentDidCatch` in the project. On a device the shooter cannot open a
+console, so "it went white" is all the report anyone can give.
+
+One boundary at the root, one per tab, and a "something broke — go back" button
+would turn a dead app into a recoverable one.
+
+## [ ] B3. Nothing reports crashes
+
+No Sentry, no Crashlytics, no logging of caught errors. During a beta the whole
+point is finding out what breaks on hardware nobody here owns, and right now
+the only channel is a tester remembering to describe it.
+
+## [ ] B4. No way to send feedback
+
+Related and cheaper: no in-app route to report anything. A tester who finds the
+rim fit refusing a bull they think is fine has nowhere to put that.
+
+## [ ] B5. Losing the phone loses everything
+
+Sync is built and unwired, so data lives in one SQLite file. CSV export exists
+but is manual and partial — it does not carry shots, aim points or scale, so an
+export is not a backup. For a beta, either wire sync or add a real
+export-and-restore, and say plainly which.
+
+Legal blockers from `RELEASE.md` also bind here, not just at store submission:
+the privacy policy has six placeholders and is not lawyer-reviewed, and the app
+collects email addresses through authentication.
+
+## B. Physics and tooling gaps a serious user will notice
+
+## [ ] B6. The dope card omits the effects the app computes
+
+Spin drift, Coriolis and aerodynamic jump are implemented, tested against
+published forms, and shown in a separate "Long Range Effects" panel — which
+says, in its own words, that the card does not include them. They come to
+roughly a minute at 1000 yards. So the card a shooter carries is knowingly
+incomplete, and the app is the thing that knows it.
+
+This is the most incoherent thing in the app: the right numbers exist and are
+not where they are used. Either fold them into the card behind a toggle, or
+print them as a separate column.
+
+## [ ] B7. No angle-of-fire correction
+
+Nothing in `lib/` handles an inclined shot. PRS stages are shot up and down
+hill routinely, and the correction is large enough to miss with — a 30 degree
+angle removes about 13% of the drop. Standard treatments run from the rifleman's
+rule to the improved-cosine method; the honest version also states where the
+simple rule breaks down.
+
+## [ ] B8. No powder temperature sensitivity
+
+Velocity moves with ammunition temperature, typically enough to matter past
+600 yards, and shooters routinely record it. Nothing models it and nothing asks.
+
+## [ ] B9. Velocity truing
+
+`trueBC` solves a BC backwards from dope. Muzzle velocity is at least as likely
+to be the wrong input, and truing the two is a different and better-posed
+problem than truing either alone.
+
+## C. Discussed, agreed, not built
+
+- **Wind as a bracket** on the dope card — drift per mph, or a 5/10/15/20
+  matrix. Highest field value of anything on this list and nearly free, since
+  drift is exactly linear in wind speed and the solver already knows it.
+- **Trajectory chart.** Every number is computed; nothing is drawn. Both zero
+  crossings, the apex and the transonic point.
+- **Danger space / point-blank range** for a given target size.
+- **Jump recorded per rifle.** The diagram teaches it; there is no field to put
+  the CBTO-at-lands in, so seating rows are still raw CBTO.
+- **Velocity against charge, with the SD band**, so a "node" can be seen to be
+  inside the noise or outside it.
+- **Magnetic declination** from the NOAA World Magnetic Model, public domain.
+  Coriolis needs a true azimuth; a shooter reads a magnetic one off a compass.
+
+## D. Known and accepted
+
+- Splatter-target detection fails and says so.
+- `expectedShots` built, measured as no improvement, deliberately unwired.
+- No shipped BCs, ring diameters, torque figures or SAAMI/CIP dimensions.
