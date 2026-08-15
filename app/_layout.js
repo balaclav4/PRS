@@ -1,14 +1,47 @@
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
+import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from '@expo-google-fonts/manrope';
 import { JetBrainsMono_500Medium, JetBrainsMono_700Bold } from '@expo-google-fonts/jetbrains-mono';
 import { ThemeProvider, useTheme } from '../lib/theme';
-import { DataProvider } from '../store/data';
+import { DataProvider, useData } from '../store/data';
 import { AuthProvider, useAuth } from '../store/auth';
 
 function InnerLayout() {
   const { colors, ready: themeReady } = useTheme();
-  const { ready } = useAuth();
+  const { ready, user, configured } = useAuth();
+  const { localOnly, prefsReady } = useData();
+  const router = useRouter();
+  const segments = useSegments();
+
+  /**
+   * Sign-in is the way in, unless the shooter has chosen otherwise.
+   *
+   * An account is what makes the data theirs and what carries it to their next
+   * phone, so it is the default path rather than a setting somebody finds
+   * later. Local-only remains available and is a real choice - but it is made
+   * once, knowingly, on a screen that says what it costs, instead of being
+   * where everybody silently ends up.
+   *
+   * Nothing is forced when Firebase is not configured: there is no account to
+   * sign into, and trapping the user at a login screen that cannot work would
+   * be the worst of both.
+   */
+  useEffect(() => {
+    if (!ready || !prefsReady || !configured) return;
+    const onLogin = segments[0] === 'login';
+    const allowed = !!user || localOnly;
+    // Both directions here, rather than navigating from the buttons.
+    //
+    // Choosing local-only used to set state and then navigate itself, which
+    // raced: the state had not flushed when this effect re-ran, so it saw
+    // localOnly still false, saw the route was no longer /login, and sent the
+    // shooter straight back to the screen they had just answered. Pressing the
+    // button appeared to do nothing at all. Deriving the destination from the
+    // state means there is nothing to race against.
+    if (!allowed && !onLogin) router.replace('/login');
+    else if (allowed && onLogin) router.replace('/');
+  }, [ready, prefsReady, configured, user, localOnly, segments, router]);
 
   // Firebase restores a persisted session asynchronously. Rendering the stack
   // before that resolves would flash a signed-in user past the login screen and

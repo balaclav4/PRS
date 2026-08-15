@@ -1,5 +1,7 @@
-import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import * as db from '../lib/db';
+import { useAuth } from './auth';
+import { runSync } from '../lib/syncremote';
 import { DEFAULT_UNITS, groupUnitLabel, inchesToUnit } from '../lib/units';
 import { noConsent, grantConsent, revokeConsent } from '../lib/consent';
 
@@ -80,6 +82,10 @@ const DataContext = createContext();
 const SEED = { rifles: SEED_RIFLES, loads: SEED_LOADS, sessions: SEED_SESSIONS, projects: SEED_PROJECTS };
 
 export function DataProvider({ children }) {
+  // DataProvider sits inside AuthProvider in app/_layout, so who is signed in
+  // is known here. That is the whole point: the dataset shown is a function of
+  // the account, not of the phone.
+  const { user, ready: authReady } = useAuth();
   const [rifles, setRifles] = useState(SEED_RIFLES);
   const [loads, setLoads] = useState(SEED_LOADS);
   const [sessions, setSessions] = useState(SEED_SESSIONS);
@@ -99,12 +105,27 @@ export function DataProvider({ children }) {
   // whether they took it - declining is an answer, and the prompt must not
   // come back every launch.
   const [demoOffered, setDemoOffered] = useState(true);
+  // Whether the shooter has chosen to work without an account. Recorded, so
+  // the choice is made once rather than being re-asked every launch.
+  const [localOnly, setLocalOnly] = useState(false);
+  const [prefsReady, setPrefsReady] = useState(false);
 
-  // Hydrate from local storage on boot. If storage is unavailable we keep the
-  // seed data in memory rather than showing an empty app.
+  const [syncState, setSyncState] = useState({ status: 'idle', at: null, reason: null });
+  const lastSyncRef = useRef(null);
+
+  /**
+   * Load whatever belongs to the current owner.
+   *
+   * Runs on boot and again whenever the signed-in account changes, because
+   * switching accounts must switch the dataset - not merge it, and not leave
+   * the previous one on screen. Signing out returns to the 'local' scope, which
+   * still holds anything recorded before signing in.
+   */
   useEffect(() => {
+    if (!authReady) return;
     let cancelled = false;
     (async () => {
+      db.setOwner(user?.uid ?? 'local');
       // Empty, always. The demo set is loaded only if asked for - see
       // db.initDbEmpty for why a stranger must not inherit someone else's
       // rifles and have the dashboard average them.
@@ -125,14 +146,35 @@ export function DataProvider({ children }) {
         setProfileName(data.prefs?.profileName ?? '');
         setTrainingConsentState(data.prefs?.trainingConsent ?? noConsent());
         setBullPresets(data.prefs?.bullPresets || []);
+        setLocalOnly(data.prefs?.localOnly === true);
         // Ask only an install that has never been asked and has nothing in it.
         const asked = data.prefs?.demoOffered === true;
         setDemoOffered(asked || (data.rifles?.length || 0) > 0 || (data.sessions?.length || 0) > 0);
       }
-      if (!cancelled) setReady(true);
+      if (!cancelled) { setReady(true); setPrefsReady(true); }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [authReady, user?.uid]);
+
+  /**
+   * Catch up once after signing in.
+   *
+   * Deliberately fire-and-forget and deliberately not on a timer. Sync is
+   * something the app does when it can, not something any screen waits on -
+   * the device is the source of truth for reading, and a shooter with no signal
+   * must never be held up by it.
+   */
+  useEffect(() => {
+    if (!ready || !user?.uid) return;
+    let cancelled = false;
+    (async () => {
+      const stored = await db.getPref('lastSyncAt', null);
+      if (cancelled) return;
+      lastSyncRef.current = stored ?? null;
+      syncNow();
+    })();
+    return () => { cancelled = true; };
+  }, [ready, user?.uid]);
 
   const getRifle = useCallback((id) => rifles.find(r => r.id === id), [rifles]);
   const getLoad = useCallback((id) => loads.find(l => l.id === id), [loads]);
@@ -320,6 +362,52 @@ export function DataProvider({ children }) {
     return d;
   }, []);
 
+  /**
+   * Push what is here, pull what is not, and reload.
+   *
+   * Reloads from the database rather than from the sync result, so the screen
+   * shows what actually persisted. Never throws - a shooter on a bay with no
+   * signal should see "could not reach the server", not a broken screen.
+   */
+  const syncNow = useCallback(async () => {
+    if (!user?.uid) return { ok: false, reason: 'not-signed-in' };
+    setSyncState(st => ({ ...st, status: 'syncing', reason: null }));
+    const local = await db.readAllForSync();
+    const r = await runSync({
+      local,
+      lastSyncAt: lastSyncRef.current,
+      applyPull: async (pulls) => {
+        for (const rec of pulls.rifles || []) await db.putRifle(rec);
+        for (const rec of pulls.loads || []) await db.putLoad(rec);
+        for (const rec of pulls.sessions || []) await db.putSession(rec);
+        for (const rec of pulls.projects || []) await db.putProject(rec);
+        for (const rec of pulls.dopeCards || []) await db.putDopeCard(rec);
+      },
+    });
+    if (r.ok) {
+      lastSyncRef.current = r.at;
+      await db.putPref('lastSyncAt', r.at);
+      const fresh = await db.readAll();
+      if (fresh) {
+        setRifles(fresh.rifles || []);
+        setLoads(fresh.loads || []);
+        setSessions(fresh.sessions || []);
+        setProjects(fresh.projects || []);
+        setDopeCards(fresh.dopeCards || []);
+      }
+      setSyncState({ status: 'ok', at: r.at, pushed: r.pushed, pulled: r.pulled, reason: null });
+    } else {
+      setSyncState({ status: 'error', at: null, reason: r.reason });
+    }
+    return r;
+  }, [user?.uid]);
+
+  /** Work without an account, knowingly. */
+  const chooseLocalOnly = useCallback(() => {
+    setLocalOnly(true);
+    persist(() => db.putPref('localOnly', true));
+  }, []);
+
   const addBullPreset = useCallback((preset) => {
     if (!preset) return;
     setBullPresets(prev => {
@@ -421,11 +509,13 @@ export function DataProvider({ children }) {
     getDopeCard, addDopeCard, deleteDopeCard,
     bullPresets, addBullPreset, deleteBullPreset,
     demoOffered, loadDemo, dismissDemo,
-    snapshot, restoreBackup,
+    snapshot, restoreBackup, syncNow, syncState, signedIn: !!user?.uid,
+    localOnly, chooseLocalOnly, prefsReady,
     exportSessionsCSV,
   }), [rifles, loads, sessions, projects, dopeCards, units, setUnit, ready,
        bullPresets, addBullPreset, deleteBullPreset,
-       demoOffered, loadDemo, dismissDemo, snapshot, restoreBackup,
+       demoOffered, loadDemo, dismissDemo, snapshot, restoreBackup, syncNow, syncState, user?.uid,
+       localOnly, chooseLocalOnly, prefsReady,
        profileName, setProfile, clearAllData, deleteAccount,
        trainingConsent, setTrainingConsent, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, getDopeCard, addDopeCard, deleteDopeCard, exportSessionsCSV]);
 

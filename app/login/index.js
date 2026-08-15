@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useAuth } from '../../store/auth';
+import { useData } from '../../store/data';
 
 export default function LoginScreen() {
   const { colors } = useTheme();
@@ -14,23 +15,28 @@ export default function LoginScreen() {
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState(null);
   const { configured, projectId, user, ready, busy, error, clearError, signIn, signUp, resetPassword } = useAuth();
+  const { chooseLocalOnly } = useData();
 
   // A restored session should land on the app, not on this screen.
   useEffect(() => {
-    if (ready && user) router.replace('/(tabs)');
+    // '/' rather than '/(tabs)'. A route group is a directory convention, not
+    // a path segment - navigating to the group name did nothing, silently, so
+    // signing in left the shooter looking at the login screen wondering
+    // whether it had worked.
+    if (ready && user) router.replace('/');
   }, [ready, user, router]);
 
   const submit = async () => {
     setNotice(null);
     // With no backend configured the app is local-only, which is a supported
     // mode rather than an error — going straight in is the honest behaviour.
-    if (!configured) return router.replace('/(tabs)');
+    if (!configured) return router.replace('/');
     if (!email.trim() || !password) {
       setNotice('Enter an email and password.');
       return;
     }
     const r = creating ? await signUp(email, password) : await signIn(email, password);
-    if (r.ok) router.replace('/(tabs)');
+    if (r.ok) router.replace('/');
   };
 
   const forgot = async () => {
@@ -114,6 +120,31 @@ export default function LoginScreen() {
               everything stays local to it.
             </Text>
           )}
+
+          {/* The other path, kept and made honest.
+              An account is what carries the data to the shooter's next phone,
+              so it is the default. Working without one is a real choice and
+              stays available - but it is made once, here, on a screen that
+              says what it costs, rather than being where everyone quietly ends
+              up by closing a dialog. */}
+          {configured && (
+            <View style={[s.localBox, { borderColor: colors.bd }]}>
+              <Text style={[s.localTitle, { color: colors.tx }]}>Rather not make an account?</Text>
+              <Text style={[s.localBody, { color: colors.mut }]}>
+                You can use everything without one. Your groups, loads and workups stay on
+                this phone only — nothing is uploaded, and nothing is shared. The cost is
+                that they stay on this phone: a new device, a lost phone or a reinstall
+                starts empty, and the only copy is whatever you have backed up from
+                Settings yourself.
+              </Text>
+              <TouchableOpacity
+                onPress={chooseLocalOnly}
+                style={[s.localBtn, { borderColor: colors.bd }]}
+              >
+                <Text style={[s.localBtnText, { color: colors.mut }]}>Use without an account</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -138,6 +169,14 @@ const s = StyleSheet.create({
   form: { width: '100%', gap: 12 },
   label: { fontSize: 12, fontWeight: '600', marginBottom: 6 },
   input: { width: '100%', padding: 14, paddingHorizontal: 16, borderWidth: 1, borderRadius: 13, fontSize: 15 },
+  localBox: { borderWidth: 1, borderRadius: 14, padding: 16, marginTop: 26 },
+  localTitle: { fontSize: 14.5, fontWeight: '800' },
+  localBody: { fontSize: 12.5, lineHeight: 18, marginTop: 6 },
+  localBtn: {
+    borderWidth: 1, borderRadius: 11, paddingVertical: 12,
+    alignItems: 'center', marginTop: 14,
+  },
+  localBtnText: { fontSize: 13, fontWeight: '700' },
   signIn: {
     width: '100%', marginTop: 22, padding: 16, borderRadius: 14, alignItems: 'center',
     backgroundColor: '#6D3BEB',
