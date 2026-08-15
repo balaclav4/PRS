@@ -10,7 +10,7 @@
  */
 import {
   solve, dopeCard, zeroAngle, trueBC, densityRatio, speedOfSound,
-  pressureAtAltitude, inchesToMoa, inchesToMil, standardCd, windBracket } from '../lib/ballistics.js';
+  pressureAtAltitude, inchesToMoa, inchesToMil, standardCd, windBracket, trueBoth } from '../lib/ballistics.js';
 
 let fails = 0;
 const check = (name, ok, detail = '') => {
@@ -345,6 +345,61 @@ console.log('\nwind as a bracket');
   const last = solved.rows[solved.rows.length - 1];
   check('  and with a real solve at that speed', near(r.holds[2], last.wind, 0.05),
     `bracket ${r.holds[2]}, solved ${last.wind} MOA`);
+}
+
+console.log('\ntruing velocity and BC together');
+{
+  const truth = { mvFps: 2755, bc: 0.291 };
+  const base = {
+    mvFps: 2800, bc: 0.315, dragModel: 'G7', sightHeightIn: 1.5, zeroYd: 100,
+    tempF: 59, pressureInHg: 29.92, humidityPct: 50, unit: 'moa',
+  };
+  // Dope the shooter would actually have recorded, generated from a rifle whose
+  // real velocity and BC are both different from what they typed.
+  const dopeAt = (yd) => {
+    const { rows } = solve({ ...base, ...truth, maxRangeYd: yd, stepYd: yd });
+    return +inchesToMoa(-rows[0].dropIn, yd).toFixed(2);
+  };
+  const obs = [
+    { rangeYd: 300, observedElevation: dopeAt(300) },
+    { rangeYd: 900, observedElevation: dopeAt(900) },
+  ];
+
+  const t = trueBoth(base, obs);
+  check('  it solves', t.ok, t.ok ? '' : t.reason);
+  check('  and recovers the velocity it was built from',
+    Math.abs(t.mvFps - truth.mvFps) <= 12, `${t.mvFps} fps against ${truth.mvFps}`);
+  check('  and the BC', Math.abs(t.bc - truth.bc) <= 0.012,
+    `${t.bc} against ${truth.bc}`);
+  check('  with the dope reproduced to within a fraction of a minute',
+    t.residual < 0.06, `${t.residual} MOA mean miss`);
+  check('  and reports how far it moved each', t.mvDelta < 0 && t.bcFactor < 1,
+    `${t.mvDelta} fps, BC x${t.bcFactor}`);
+
+  // The degenerate case, which is the reason this needs a guard at all.
+  const tight = trueBoth(base, [
+    { rangeYd: 500, observedElevation: dopeAt(500) },
+    { rangeYd: 600, observedElevation: dopeAt(600) },
+  ]);
+  check('  observations too close together are refused', !tight.ok);
+  check('  and it says the two cannot be told apart',
+    /cannot be told apart/.test(tight.reason), tight.reason);
+
+  check('  one observation is refused', !trueBoth(base, [obs[0]]).ok);
+  check('  and says why two are needed',
+    /one near, one far/.test(trueBoth(base, [obs[0]]).reason));
+
+  // Truing BC alone against a velocity error produces a BC that fits where it
+  // was trued and drifts elsewhere. That is the reason trueBoth exists, so it
+  // is worth showing rather than asserting.
+  const bcOnly = trueBC(base, [obs[1]]);
+  const withBcOnly = solve({ ...base, bc: bcOnly.bc, maxRangeYd: 300, stepYd: 300 }).rows[0];
+  const missAt300 = Math.abs(inchesToMoa(-withBcOnly.dropIn, 300) - obs[0].observedElevation);
+  const bothAt300 = Math.abs(inchesToMoa(
+    -solve({ ...base, bc: t.bc, mvFps: t.mvFps, maxRangeYd: 300, stepYd: 300 }).rows[0].dropIn, 300
+  ) - obs[0].observedElevation);
+  check('  truing BC alone misses at the other range', missAt300 > bothAt300,
+    `BC-only is ${missAt300.toFixed(2)} MOA out at 300, both is ${bothAt300.toFixed(2)}`);
 }
 
 console.log('\n' + (fails === 0 ? 'all checks passed' : `${fails} check(s) failed`));
