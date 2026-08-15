@@ -17,7 +17,8 @@ const LOADDEV_STEPS = ['Goal', 'Screen', 'Max Chg', 'Accuracy', 'Primers', 'Ladd
 
 export default function HomeScreen() {
   const { colors } = useTheme();
-  const { sessions, rifles, projects, dopeCards, units, getRifleName, profileName } = useData();
+  const { sessions, rifles, projects, dopeCards, units, getRifleName, profileName,
+          demoOffered, loadDemo, dismissDemo } = useData();
   const initials = initialsFrom(profileName);
   const router = useRouter();
 
@@ -72,6 +73,30 @@ export default function HomeScreen() {
               : <User size={19} color={colors.avt} />}
           </TouchableOpacity>
         </View>
+
+        {/* Asked once, on an install that has never been asked and holds
+            nothing. Demo data used to arrive unrequested, which meant a new
+            shooter's first real group landed in a list of five they never
+            fired - and every figure on this screen averaged the fiction in. */}
+        {!demoOffered && (
+          <View style={[s.firstRun, { backgroundColor: colors.card, borderColor: colors.act }]}>
+            <Text style={[s.firstRunTitle, { color: colors.tx }]}>Start with your own gear?</Text>
+            <Text style={[s.firstRunBody, { color: colors.mut }]}>
+              The app is empty. Add a rifle and a load as you go, or load a demo set to
+              look around first — it can be cleared from Settings at any point.
+            </Text>
+            <View style={s.firstRunRow}>
+              <TouchableOpacity onPress={dismissDemo}
+                style={[s.firstRunBtn, { backgroundColor: colors.act, borderColor: colors.act }]}>
+                <Text style={[s.firstRunBtnText, { color: '#fff' }]}>Start empty</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={loadDemo}
+                style={[s.firstRunBtn, { borderColor: colors.bd }]}>
+                <Text style={[s.firstRunBtnText, { color: colors.mut }]}>Load demo data</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         <TouchableOpacity
           onPress={() => router.push('/capture')}
@@ -261,6 +286,14 @@ const s = StyleSheet.create({
   statLabel: { fontSize: 11, fontWeight: '600', marginTop: 2 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '800' },
+  firstRun: { borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 16 },
+  firstRunTitle: { fontSize: 15.5, fontWeight: '800' },
+  firstRunBody: { fontSize: 12.5, lineHeight: 18, marginTop: 6 },
+  firstRunRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  firstRunBtn: {
+    flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 11, alignItems: 'center',
+  },
+  firstRunBtnText: { fontSize: 12.5, fontWeight: '800' },
   devRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 10,

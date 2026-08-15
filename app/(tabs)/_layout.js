@@ -4,6 +4,7 @@ import { Home, History, Camera, ChartColumn, Menu } from 'lucide-react-native';
 import { useTheme } from '../../lib/theme';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import MoreSheet from '../../components/MoreSheet';
+import ErrorBoundary from '../../components/ErrorBoundary';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function TabBarIcon({ icon: Icon, color, size }) {
@@ -64,7 +65,14 @@ export default function TabLayout() {
 
   return (
     <>
+      {/* One boundary per tab, not one around the navigator.
+          A single boundary at the root means one broken chart takes the tab bar
+          with it and the shooter cannot reach the screens that still work. Per
+          screen, a failure costs that screen and nothing else. */}
       <Tabs
+        screenLayout={({ children }) => (
+          <ErrorBoundary colors={colors}>{children}</ErrorBoundary>
+        )}
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: colors.act,

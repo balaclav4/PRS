@@ -1,13 +1,15 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, TextInput, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Palette, Sparkles, Sun, Moon, SunMoon, Ruler, Thermometer, Gauge, FileDown, LogOut, ChevronRight } from 'lucide-react-native';
-import { useState } from 'react';
+import { ArrowLeft, Palette, Sparkles, Sun, Moon, SunMoon, Ruler, Thermometer, Gauge, FileDown, LogOut, ChevronRight, TriangleAlert, X } from 'lucide-react-native';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { CONSENT_SUMMARY, consentIsCurrent, consentNeedsRenewal, describeConsent } from '../../lib/consent';
 import { useData } from '../../store/data';
 import { useAuth } from '../../store/auth';
 import { saveCSV } from '../../lib/export';
+import { getErrors, clearErrors, subscribe, buildReport } from '../../lib/errorlog';
+import Constants from 'expo-constants';
 
 import { GROUP_UNITS, TEMP_UNITS, VELOCITY_UNITS, DISTANCE_UNITS } from '../../lib/units';
 
@@ -27,6 +29,21 @@ export default function SettingsScreen() {
   const { signOut } = useAuth();
 
   const [exporting, setExporting] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const [note, setNote] = useState('');
+  const [errorCount, setErrorCount] = useState(getErrors().length);
+  useEffect(() => subscribe(list => setErrorCount(list.length)), []);
+
+  const sendReport = async () => {
+    const text = buildReport({
+      note,
+      app: { version: Constants.expoConfig?.version, build: Constants.expoConfig?.ios?.buildNumber },
+      device: { os: Platform.OS, osVersion: String(Platform.Version) },
+    });
+    await saveCSV(text, 'prs-problem-report.txt', 'text/plain');
+    setReporting(false);
+    setNote('');
+  };
 
   const doExport = async () => {
     setExporting(true);
@@ -158,6 +175,29 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* The other half of the error boundary.
+            Catching an error is worth nothing during a beta if the tester has
+            no way to hand it over, and the app deliberately ships no crash
+            reporter - a policy that says data stays on the device is not
+            compatible with an SDK that quietly posts stack traces off it. So
+            the report is built locally, shown in full, and sent only if the
+            shooter presses send. */}
+        <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 22 }]}>HELP</Text>
+        <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd, padding: 0, overflow: 'hidden' }]}>
+          <TouchableOpacity onPress={() => setReporting(true)} style={s.dataRow}>
+            <TriangleAlert size={19} color={colors.mut} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[s.dataLabel, { color: colors.tx }]}>Report a problem</Text>
+              {errorCount > 0 && (
+                <Text style={[s.dataSub, { color: colors.warnt }]}>
+                  {errorCount} error{errorCount === 1 ? '' : 's'} recorded this session
+                </Text>
+              )}
+            </View>
+            <ChevronRight size={18} color={colors.fnt} />
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity
           onPress={async () => { await signOut(); router.replace('/login'); }}
           style={[s.signOut, { backgroundColor: colors.dngs }]}
@@ -168,6 +208,53 @@ export default function SettingsScreen() {
 
         <Text style={[s.version, { color: colors.fnt }]}>PRS Precision · v1.0.0</Text>
       </ScrollView>
+
+      <Modal visible={reporting} transparent animationType="slide" onRequestClose={() => setReporting(false)}>
+        <View style={s.overlay}>
+          <View style={[s.sheet, { backgroundColor: colors.bg }]}>
+            <View style={s.sheetHead}>
+              <Text style={[s.sheetTitle, { color: colors.tx }]}>Report a problem</Text>
+              <TouchableOpacity onPress={() => setReporting(false)} hitSlop={10}>
+                <X size={22} color={colors.mut} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+              <Text style={[s.reportBody, { color: colors.mut }]}>
+                This builds a text file and hands it to the share sheet. Nothing is sent
+                anywhere on its own, and you can read the whole thing first. No target
+                photographs, session data or account details are included.
+              </Text>
+              <TextInput
+                value={note}
+                onChangeText={setNote}
+                multiline
+                placeholder="What were you doing when it went wrong?"
+                placeholderTextColor={colors.fnt}
+                style={[s.reportInput, { backgroundColor: colors.input, borderColor: colors.ibd, color: colors.tx }]}
+              />
+              <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 16 }]}>WHAT WILL BE SENT</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <Text style={[s.reportPreview, { color: colors.mut }]} selectable>
+                  {buildReport({
+                    note,
+                    app: { version: Constants.expoConfig?.version },
+                    device: { os: Platform.OS, osVersion: String(Platform.Version) },
+                  })}
+                </Text>
+              </ScrollView>
+              <TouchableOpacity onPress={sendReport}
+                style={[s.reportBtn, { backgroundColor: colors.acs, borderColor: colors.act }]}>
+                <Text style={[s.reportBtnText, { color: colors.act }]}>Save and share the report</Text>
+              </TouchableOpacity>
+              {errorCount > 0 && (
+                <TouchableOpacity onPress={() => clearErrors()} style={s.reportClear}>
+                  <Text style={[s.reportClearText, { color: colors.mut }]}>Clear recorded errors</Text>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -195,6 +282,21 @@ const s = StyleSheet.create({
   unitBadge: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999 },
   unitValue: { fontSize: 13, fontWeight: '700' },
   dataRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 15, paddingHorizontal: 16 },
+  dataSub: { fontSize: 11.5, marginTop: 2 },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '88%' },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  sheetTitle: { fontSize: 17, fontWeight: '800', flex: 1, minWidth: 0 },
+  reportBody: { fontSize: 12.5, lineHeight: 18, marginBottom: 12 },
+  reportInput: {
+    borderWidth: 1, borderRadius: 11, padding: 12, minHeight: 84,
+    fontSize: 13, textAlignVertical: 'top',
+  },
+  reportPreview: { fontSize: 10.5, lineHeight: 15, fontFamily: 'JetBrainsMono_500Medium' },
+  reportBtn: { borderWidth: 1, borderRadius: 11, paddingVertical: 13, alignItems: 'center', marginTop: 16 },
+  reportBtnText: { fontSize: 13, fontWeight: '800' },
+  reportClear: { alignItems: 'center', paddingVertical: 12 },
+  reportClearText: { fontSize: 12, fontWeight: '600' },
   dataLabel: { flex: 1, fontSize: 14, fontWeight: '600' },
   signOut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 22, borderRadius: 14, padding: 15 },
   signOutText: { fontSize: 15, fontWeight: '700' },

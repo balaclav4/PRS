@@ -95,13 +95,20 @@ export function DataProvider({ children }) {
   // Off until explicitly granted. Never inferred, never defaulted on.
   const [trainingConsent, setTrainingConsentState] = useState(noConsent());
   const [ready, setReady] = useState(false);
+  // Whether the shooter has been asked whether they want the demo data. Not
+  // whether they took it - declining is an answer, and the prompt must not
+  // come back every launch.
+  const [demoOffered, setDemoOffered] = useState(true);
 
   // Hydrate from local storage on boot. If storage is unavailable we keep the
   // seed data in memory rather than showing an empty app.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const data = await db.initDb(SEED);
+      // Empty, always. The demo set is loaded only if asked for - see
+      // db.initDbEmpty for why a stranger must not inherit someone else's
+      // rifles and have the dashboard average them.
+      const data = await db.initDbEmpty();
       if (!cancelled && data) {
         setRifles(data.rifles);
         setLoads(data.loads);
@@ -110,7 +117,7 @@ export function DataProvider({ children }) {
         // "this install predates load dev" from "the user erased their data",
         // so the seed project reappeared on the dashboard immediately after an
         // erase — the one place it must not.
-        setProjects(data.projects ?? SEED_PROJECTS);
+        setProjects(data.projects || []);
         setDopeCards(data.dopeCards || []);
         // Stored prefs override defaults per key, so a partially-set prefs
         // object still yields a complete unit set.
@@ -118,6 +125,9 @@ export function DataProvider({ children }) {
         setProfileName(data.prefs?.profileName ?? '');
         setTrainingConsentState(data.prefs?.trainingConsent ?? noConsent());
         setBullPresets(data.prefs?.bullPresets || []);
+        // Ask only an install that has never been asked and has nothing in it.
+        const asked = data.prefs?.demoOffered === true;
+        setDemoOffered(asked || (data.rifles?.length || 0) > 0 || (data.sessions?.length || 0) > 0);
       }
       if (!cancelled) setReady(true);
     })();
@@ -262,6 +272,24 @@ export function DataProvider({ children }) {
     persist(() => db.putPref('profileName', name));
   }, []);
 
+  /** Take the demo dataset, and stop asking. */
+  const loadDemo = useCallback(async () => {
+    const data = await db.loadDemoData(SEED);
+    if (data) {
+      setRifles(data.rifles || []);
+      setLoads(data.loads || []);
+      setSessions(data.sessions || []);
+      setProjects(data.projects || []);
+    }
+    setDemoOffered(true);
+  }, []);
+
+  /** Decline it. Recorded, so the prompt does not return next launch. */
+  const dismissDemo = useCallback(() => {
+    setDemoOffered(true);
+    persist(() => db.putPref('demoOffered', true));
+  }, []);
+
   const addBullPreset = useCallback((preset) => {
     if (!preset) return;
     setBullPresets(prev => {
@@ -362,9 +390,11 @@ export function DataProvider({ children }) {
     getProject, addProject, updateProject, deleteProject,
     getDopeCard, addDopeCard, deleteDopeCard,
     bullPresets, addBullPreset, deleteBullPreset,
+    demoOffered, loadDemo, dismissDemo,
     exportSessionsCSV,
   }), [rifles, loads, sessions, projects, dopeCards, units, setUnit, ready,
        bullPresets, addBullPreset, deleteBullPreset,
+       demoOffered, loadDemo, dismissDemo,
        profileName, setProfile, clearAllData, deleteAccount,
        trainingConsent, setTrainingConsent, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, getDopeCard, addDopeCard, deleteDopeCard, exportSessionsCSV]);
 
