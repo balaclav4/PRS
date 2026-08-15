@@ -29,11 +29,14 @@ export default function SettingsScreen() {
   const consentOn = consentIsCurrent(trainingConsent);
   const needsRenewal = consentNeedsRenewal(trainingConsent);
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
 
   const [exporting, setExporting] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [note, setNote] = useState('');
+  // On by default when there is an address to give: a beta report nobody can
+  // reply to is one that can only be counted.
+  const [includeEmail, setIncludeEmail] = useState(true);
   const [errorCount, setErrorCount] = useState(getErrors().length);
   useEffect(() => subscribe(list => setErrorCount(list.length)), []);
 
@@ -76,6 +79,7 @@ export default function SettingsScreen() {
   const sendReport = async () => {
     const text = buildReport({
       note,
+      contact: includeEmail ? (user?.email ?? null) : null,
       app: { version: Constants.expoConfig?.version, build: Constants.expoConfig?.ios?.buildNumber },
       device: { os: Platform.OS, osVersion: String(Platform.Version) },
     });
@@ -353,11 +357,37 @@ export default function SettingsScreen() {
                 placeholderTextColor={colors.fnt}
                 style={[s.reportInput, { backgroundColor: colors.input, borderColor: colors.ibd, color: colors.tx }]}
               />
+              {user?.email ? (
+                <TouchableOpacity onPress={() => setIncludeEmail(v => !v)}
+                  style={[s.emailRow, {
+                    borderColor: includeEmail ? colors.act : colors.bd,
+                    backgroundColor: includeEmail ? colors.acs : 'transparent',
+                  }]}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[s.dataLabel, { color: includeEmail ? colors.act : colors.tx }]}>
+                      Include {user.email}
+                    </Text>
+                    <Text style={[s.dataSub, { color: colors.fnt }]}>
+                      So the report can be answered rather than only counted.
+                    </Text>
+                  </View>
+                  <Text style={[s.fxToggleText, { color: includeEmail ? colors.act : colors.fnt }]}>
+                    {includeEmail ? 'ON' : 'OFF'}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={[s.dataSub, { color: colors.fnt, marginTop: 12 }]}>
+                  You are not signed in, so this report carries no way to reply to you. Sign in
+                  from More if you would like a response.
+                </Text>
+              )}
+
               <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 16 }]}>WHAT WILL BE SENT</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <Text style={[s.reportPreview, { color: colors.mut }]} selectable>
                   {buildReport({
                     note,
+                    contact: includeEmail ? (user?.email ?? null) : null,
                     app: { version: Constants.expoConfig?.version },
                     device: { os: Platform.OS, osVersion: String(Platform.Version) },
                   })}
@@ -404,6 +434,11 @@ const s = StyleSheet.create({
   unitValue: { fontSize: 13, fontWeight: '700' },
   dataRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 15, paddingHorizontal: 16 },
   dataSub: { fontSize: 11.5, marginTop: 2 },
+  emailRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderRadius: 11, padding: 12, marginTop: 12,
+  },
+  fxToggleText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '88%' },
   sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
