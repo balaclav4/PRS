@@ -482,7 +482,51 @@ function Datum({ colors }) {
   );
 }
 
+/** Shooting up or down a slope, and why the direction does not matter. */
+function Incline({ colors }) {
+  const shooter = { x: 34, y: 100 };
+  const target = { x: 250, y: 34 };
+  return (
+    <Svg viewBox="0 0 300 126" style={[s.svg, { aspectRatio: 300 / 126 }]}>
+      {/* Horizontal, and the slant path along which the bullet actually flies. */}
+      <Line x1={shooter.x} y1={shooter.y} x2={target.x} y2={shooter.y}
+        stroke={colors.fnt} strokeWidth={1} strokeDasharray="4 3" />
+      <Line x1={target.x} y1={shooter.y} x2={target.x} y2={target.y}
+        stroke={colors.fnt} strokeWidth={1} strokeDasharray="4 3" />
+      <Line x1={shooter.x} y1={shooter.y} x2={target.x} y2={target.y}
+        stroke={colors.act} strokeWidth={1.8} />
+
+      {/* The angle at the shooter. */}
+      <Path d={`M ${shooter.x + 34} ${shooter.y} A 34 34 0 0 0 ${shooter.x + 32.6} ${shooter.y - 9.9}`}
+        fill="none" stroke={colors.warnt} strokeWidth={1.2} />
+      <SvgText x={shooter.x + 42} y={shooter.y - 4} fontSize="9" fontWeight="700"
+        fill={colors.warnt}>angle</SvgText>
+
+      <Circle cx={shooter.x} cy={shooter.y} r={3} fill={colors.act} />
+      <Circle cx={target.x} cy={target.y} r={5} fill="none" stroke={colors.tx} strokeWidth={1.4} />
+      <SvgText x={shooter.x - 4} y={shooter.y + 14} fontSize="8" fill={colors.mut}>you</SvgText>
+      <SvgText x={target.x + 9} y={target.y + 3} fontSize="8" fill={colors.mut}>target</SvgText>
+
+      <SvgText x={140} y={shooter.y + 14} fontSize="8" textAnchor="middle" fill={colors.fnt}>
+        horizontal — what a map measures
+      </SvgText>
+      <SvgText x={132} y={58} fontSize="8" textAnchor="middle" fill={colors.act}>
+        slant — what your rangefinder reads
+      </SvgText>
+      <SvgText x={150} y={122} fontSize="7.5" textAnchor="middle" fill={colors.fnt}>
+        downhill is the same correction as uphill
+      </SvgText>
+    </Svg>
+  );
+}
+
 const GUIDES = {
+  incline: {
+    title: 'Shot angle, up or down',
+    Diagram: Incline,
+    tool: 'An angle indicator on the scope or a rangefinder that reports it. A phone inclinometer will do at the ranges where the correction is small enough not to matter.',
+    body: 'Gravity pulls straight down, so on a slope only part of it bends the bullet away from the bore line — it drops less than it would over the same distance on the flat. Less whether you are shooting up or down, which is why "hold low downhill" is half a rule and misses the other half. Enter the angle to the target and the card adjusts: about 13% off the drop at 30 degrees, which at 800 yards is nearly two minutes and a clean miss on a plate. Enter the range your rangefinder gives you, the slant range, not a horizontal distance off a map — the app scales the drop rather than shortening the range, because the bullet really did fly through all that air and the older rifleman\'s rule pretends it did not.',
+  },
   sightHeight: {
     title: 'Sight height',
     Diagram: SightHeight,

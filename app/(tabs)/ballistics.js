@@ -248,6 +248,9 @@ export default function BallisticsScreen() {
   const [azimuth, setAzimuth] = useState('');
 
   const [foldEffects, setFoldEffects] = useState(true);
+  // Look angle to the target. Uphill positive, downhill negative — though the
+  // correction is the same either way, which is the thing shooters get wrong.
+  const [inclineDeg, setInclineDeg] = useState('');
 
   /**
    * The effects block handed to dopeCard.
@@ -282,7 +285,10 @@ export default function BallisticsScreen() {
   }, [foldEffects, grainsIn, twistIn, bulletLen, latitude, azimuth, rightTwist,
       load, rifle, opts.mvFps, opts.pressureInHg, opts.tempF, opts.humidityPct]);
 
-  const card = useMemo(() => dopeCard({ ...opts, effects: cardEffects }), [opts, cardEffects]);
+  const card = useMemo(
+    () => dopeCard({ ...opts, effects: cardEffects, inclineDeg: num(inclineDeg, 0) }),
+    [opts, cardEffects, inclineDeg]
+  );
   const wind = useMemo(() => windBracket(opts), [opts]);
   const unitLabel = unit === 'mil' ? 'MIL' : 'MOA';
   const firstTransonic = card.rows.find(r => r.transonic);
@@ -793,6 +799,13 @@ export default function BallisticsScreen() {
         <View style={s.row}>
           <Field label="Speed" value={windMph} onChange={setWindMph} unit={windU} colors={colors} />
           <Field label="Angle" value={windAngleDeg} onChange={setWindAngleDeg} unit="°" colors={colors} />
+          </View>
+          <View style={s.row}>
+            {/* The look angle to the target. Sits with wind because both are
+                read off the target rather than set up at the bench. */}
+            <Field label="Shot angle" value={inclineDeg} onChange={setInclineDeg} unit="°"
+              placeholder="0" colors={colors} hint="incline" />
+            <View style={{ flex: 1 }} />
         </View>
         <Text style={[s.note, { color: colors.fnt }]}>
           90° is a full-value crosswind, 0° a pure headwind. Drift scales with the sine,

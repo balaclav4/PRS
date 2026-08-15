@@ -280,7 +280,7 @@ Everything below is a gap, not a bug. Ordered by what it costs.
 
 ## A. Blocks a beta with strangers
 
-## [ ] B1. Every new user inherits somebody else's rifles
+## [x] B1. Every new user inherits somebody else's rifles
 
 `store/data.js` seeds three rifles, two loads, five sessions and a load
 development project on first launch, gated on a `seeded` pref. That is right
@@ -294,7 +294,7 @@ Needs a first-run choice: start empty, or load the demo set and label it as
 such. Settings already has Clear All Data, so the machinery exists; what is
 missing is being asked.
 
-## [ ] B2. No error boundary
+## [x] B2. No error boundary
 
 A render error anywhere unmounts the tree to a blank screen with no message and
 no way back except force-quitting. Grep confirms no `ErrorBoundary` and no
@@ -304,13 +304,13 @@ console, so "it went white" is all the report anyone can give.
 One boundary at the root, one per tab, and a "something broke — go back" button
 would turn a dead app into a recoverable one.
 
-## [ ] B3. Nothing reports crashes
+## [x] B3. Nothing reports crashes
 
 No Sentry, no Crashlytics, no logging of caught errors. During a beta the whole
 point is finding out what breaks on hardware nobody here owns, and right now
 the only channel is a tester remembering to describe it.
 
-## [ ] B4. No way to send feedback
+## [x] B4. No way to send feedback
 
 Related and cheaper: no in-app route to report anything. A tester who finds the
 rim fit refusing a bull they think is fine has nowhere to put that.
@@ -328,7 +328,7 @@ collects email addresses through authentication.
 
 ## B. Physics and tooling gaps a serious user will notice
 
-## [ ] B6. The dope card omits the effects the app computes
+## [x] B6. The dope card omits the effects the app computes
 
 Spin drift, Coriolis and aerodynamic jump are implemented, tested against
 published forms, and shown in a separate "Long Range Effects" panel — which
@@ -340,7 +340,7 @@ This is the most incoherent thing in the app: the right numbers exist and are
 not where they are used. Either fold them into the card behind a toggle, or
 print them as a separate column.
 
-## [ ] B7. No angle-of-fire correction
+## [x] B7. No angle-of-fire correction
 
 Nothing in `lib/` handles an inclined shot. PRS stages are shot up and down
 hill routinely, and the correction is large enough to miss with — a 30 degree
@@ -379,3 +379,17 @@ problem than truing either alone.
 - Splatter-target detection fails and says so.
 - `expectedShots` built, measured as no improvement, deliberately unwired.
 - No shipped BCs, ring diameters, torque figures or SAAMI/CIP dimensions.
+
+
+## Closed 11 Aug 2026
+
+B1–B4, B6, B7 and the wind bracket, in the order the audit recommended:
+blockers first, then the incoherence, then capability.
+
+Still open from this audit: B5 (no backup — sync built and unwired, and CSV
+export carries no shots, aim points or scale so it is not one), B8 powder
+temperature sensitivity, B9 velocity truing, and the four remaining items in
+section C — trajectory chart, danger space, jump recorded per rifle, and
+velocity against charge with the SD band. Magnetic declination from the WMM
+also still open, and still the cheapest way to make the Coriolis azimuth
+honest.
