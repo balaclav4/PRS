@@ -372,10 +372,12 @@ problem than truing either alone.
 - ~~**Jump recorded per rifle.**~~ CBTO at the lands lives on the rifle, because
   the throat belongs to the barrel and moves as it wears. Seating rows now read
   in thousandths off the lands as well as raw CBTO.
-- **Velocity against charge, with the SD band**, so a "node" can be seen to be
-  inside the noise or outside it.
-- **Magnetic declination** from the NOAA World Magnetic Model, public domain.
-  Coriolis needs a true azimuth; a shooter reads a magnetic one off a compass.
+- ~~**Velocity against charge, with the SD band.**~~ Drawn. A flat spot no wider
+  than the band is the band.
+- ~~**Magnetic declination.**~~ Solved by asking rather than by shipping the
+  World Magnetic Model: it is a coefficient set reissued every five years, and
+  writing it from memory is the invented-data failure this project refuses. A
+  True/Magnetic toggle and a declination field, which is on every chart.
 
 ## D. Known and accepted
 
@@ -396,3 +398,15 @@ section C — trajectory chart, danger space, jump recorded per rifle, and
 velocity against charge with the SD band. Magnetic declination from the WMM
 also still open, and still the cheapest way to make the Coriolis azimuth
 honest.
+
+
+## Closed 15 Aug 2026
+
+Everything in section C, plus B5, B8 and B9. What remains from the audit is
+only what needs an account or a lawyer rather than code: the account-deletion
+test on a throwaway, the deletion Cloud Function (Blaze billing), the privacy
+policy placeholders, Apple's privacy labels, and the decision about whether to
+build the training-data upload or soften the policy text describing it.
+
+Cloud sync remains built and unwired. That is now a feature gap rather than a
+data-loss risk, because backup and restore cover the loss case.
