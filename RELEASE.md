@@ -48,6 +48,21 @@ been verified, not merely written.
       Create one via "Create an account", delete it, confirm it is gone from the
       Firebase console. App Review will do exactly this.
 
+- [ ] **Deploy the deletion function. Now required, not advisable.**
+
+      This was close to optional while nothing was uploaded: there was no server
+      copy to orphan. Sync changed that on 15 Aug 2026. A signed-in shooter's
+      sessions, shots, aim points and load development now live under
+      `users/{uid}` in Firestore, and deleting the account without this leaves
+      every one of those subcollections stored and unreachable — which is both
+      the wrong answer to a deletion request and the thing App Review checks.
+
+      `lib/syncremote.purgeRemote()` deletes what the client can reach and is
+      called on account deletion, but the web SDK has no recursive delete, so it
+      cannot finish the job. It is a mitigation, not a substitute.
+
+      Original note follows.
+
 - [ ] **Deploy the deletion function.** `functions/index.js` removes
       `users/{uid}` recursively when an account is deleted, plus any training
       contributions it submitted. Written, not deployed:
@@ -63,6 +78,14 @@ been verified, not merely written.
       deleting `users/{uid}` leaves every subcollection beneath it stored and
       orphaned. Firebase's official "Delete User Data" extension is a reasonable
       alternative for the account tree, but does not know about `training-data`.
+
+- [ ] **Privacy policy URL. Re-read it before publishing — the app now uploads.**
+
+      `docs/PRIVACY.md` was drafted for a version that might sync and reads
+      "if cloud sync is enabled on your account", which is now simply true for
+      any signed-in user. The conditional wording should become plain. The
+      in-app copy on Account has already been corrected and now says different
+      things to a signed-in user and a local-only one.
 
 - [ ] **Privacy policy URL.** Required by App Store Connect, and the app collects
       email addresses through authentication. Drafts are in `docs/PRIVACY.md` and

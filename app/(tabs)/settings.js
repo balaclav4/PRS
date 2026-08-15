@@ -255,8 +255,10 @@ export default function SettingsScreen() {
         {/* The other half of the error boundary.
             Catching an error is worth nothing during a beta if the tester has
             no way to hand it over, and the app deliberately ships no crash
-            reporter - a policy that says data stays on the device is not
-            compatible with an SDK that quietly posts stack traces off it. So
+            reporter. What the app uploads is the shooter's own shooting data
+            to their own account, which they chose by signing in; a crash SDK
+            posting stack traces and device identifiers to a third party is a
+            different thing entirely and not one anybody asked for. So
             the report is built locally, shown in full, and sent only if the
             shooter presses send. */}
         <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 22 }]}>HELP</Text>

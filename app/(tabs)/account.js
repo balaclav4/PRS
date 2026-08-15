@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, User, ShieldCheck, Download, Settings, LogOut, Info, HardDrive, Trash2, UserX } from 'lucide-react-native';
+import { ArrowLeft, User, ShieldCheck, Download, Settings, LogOut, Info, HardDrive, Trash2, UserX, RefreshCw } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
@@ -28,6 +28,7 @@ export default function AccountScreen() {
   const {
     sessions, rifles, loads, dopeCards, projects, exportSessionsCSV,
     profileName, setProfile, clearAllData, deleteAccount, trainingConsent,
+    signedIn, syncState, syncNow,
   } = useData();
 
   const { configured, user, projectId, signOut, deleteAccountForever, busy, error } = useAuth();
@@ -191,14 +192,53 @@ export default function AccountScreen() {
           onPress={() => router.push('/settings')}
         />
 
+        {/* Whether the copy actually happened.
+            Telling somebody their data is kept for them is a promise, and a
+            promise with no way to check it is just a claim. This says when the
+            last sync worked and what it moved - and says so plainly when it
+            did not, because a shooter on a bay with no signal should know
+            their groups are still only on the phone. */}
+        {signedIn && (
+          <>
+            <Text style={[s.section, { color: colors.mut }]}>SYNC</Text>
+            <TouchableOpacity
+              onPress={syncNow}
+              disabled={syncState.status === 'syncing'}
+              style={[s.privacy, { backgroundColor: colors.inset, borderColor: colors.ibd }]}
+            >
+              <View style={s.privacyRow}>
+                <RefreshCw size={17} color={syncState.status === 'error' ? colors.warnt : colors.act} />
+                <Text style={[s.privacyText, { color: colors.tx }]}>
+                  {syncState.status === 'syncing'
+                    ? 'Syncing…'
+                    : syncState.status === 'error'
+                      ? `Not synced — ${syncState.reason === 'not-signed-in' ? 'you are signed out' : 'could not reach the server'}. Your data is safe on this phone and will go up next time. Tap to try now.`
+                      : syncState.at
+                        ? `Last synced ${new Date(syncState.at).toLocaleString()}`
+                          + (syncState.pushed || syncState.pulled
+                            ? ` — sent ${syncState.pushed}, received ${syncState.pulled}.`
+                            : ' — nothing had changed.')
+                        : 'Not synced yet. Tap to sync now.'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </>
+        )}
+
         <Text style={[s.section, { color: colors.mut }]}>PRIVACY</Text>
         <View style={[s.privacy, { backgroundColor: colors.inset, borderColor: colors.ibd }]}>
+          {/* Two different truths, and the screen has to tell the right one.
+              This said "your data stays on this device... nothing is synced
+              yet" for as long as that was true, and it stopped being true the
+              moment an account became a boundary that follows you between
+              phones. A privacy note that is out of date is worse than none,
+              because it is the thing people read instead of asking. */}
           <View style={s.privacyRow}>
             <HardDrive size={17} color={colors.act} />
             <Text style={[s.privacyText, { color: colors.tx }]}>
-              Your data stays on this device. Sessions, rifles, loads and dope
-              cards are stored locally and are not uploaded anywhere — signing in
-              identifies you, but nothing is synced yet.
+              {signedIn
+                ? `Your sessions, rifles, loads, dope cards and load development are stored on this device and copied to your account, so they reach your other devices and survive losing this one. Only you can read them.`
+                : 'You are not signed in, so everything stays on this device and nothing is uploaded. It also means this phone holds the only copy — back it up from Settings, or sign in and it is kept for you.'}
             </Text>
           </View>
           <View style={s.privacyRow}>
@@ -212,8 +252,9 @@ export default function AccountScreen() {
           <View style={s.privacyRow}>
             <Info size={17} color={colors.mut} />
             <Text style={[s.privacyText, { color: colors.mut }]}>
-              Deleting the app removes all of it. There is no copy on a server to
-              restore from, and no way to recover it.
+              {signedIn
+                ? 'Deleting the app leaves your account untouched — sign in on another phone and it is all there. Deleting the account itself removes the copy on the server as well, and cannot be undone.'
+                : 'Deleting the app removes all of it. There is no copy on a server to restore from, and no way to recover it.'}
             </Text>
           </View>
         </View>
