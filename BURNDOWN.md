@@ -348,12 +348,12 @@ angle removes about 13% of the drop. Standard treatments run from the rifleman's
 rule to the improved-cosine method; the honest version also states where the
 simple rule breaks down.
 
-## [ ] B8. No powder temperature sensitivity
+## [x] B8. No powder temperature sensitivity
 
 Velocity moves with ammunition temperature, typically enough to matter past
 600 yards, and shooters routinely record it. Nothing models it and nothing asks.
 
-## [ ] B9. Velocity truing
+## [x] B9. Velocity truing
 
 `trueBC` solves a BC backwards from dope. Muzzle velocity is at least as likely
 to be the wrong input, and truing the two is a different and better-posed
@@ -364,8 +364,10 @@ problem than truing either alone.
 - **Wind as a bracket** on the dope card — drift per mph, or a 5/10/15/20
   matrix. Highest field value of anything on this list and nearly free, since
   drift is exactly linear in wind speed and the solver already knows it.
-- **Trajectory chart.** Every number is computed; nothing is drawn. Both zero
-  crossings, the apex and the transonic point.
+- ~~**Trajectory chart.**~~ Drawn, from a separate fine solve rather than the
+  card's rows: stepped at 100 yards the first sample *is* the zero, so the
+  bullet appeared to start on the line of sight and cross it once. It starts
+  below and crosses twice, and the near crossing is the one nobody has seen.
 - **Danger space / point-blank range** for a given target size.
 - **Jump recorded per rifle.** The diagram teaches it; there is no field to put
   the CBTO-at-lands in, so seating rows are still raw CBTO.

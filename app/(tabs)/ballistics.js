@@ -8,7 +8,7 @@ import { useTheme } from '../../lib/theme';
 import { useData } from '../../store/data';
 import { formatVelocity, formatDistance, mToYd, cToF, mpsToFps, ydToM, fToC, fpsToMps } from '../../lib/units';
 import { establishZero, zeroUnderConditions, densityAltitude } from '../../lib/zeroing';
-import { dopeCard, trueBC, windBracket } from '../../lib/ballistics';
+import { dopeCard, trueBC, trueBoth, windBracket } from '../../lib/ballistics';
 import { sightTape, tapeToRows } from '../../lib/sighttape';
 import { saveCSV, slugify } from '../../lib/export';
 import { bulletDiameterIn } from '../../lib/calibers';
@@ -290,6 +290,25 @@ export default function BallisticsScreen() {
     [opts, cardEffects, inclineDeg]
   );
   const wind = useMemo(() => windBracket(opts), [opts]);
+
+  /**
+   * A finely sampled solve, for the chart only.
+   *
+   * The card steps at whatever the shooter chose, usually 100 yards, and the
+   * first row is therefore the zero. Drawn from that, the trajectory appears to
+   * start *on* the line of sight and cross it once - when it starts an inch and
+   * a half below the sight line, rises through it inside the first few dozen
+   * yards, and comes back down through it at the zero. Two crossings, and the
+   * near one is the one people have never seen. Sampling every fortieth of the
+   * range costs one more solve and is the difference between a chart that
+   * teaches the shape and one that hides it.
+   */
+  const traj = useMemo(() => dopeCard({
+    ...opts,
+    effects: cardEffects,
+    inclineDeg: num(inclineDeg, 0),
+    stepYd: Math.max(5, Math.round(opts.maxRangeYd / 40)),
+  }), [opts, cardEffects, inclineDeg]);
   const unitLabel = unit === 'mil' ? 'MIL' : 'MOA';
   const firstTransonic = card.rows.find(r => r.transonic);
 
@@ -401,9 +420,24 @@ export default function BallisticsScreen() {
     return +(unit === 'mil' ? moa / 3.438 : moa).toFixed(2);
   };
 
+  /**
+   * Solve for whatever the dope can actually separate.
+   *
+   * With observations at well-separated ranges, velocity and BC can be told
+   * apart and both are solved. Otherwise only BC is, because attributing a
+   * velocity error to the bullet is the failure this exists to avoid and
+   * guessing at it from one range would be exactly that.
+   */
   const applyTruing = () => {
+    const both = trueBoth(opts, observations);
+    if (both.ok) {
+      setTruedResult({ ...both, joint: true, factor: both.bcFactor });
+      setBc(String(both.bc));
+      setMvFps(String(vU === 'm/s' ? Math.round(fpsToMps(both.mvFps)) : both.mvFps));
+      return;
+    }
     const r = trueBC(opts, observations);
-    setTruedResult(r);
+    setTruedResult(r ? { ...r, joint: false, why: both.reason } : null);
     if (r) setBc(String(r.bc));
   };
 
@@ -945,6 +979,76 @@ export default function BallisticsScreen() {
             </View>
           ))}
 
+          {/* The trajectory, drawn.
+              Every number in it was already computed and only ever tabulated.
+              The shape is what a table hides: the bullet crosses the line of
+              sight twice, and where the near crossing falls surprises people
+              who have only ever read the far one off a card. */}
+          {traj.rows.length > 1 && (() => {
+            const pts = traj.rows;
+            const maxR = pts[pts.length - 1].rangeYd;
+            // Include zero on the vertical axis: a chart of drop that never
+            // shows the line of sight has nothing to be a drop from.
+            const drops = pts.map(r => r.dropIn);
+            const lo = Math.min(0, ...drops) * 1.08;
+            const hi = Math.max(0, ...drops, Math.abs(Math.min(...drops)) * 0.06);
+            const px = (r) => 34 + (r / maxR) * 258;
+            const py = (d) => 96 - ((d - lo) / ((hi - lo) || 1)) * 84;
+            const path = pts.map((r, i) => `${i ? 'L' : 'M'} ${px(r.rangeYd)} ${py(r.dropIn)}`).join(' ');
+            const first = pts.find(r => r.transonic);
+            return (
+              <>
+                <Text style={[s.sectionLabel, { color: colors.fnt, marginTop: 18 }]}>
+                  TRAJECTORY, RELATIVE TO THE LINE OF SIGHT
+                </Text>
+                <Svg viewBox="0 0 300 112" style={{ width: '100%', height: undefined, aspectRatio: 300 / 112, marginTop: 6 }}>
+                  {/* The line of sight. Everything is measured from this. */}
+                  <SvgLine x1={34} y1={py(0)} x2={292} y2={py(0)}
+                    stroke={colors.mut} strokeWidth={1} strokeDasharray="4 3" />
+                  <SvgText x={30} y={py(0) + 3} fontSize="8" textAnchor="end" fill={colors.fnt}>0</SvgText>
+                  <SvgText x={30} y={py(lo) + 3} fontSize="8" textAnchor="end" fill={colors.fnt}>
+                    {Math.round(lo)}"
+                  </SvgText>
+
+                  {/* Transonic, where the drag model starts guessing. */}
+                  {first && (
+                    <>
+                      <SvgLine x1={px(first.rangeYd)} y1={8} x2={px(first.rangeYd)} y2={96}
+                        stroke={colors.warnt} strokeWidth={0.9} strokeDasharray="2 2" />
+                      <SvgText x={px(first.rangeYd)} y={108} fontSize="7.5" textAnchor="middle"
+                        fill={colors.warnt}>transonic</SvgText>
+                    </>
+                  )}
+
+                  <Path d={path} fill="none" stroke="#8B6BF5" strokeWidth={2} />
+
+                  {/* Where it crosses the line of sight. The far one is the
+                      zero everybody knows; the near one is the one that
+                      surprises, and it is why a 100 yard zero is not a
+                      straight line out to 100 yards. */}
+                  {pts.map((r, i) => {
+                    if (i === 0) return null;
+                    const prev = pts[i - 1];
+                    if ((prev.dropIn < 0) === (r.dropIn < 0)) return null;
+                    const f = Math.abs(prev.dropIn) / (Math.abs(prev.dropIn) + Math.abs(r.dropIn) || 1);
+                    const xr = prev.rangeYd + f * (r.rangeYd - prev.rangeYd);
+                    return <SvgCircle key={`z${i}`} cx={px(xr)} cy={py(0)} r={2.6} fill={colors.okt} />;
+                  })}
+
+                  <SvgText x={34} y={108} fontSize="8" fill={colors.fnt}>0</SvgText>
+                  <SvgText x={292} y={108} fontSize="8" textAnchor="end" fill={colors.fnt}>
+                    {dU === 'm' ? Math.round(ydToM(maxR)) : maxR} {dU}
+                  </SvgText>
+                </Svg>
+                <Text style={[s.cardBody, { color: colors.fnt }]}>
+                  Green marks where the bullet crosses the line of sight. There are two on
+                  any zero above the bore — it rises through the sight line, and comes back
+                  down through it at the zero range.
+                </Text>
+              </>
+            );
+          })()}
+
           {/* Wind as a bracket.
               The card above solves one wind speed, and nobody knows the wind -
               they estimate it. Drift is exactly linear in speed, so the whole
@@ -1443,10 +1547,22 @@ export default function BallisticsScreen() {
           {truedResult && (
             <View style={[s.trueResult, { backgroundColor: colors.oks }]}>
               <Text style={[s.trueResultText, { color: colors.okt }]}>
-                Trued BC {truedResult.bc} — a ×{truedResult.factor} correction from the book
-                figure, from {truedResult.observations}
-                {' '}observation{truedResult.observations === 1 ? '' : 's'}. The card above now uses it.
+                {truedResult.joint
+                  ? `Trued to ${formatVelocity(truedResult.mvFps, vU)} and BC ${truedResult.bc} — `
+                    + `${truedResult.mvDelta >= 0 ? '+' : ''}${truedResult.mvDelta} fps and a ×${truedResult.bcFactor} `
+                    + `correction, from ${truedResult.nearYd} and ${truedResult.farYd} yards. `
+                    + `Reproduces your dope to ${truedResult.residual} ${unitLabel}. The card above now uses both.`
+                  : `Trued BC ${truedResult.bc} — a ×${truedResult.factor} correction from the book `
+                    + `figure, from ${truedResult.observations} observation`
+                    + `${truedResult.observations === 1 ? '' : 's'}. The card above now uses it.`}
               </Text>
+              {/* Why only the BC moved. Without this the shooter has no idea
+                  the app could have done better with different dope. */}
+              {!truedResult.joint && !!truedResult.why && (
+                <Text style={[s.trueResultText, { color: colors.mut, marginTop: 6 }]}>
+                  Velocity was left alone: {truedResult.why.charAt(0).toLowerCase() + truedResult.why.slice(1)}
+                </Text>
+              )}
               {/* Keep it. A BC solved backwards from this rifle's own dope is a
                   better number for this rifle than anything on the box, and it
                   was being discarded the moment the screen was left. */}
