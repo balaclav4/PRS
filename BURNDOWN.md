@@ -368,9 +368,10 @@ problem than truing either alone.
   card's rows: stepped at 100 yards the first sample *is* the zero, so the
   bullet appeared to start on the line of sight and cross it once. It starts
   below and crosses twice, and the near crossing is the one nobody has seen.
-- **Danger space / point-blank range** for a given target size.
-- **Jump recorded per rifle.** The diagram teaches it; there is no field to put
-  the CBTO-at-lands in, so seating rows are still raw CBTO.
+- ~~**Danger space / point-blank range.**~~ Both, sharing the plate size with the hit curve. Depth collapses from 155 yards at 300 to 25 at 800 on a 10 inch target, which is the number worth seeing.
+- ~~**Jump recorded per rifle.**~~ CBTO at the lands lives on the rifle, because
+  the throat belongs to the barrel and moves as it wears. Seating rows now read
+  in thousandths off the lands as well as raw CBTO.
 - **Velocity against charge, with the SD band**, so a "node" can be seen to be
   inside the noise or outside it.
 - **Magnetic declination** from the NOAA World Magnetic Model, public domain.

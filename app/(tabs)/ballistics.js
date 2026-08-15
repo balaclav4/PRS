@@ -13,6 +13,7 @@ import { sightTape, tapeToRows } from '../../lib/sighttape';
 import { saveCSV, slugify } from '../../lib/export';
 import { bulletDiameterIn } from '../../lib/calibers';
 import { hitCurve, rangeAtProbability, dominantAdvice } from '../../lib/hitprob';
+import { maxPointBlank, dangerSpace, describeDangerSpace } from '../../lib/pointblank';
 import {
   parseDragFunction, checkDragFunction, makeDragFunction,
   sectionalDensity, impliedBc, compareToStandard,
@@ -363,6 +364,22 @@ export default function BallisticsScreen() {
   const [mvSd, setMvSd] = useState('');
   const [groupMoa, setGroupMoa] = useState('');
   const [compareLoadId, setCompareLoadId] = useState(null);
+
+  /**
+   * Where a dead-on hold works, and how much ranging error a hit survives.
+   *
+   * Shares the plate size with the hit curve, because it is the same target and
+   * asking twice would be an invitation to answer differently.
+   */
+  const reach = useMemo(() => {
+    if (!showHit) return null;
+    const dia = num(plateIn, 0);
+    if (!(dia > 0)) return null;
+    return {
+      pbr: maxPointBlank({ opts, targetHeightIn: dia }),
+      ds: dangerSpace({ opts, rangeYd: opts.maxRangeYd, targetHeightIn: dia }),
+    };
+  }, [showHit, plateIn, opts]);
 
   const hit = useMemo(() => {
     if (!showHit) return null;
@@ -1186,6 +1203,27 @@ export default function BallisticsScreen() {
                     </View>
                   </View>
 
+                  {/* The two questions a plate size answers besides "will I
+                      hit it": how far you can ignore the dope entirely, and
+                      how well you have to have ranged it. */}
+                  {reach?.pbr && (
+                    <View style={[s.pbrBox, { borderColor: colors.bd, backgroundColor: colors.inset }]}>
+                      <Text style={[s.pbrTitle, { color: colors.tx }]}>
+                        Hold dead-on to {formatDistance(reach.pbr.farYd, dU)}
+                      </Text>
+                      <Text style={[s.pbrBody, { color: colors.mut }]}>
+                        Zeroed at {formatDistance(reach.pbr.zeroYd, dU)}, a centre hold keeps a
+                        {' '}{num(plateIn, 0)}" target from {formatDistance(reach.pbr.nearYd ?? 0, dU)} out
+                        to {formatDistance(reach.pbr.farYd, dU)} — no dialling, no hold-over.
+                      </Text>
+                      {reach.ds && (
+                        <Text style={[s.pbrBody, { color: colors.mut, marginTop: 8 }]}>
+                          {describeDangerSpace(reach.ds)}
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
                   {/* Compare against another load. Only the ammunition changes,
                       so the gap between the curves is the bullet and the
                       velocity, not the conditions. */}
@@ -1677,6 +1715,9 @@ const s = StyleSheet.create({
   },
   fxText: { flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: '600', lineHeight: 16 },
   fxToggle: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+  pbrBox: { borderWidth: 1, borderRadius: 12, padding: 14, marginTop: 14 },
+  pbrTitle: { fontSize: 14, fontWeight: '800' },
+  pbrBody: { fontSize: 12, lineHeight: 17.5, marginTop: 5 },
   wbRow: { flexDirection: 'row', paddingVertical: 6 },
   wbCell: { flex: 1, fontSize: 12, fontFamily: 'JetBrainsMono_700Bold', textAlign: 'right' },
   wbHead: { flex: 1, fontSize: 10, fontWeight: '800', letterSpacing: 0.4, textAlign: 'right' },

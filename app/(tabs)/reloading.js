@@ -49,7 +49,7 @@ function NumField({ colors, label, unit, value, onChange }) {
 export default function ReloadingScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { projects, rifles, loads, sessions, updateProject, addProject, units } = useData();
+  const { projects, rifles, loads, sessions, updateProject, addProject, updateRifle, units } = useData();
   // Load dev figures are whatever the shooter enters — the analyses are
   // scale-invariant (they work in ratios and multiples of sigma), so the unit
   // only has to be labelled consistently and used in the prose.
@@ -255,6 +255,15 @@ export default function ReloadingScreen() {
 
   const rifle = rifles.find(r => r.id === project?.rifleId);
   const load = loads.find(l => l.id === project?.loadId);
+
+  /**
+   * CBTO at which this barrel touches the lands, if it has been measured.
+   *
+   * Read from the rifle rather than the project: two projects on one rifle
+   * share a throat, and a project moved to a different barrel must not carry
+   * the old figure with it.
+   */
+  const lands = Number(rifle?.landsCbto) > 0 ? Number(rifle.landsCbto) : 0;
 
   const setField = (field, value) => project && updateProject(project.id, { [field]: value });
 
@@ -656,9 +665,37 @@ export default function ReloadingScreen() {
                   the dimension most often measured as something else, and a
                   COAL typed here would solve and be wrong. */}
               <MeasureGuide kind="cbto" style={{ marginTop: 0, marginBottom: 6 }} />
-              <MeasureGuide kind="jump" style={{ marginTop: 0, marginBottom: 12 }} />
+              <MeasureGuide kind="jump" style={{ marginTop: 0, marginBottom: 10 }} />
+
+              {/* The lands, recorded against the rifle.
+                  Without it the rows below are raw CBTO, which cannot be
+                  compared with anybody else's and means nothing on its own.
+                  With it every row also reads as jump - "0.020 off" - which is
+                  how the number is actually discussed and the only form that
+                  transfers between rifles. Kept on the rifle rather than the
+                  project because the throat belongs to the barrel, and it
+                  moves as the barrel wears. */}
+              <View style={[cs.landsRow, { borderColor: colors.bd, backgroundColor: colors.inset }]}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[cs.lbl, { color: colors.mut }]}>CBTO at the lands</Text>
+                  <Text style={[cs.landsHint, { color: colors.fnt }]}>
+                    {rifle ? `For ${rifle.name}. Re-measure as the throat erodes.` : 'Pick a rifle to record this.'}
+                  </Text>
+                </View>
+                <View style={{ width: 104 }}>
+                  <NumField colors={colors} label="" unit="in"
+                    value={rifle?.landsCbto ?? ''}
+                    onChange={(v) => rifle && updateRifle(rifle.id, {
+                      landsCbto: v === '' ? null : parseFloat(v),
+                      landsMeasuredAt: new Date().toISOString(),
+                    })} />
+                </View>
+              </View>
               <View style={cs.ladderHead}>
                 <Text style={[cs.colH, { color: colors.fnt, flex: 1 }]}>CBTO</Text>
+                {lands > 0 && (
+                  <Text style={[cs.colH, { color: colors.fnt, flex: 1, textAlign: 'center' }]}>JUMP</Text>
+                )}
                 <Text style={[cs.colH, { color: colors.fnt, flex: 1, textAlign: 'center' }]}>GROUP</Text>
                 <View style={{ width: 26 }} />
               </View>
@@ -678,6 +715,20 @@ export default function ReloadingScreen() {
                         placeholder="in" placeholderTextColor={colors.fnt}
                         keyboardType="decimal-pad" style={[cs.cellText, { color: colors.tx }]} />
                     </View>
+                    {lands > 0 && (() => {
+                      const c = parseFloat(r.cbto);
+                      // Positive means seated short of the lands, which is how
+                      // "twenty thou off" is said. Into the lands is negative
+                      // and shown as such rather than hidden.
+                      const j = isFinite(c) ? lands - c : null;
+                      return (
+                        <Text style={[cs.jumpCell, {
+                          color: j == null ? colors.fnt : j < 0 ? colors.warnt : colors.tx,
+                        }]}>
+                          {j == null ? '—' : `${j >= 0 ? '' : '+'}${(j * 1000).toFixed(0)}`}
+                        </Text>
+                      );
+                    })()}
                     {/* Same rule as the ladder: a measured row is read-only
                         and says how many groups it came from. Leaving it
                         editable showed the measured mean in a field that took
@@ -1134,6 +1185,15 @@ export default function ReloadingScreen() {
 }
 
 const cs = StyleSheet.create({
+  landsRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderWidth: 1, borderRadius: 11, padding: 12, marginBottom: 12,
+  },
+  landsHint: { fontSize: 11, lineHeight: 15, marginTop: 2 },
+  jumpCell: {
+    flex: 1, fontSize: 13, textAlign: 'center',
+    fontFamily: 'JetBrainsMono_700Bold',
+  },
   wrap: { gap: 10, marginTop: 4 },
   row: { flexDirection: 'row', gap: 10 },
   lbl: { fontSize: 12, fontWeight: '700', marginBottom: 6 },
