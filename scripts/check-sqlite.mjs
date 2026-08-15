@@ -218,6 +218,51 @@ console.log('\nevery statement in lib/db.js');
   check('  all prepare against the real schema', true, `${prepared} prepared`);
 }
 
+// ------------------------------------------------------- 4. ownership
+
+console.log('\nownership is a boundary, not a label');
+{
+  const q = (sql, ...a) => fresh.prepare(sql).all(...a);
+  const run = (sql, ...a) => fresh.prepare(sql).run(...a);
+
+  run(`INSERT INTO rifles (id, name, ownerId, updatedAt, deleted) VALUES (?, ?, ?, ?, 0)`,
+    'r-a', 'A rifle', 'uid-a', Date.now());
+  run(`INSERT INTO rifles (id, name, ownerId, updatedAt, deleted) VALUES (?, ?, ?, ?, 0)`,
+    'r-b', 'B rifle', 'uid-b', Date.now());
+  run(`INSERT INTO rifles (id, name, ownerId, updatedAt, deleted) VALUES (?, ?, ?, ?, 0)`,
+    'r-l', 'Local rifle', 'local', Date.now());
+
+  const forOwner = (o) =>
+    q('SELECT * FROM rifles WHERE ownerId = ? AND COALESCE(deleted,0) = 0', o);
+
+  check('  one account cannot see another\'s', forOwner('uid-a').length === 1
+    && forOwner('uid-a')[0].id === 'r-a',
+    'two people on one phone was the failure this closes');
+  check('  and neither sees the signed-out data', forOwner('uid-b').length === 1);
+  check('  signed out sees only its own', forOwner('local').length === 1);
+
+  // A tombstone hides the row from every read but leaves it to be pushed.
+  run('UPDATE rifles SET deleted = 1, updatedAt = ? WHERE id = ?', Date.now(), 'r-a');
+  check('  a deleted record disappears from reads', forOwner('uid-a').length === 0);
+  check('  but is still there to be synced',
+    q('SELECT * FROM rifles WHERE ownerId = ?', 'uid-a').length === 1,
+    'dropping the row means the next pull restores it');
+
+  // Existing installs, which have no ownerId written, must land somewhere
+  // readable rather than vanishing.
+  const aged = new DatabaseSync(':memory:');
+  aged.exec(SCHEMA.replace(/ownerId TEXT NOT NULL DEFAULT 'local',?/g, ''));
+  aged.prepare('INSERT INTO rifles (id, name) VALUES (?, ?)').run('old', 'Pre-accounts');
+  for (const [t, c, ty] of MIGRATIONS) {
+    const cols = aged.prepare(`PRAGMA table_info(${t})`).all();
+    if (!cols.some(x => x.name === c)) aged.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`);
+  }
+  const migrated = aged.prepare("SELECT * FROM rifles WHERE ownerId = 'local'").all();
+  check('  an install from before accounts becomes local, not invisible',
+    migrated.length === 1,
+    'their data must still be there when they open the update');
+}
+
 console.log('\n' + (fails === 0
   ? 'the schema, the migrations and every statement run against real SQLite'
   : `${fails} SQLite check(s) failed`));
