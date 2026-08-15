@@ -151,6 +151,13 @@ different questions and the second one is the one that matters.
 - **Manufacturer BC tables** — individual figures are facts, but the tables are
   compilations and scraping one is taking the compilation. Ask, or let the
   shooter type the number off the box.
+- **SAAMI and CIP cartridge dimensions.** These are the authority for case
+  length, trim-to length and the headspace datum diameter, and headspace gauges
+  are cut to them. SAAMI's standards carry "all rights reserved"; the CIP
+  tables are widely mirrored on document-sharing sites, which is not the same
+  as being licensed. So the measurement guides now *name* the standards and say
+  a specified figure exists for the shooter's cartridge, without reproducing
+  any of it. Pointing at a standard is not copying it.
 
 The pattern: ship the *method*, import the *data*. Everything in the first table
 is a method or a government dataset; everything in the second is somebody's

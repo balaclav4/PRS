@@ -24,6 +24,15 @@ import { ChevronDown, Ruler, X } from 'lucide-react-native';
  * teaches a measurement without saying what it is measured *with* invites
  * someone to do it with a ruler, and the whole point is that these dimensions
  * are decided in thousandths.
+ *
+ * Where a dimension is *specified* rather than conventional, the guide says so
+ * and names the standard. Case length, trim-to length and the headspace datum
+ * diameter are all published per cartridge by SAAMI in the US and CIP in
+ * Europe. The earlier wording called the datum "a fixed diameter", which read
+ * as a rule of thumb and left the shooter with no idea a real figure for their
+ * cartridge existed. The figures are not reproduced here - the standards are
+ * copyrighted compilations, and the app points at them rather than copying
+ * them, which is the same line drawn everywhere else in docs/METHODS.md.
  */
 
 // Everything is drawn in a 300-wide space with the cartridge on this axis.
@@ -484,13 +493,13 @@ const GUIDES = {
     title: 'Trim length and maximum',
     Diagram: Trim,
     tool: 'Calipers, and a trimmer set with a case gauge.',
-    body: 'These are two different numbers and using the maximum as a target is the common mistake. Brass grows a little each firing, so a case trimmed exactly to maximum is over it again after one more. Trim to the trim-to length, which sits below maximum, and the case has somewhere to grow before it needs doing again. Trim, then chamfer the inside and deburr the outside, or the sharp mouth shaves the bullet on seating and the neck tension you measured is not the one you get.',
+    body: 'Both are published figures, not preferences: the maximum case length is specified for your cartridge by SAAMI or CIP, and the trim-to length sits about ten thousandths under it. Using the maximum as the target is the common mistake — brass grows each firing, so a case trimmed exactly to it is over again after one more, while a case trimmed to the trim-to length has somewhere to grow first. Look the pair up for your cartridge rather than carrying a number over from another. Then chamfer the inside and deburr the outside, or the sharp mouth shaves the bullet on seating and the neck tension you measured is not the one you get.',
   },
   datum: {
     title: 'Why a bump figure is only yours',
     Diagram: Datum,
-    tool: 'The same headspace comparator insert, every time.',
-    body: 'The shoulder is a cone, so a measurement to it depends entirely on where along the cone you touch. That point is set by your comparator insert, and inserts differ. Two inserts on the same case give two different readings, and neither is wrong. What follows is that a shoulder figure is only comparable against another taken with the same insert on the same kind of brass: different makers form shoulders differently, so a number from one headstamp does not transfer to another. Record the difference between fired and sized on the same brass with the same insert, and ignore the absolute value.',
+    tool: 'The same headspace comparator insert, every time. Against a chamber rather than against itself: GO, NO-GO and FIELD gauges, cut to the SAAMI or CIP datum for that cartridge.',
+    body: 'The shoulder is a cone, so a measurement to it depends entirely on where along the cone you touch. There is a right answer to where: SAAMI in the US and CIP in Europe specify a datum diameter for each cartridge, and headspace gauges are cut to it. Your comparator insert is an approximation of that diameter, not the diameter itself, and inserts differ. Two inserts on the same case give two different readings and neither is wrong. What follows is practical: a shoulder figure is only comparable against another taken with the same insert on the same brass, because makers form shoulders differently too. Record the difference between fired and sized, and ignore the absolute value unless you are working to a gauge.',
   },
   anatomy: {
     title: 'Cartridge anatomy',
