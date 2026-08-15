@@ -61,9 +61,7 @@ been verified, not merely written.
       called on account deletion, but the web SDK has no recursive delete, so it
       cannot finish the job. It is a mitigation, not a substitute.
 
-      Original note follows.
-
-- [ ] **Deploy the deletion function.** `functions/index.js` removes
+      `functions/index.js` removes
       `users/{uid}` recursively when an account is deleted, plus any training
       contributions it submitted. Written, not deployed:
 
@@ -79,16 +77,15 @@ been verified, not merely written.
       orphaned. Firebase's official "Delete User Data" extension is a reasonable
       alternative for the account tree, but does not know about `training-data`.
 
-- [ ] **Privacy policy URL. Re-read it before publishing — the app now uploads.**
-
-      `docs/PRIVACY.md` was drafted for a version that might sync and reads
-      "if cloud sync is enabled on your account", which is now simply true for
-      any signed-in user. The conditional wording should become plain. The
-      in-app copy on Account has already been corrected and now says different
-      things to a signed-in user and a local-only one.
-
 - [ ] **Privacy policy URL.** Required by App Store Connect, and the app collects
-      email addresses through authentication. Drafts are in `docs/PRIVACY.md` and
+      email addresses through authentication.
+
+      **Re-read it before publishing.** `docs/PRIVACY.md` was drafted for a
+      version that *might* sync and says "if cloud sync is enabled on your
+      account". That is now simply true for anyone signed in, so the conditional
+      wording should become plain. The in-app copy on Account has already been
+      corrected and says different things to a signed-in user and a local-only
+      one. Drafts are in `docs/PRIVACY.md` and
       `docs/TERMS.md` - they need a lawyer's review, six placeholders filled
       (company name, address, jurisdiction, two contact emails, dates) and
       hosting at a public URL.
@@ -134,10 +131,22 @@ been verified, not merely written.
       not exist yet. If that read rule is ever to be tightened, before the
       upload is built is the moment; afterwards it is retroactive.
 
-- [ ] **Apple privacy nutrition labels** in App Store Connect. What is collected:
-      email address, linked to identity, for account management. Nothing else
-      leaves the device - target photos are never stored, and no analytics or
-      tracking SDK is present.
+- [ ] **Apple privacy nutrition labels** in App Store Connect. This needs
+      rewriting since sync landed — the old note said "nothing else leaves the
+      device", which was true then and is not now.
+
+      What is collected for a signed-in user: an email address, linked to
+      identity, for account management; and their shooting data — sessions,
+      shot coordinates, aim points, equipment and load development — linked to
+      identity, stored under their own uid so it reaches their other devices.
+
+      What is still never collected: target photographs. A photo is measured
+      and discarded, and a saved target keeps only coordinates and the
+      reference corners. There is no analytics or tracking SDK of any kind, and
+      no crash reporter — problem reports are built locally and sent only if
+      the shooter presses send.
+
+      A local-only user uploads nothing at all.
 
 ## Tooling
 
