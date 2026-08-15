@@ -315,7 +315,7 @@ the only channel is a tester remembering to describe it.
 Related and cheaper: no in-app route to report anything. A tester who finds the
 rim fit refusing a bull they think is fine has nowhere to put that.
 
-## [ ] B5. Losing the phone loses everything
+## [x] B5. Losing the phone loses everything
 
 Sync is built and unwired, so data lives in one SQLite file. CSV export exists
 but is manual and partial — it does not carry shots, aim points or scale, so an

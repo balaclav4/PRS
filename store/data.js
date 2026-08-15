@@ -290,6 +290,36 @@ export function DataProvider({ children }) {
     persist(() => db.putPref('demoOffered', true));
   }, []);
 
+  /** Everything the app holds, for the backup file. */
+  const snapshot = useCallback(() => ({
+    rifles, loads, sessions, projects, dopeCards,
+    prefs: { units, profileName, trainingConsent, bullPresets },
+  }), [rifles, loads, sessions, projects, dopeCards, units, profileName, trainingConsent, bullPresets]);
+
+  /**
+   * Replace everything with a restored backup.
+   *
+   * State is set from what the database returns rather than from the file, so
+   * what ends up on screen is what actually persisted - if a write failed, the
+   * shooter sees that immediately instead of a screen full of data that is gone
+   * on next launch.
+   */
+  const restoreBackup = useCallback(async (data) => {
+    const fresh = await db.restoreEverything(data);
+    const d = fresh || data;
+    setRifles(d.rifles || []);
+    setLoads(d.loads || []);
+    setSessions(d.sessions || []);
+    setProjects(d.projects || []);
+    setDopeCards(d.dopeCards || []);
+    setUnits({ ...DEFAULT_UNITS, ...(d.prefs?.units || {}) });
+    setProfileName(d.prefs?.profileName ?? '');
+    setTrainingConsentState(d.prefs?.trainingConsent ?? noConsent());
+    setBullPresets(d.prefs?.bullPresets || []);
+    setDemoOffered(true);
+    return d;
+  }, []);
+
   const addBullPreset = useCallback((preset) => {
     if (!preset) return;
     setBullPresets(prev => {
@@ -391,10 +421,11 @@ export function DataProvider({ children }) {
     getDopeCard, addDopeCard, deleteDopeCard,
     bullPresets, addBullPreset, deleteBullPreset,
     demoOffered, loadDemo, dismissDemo,
+    snapshot, restoreBackup,
     exportSessionsCSV,
   }), [rifles, loads, sessions, projects, dopeCards, units, setUnit, ready,
        bullPresets, addBullPreset, deleteBullPreset,
-       demoOffered, loadDemo, dismissDemo,
+       demoOffered, loadDemo, dismissDemo, snapshot, restoreBackup,
        profileName, setProfile, clearAllData, deleteAccount,
        trainingConsent, setTrainingConsent, getRifle, getLoad, getSession, getRifleName, addSession, updateSession, addRifle, addLoad, updateRifle, deleteRifle, updateLoad, deleteLoad, deleteSession, getProject, addProject, updateProject, deleteProject, getDopeCard, addDopeCard, deleteDopeCard, exportSessionsCSV]);
 

@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, TextInput, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Palette, Sparkles, Sun, Moon, SunMoon, Ruler, Thermometer, Gauge, FileDown, LogOut, ChevronRight, TriangleAlert, X } from 'lucide-react-native';
+import { ArrowLeft, Palette, Sparkles, Sun, Moon, SunMoon, Ruler, Thermometer, Gauge, FileDown, LogOut, ChevronRight, TriangleAlert, X, Save, Upload } from 'lucide-react-native';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../lib/theme';
@@ -8,7 +8,9 @@ import { CONSENT_SUMMARY, consentIsCurrent, consentNeedsRenewal, describeConsent
 import { useData } from '../../store/data';
 import { useAuth } from '../../store/auth';
 import { saveCSV } from '../../lib/export';
-import { getErrors, clearErrors, subscribe, buildReport } from '../../lib/errorlog';
+import { getErrors, clearErrors, subscribe, buildReport, recordError } from '../../lib/errorlog';
+import { buildBackup, readBackup, describeRestore } from '../../lib/backup';
+import { pickBackupText } from '../../lib/pickfile';
 import Constants from 'expo-constants';
 
 import { GROUP_UNITS, TEMP_UNITS, VELOCITY_UNITS, DISTANCE_UNITS } from '../../lib/units';
@@ -22,7 +24,8 @@ const UNIT_OPTIONS = {
 
 export default function SettingsScreen() {
   const { colors, pref, choose, systemScheme } = useTheme();
-  const { exportSessionsCSV, units, setUnit, trainingConsent, setTrainingConsent } = useData();
+  const { exportSessionsCSV, units, setUnit, trainingConsent, setTrainingConsent,
+          snapshot, restoreBackup } = useData();
   const consentOn = consentIsCurrent(trainingConsent);
   const needsRenewal = consentNeedsRenewal(trainingConsent);
   const router = useRouter();
@@ -33,6 +36,42 @@ export default function SettingsScreen() {
   const [note, setNote] = useState('');
   const [errorCount, setErrorCount] = useState(getErrors().length);
   useEffect(() => subscribe(list => setErrorCount(list.length)), []);
+
+  const [backingUp, setBackingUp] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [pending, setPending] = useState(null);
+
+  const doBackup = async () => {
+    setBackingUp(true);
+    const text = buildBackup(snapshot(), { appVersion: Constants.expoConfig?.version });
+    const stamp = new Date().toISOString().slice(0, 10);
+    await saveCSV(text, `prs-backup-${stamp}.json`, 'application/json');
+    setBackingUp(false);
+  };
+
+  /**
+   * Read a chosen file and describe it, without applying anything.
+   *
+   * Two steps on purpose: a restore replaces everything, so the shooter reads
+   * what is in the file and what it will overwrite before it happens.
+   */
+  const pickRestore = async () => {
+    setRestoring(true);
+    try {
+      const text = await pickBackupText();
+      if (text == null) { setRestoring(false); return; }
+      const parsed = readBackup(text);
+      if (!parsed.ok) { setPending({ error: parsed.reason }); setRestoring(false); return; }
+      setPending({
+        parsed,
+        summary: describeRestore(parsed.counts, snapshot()),
+      });
+    } catch (e) {
+      recordError('restore', e);
+      setPending({ error: `Could not read that file: ${e.message}` });
+    }
+    setRestoring(false);
+  };
 
   const sendReport = async () => {
     const text = buildReport({
@@ -168,9 +207,43 @@ export default function SettingsScreen() {
         <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.bd, padding: 0, overflow: 'hidden' }]}>
           <TouchableOpacity onPress={doExport} disabled={exporting} style={s.dataRow}>
             <FileDown size={19} color={colors.mut} />
-            <Text style={[s.dataLabel, { color: colors.tx }]}>
-              {exporting ? 'Exporting…' : 'Export all sessions (CSV)'}
-            </Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[s.dataLabel, { color: colors.tx }]}>
+                {exporting ? 'Exporting…' : 'Export sessions (CSV)'}
+              </Text>
+              {/* Said plainly, because it was described as a backup and is not.
+                  A shooter who lost their phone and reached for this file
+                  would find out at the worst possible moment. */}
+              <Text style={[s.dataSub, { color: colors.fnt }]}>
+                A summary per session, for a spreadsheet. Not a backup — no shots or scale.
+              </Text>
+            </View>
+            <ChevronRight size={18} color={colors.fnt} />
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={doBackup} disabled={backingUp} style={[s.dataRow, { borderTopWidth: 1, borderTopColor: colors.bd }]}>
+            <Save size={19} color={colors.mut} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[s.dataLabel, { color: colors.tx }]}>
+                {backingUp ? 'Backing up…' : 'Back up everything'}
+              </Text>
+              <Text style={[s.dataSub, { color: colors.fnt }]}>
+                Every shot, aim point and scale, plus equipment and load development.
+              </Text>
+            </View>
+            <ChevronRight size={18} color={colors.fnt} />
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={pickRestore} disabled={restoring} style={[s.dataRow, { borderTopWidth: 1, borderTopColor: colors.bd }]}>
+            <Upload size={19} color={colors.mut} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[s.dataLabel, { color: colors.tx }]}>
+                {restoring ? 'Reading…' : 'Restore from a backup'}
+              </Text>
+              <Text style={[s.dataSub, { color: colors.fnt }]}>
+                Replaces what is on this device. You will be told what, first.
+              </Text>
+            </View>
             <ChevronRight size={18} color={colors.fnt} />
           </TouchableOpacity>
         </View>
@@ -208,6 +281,54 @@ export default function SettingsScreen() {
 
         <Text style={[s.version, { color: colors.fnt }]}>PRS Precision · v1.0.0</Text>
       </ScrollView>
+
+      {/* The confirmation. A restore replaces everything, so it is shown as a
+          sentence about what will be lost as well as what arrives - "restore
+          12 sessions" is only the half nobody regrets. */}
+      <Modal visible={!!pending} transparent animationType="fade" onRequestClose={() => setPending(null)}>
+        <View style={s.overlay}>
+          <View style={[s.sheet, { backgroundColor: colors.bg }]}>
+            <View style={s.sheetHead}>
+              <Text style={[s.sheetTitle, { color: colors.tx }]}>
+                {pending?.error ? 'That file cannot be restored' : 'Restore this backup?'}
+              </Text>
+              <TouchableOpacity onPress={() => setPending(null)} hitSlop={10}>
+                <X size={22} color={colors.mut} />
+              </TouchableOpacity>
+            </View>
+
+            {pending?.error ? (
+              <Text style={[s.reportBody, { color: colors.dngt }]}>{pending.error}</Text>
+            ) : (
+              <>
+                <Text style={[s.reportBody, { color: colors.tx }]}>{pending?.summary}</Text>
+                {!!pending?.parsed?.createdAt && (
+                  <Text style={[s.dataSub, { color: colors.fnt }]}>
+                    Made {new Date(pending.parsed.createdAt).toLocaleString()}
+                    {pending.parsed.app ? ` by v${pending.parsed.app}` : ''}
+                  </Text>
+                )}
+                <Text style={[s.reportBody, { color: colors.mut, marginTop: 10 }]}>
+                  This cannot be undone. If there is anything on this device you have not
+                  backed up, close this and back it up first.
+                </Text>
+                <TouchableOpacity
+                  onPress={async () => {
+                    const data = pending.parsed.data;
+                    setPending(null);
+                    await restoreBackup(data);
+                  }}
+                  style={[s.reportBtn, { backgroundColor: colors.dngs, borderColor: colors.dngt }]}>
+                  <Text style={[s.reportBtnText, { color: colors.dngt }]}>Replace everything and restore</Text>
+                </TouchableOpacity>
+              </>
+            )}
+            <TouchableOpacity onPress={() => setPending(null)} style={s.reportClear}>
+              <Text style={[s.reportClearText, { color: colors.mut }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={reporting} transparent animationType="slide" onRequestClose={() => setReporting(false)}>
         <View style={s.overlay}>
